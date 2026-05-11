@@ -23,8 +23,9 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
   const timerLeadMs = options.timerLeadMs ?? 16;
   const maxCatchUpTicks = options.maxCatchUpTicks ?? 4;
 
-  const chunkWaitRadius = options.chunkWaitRadius ?? 0;
+  const chunkWaitRadius = options.chunkWaitRadius ?? 1;
   const chunkWaitTimeoutMs = options.chunkWaitTimeoutMs ?? 10000;
+  const chunkWaitVerticalSectionRadius = options.chunkWaitVerticalSectionRadius ?? 1;
 
   async function tickSimulation() {
     const self = botState.self;
@@ -67,15 +68,29 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
   async function waitForChunksAroundSelf() {
     if (!botState.self?.position) return false;
     if (!botState.waitForChunksToLoad) return true;
+    const radiusBlocks = chunkWaitRadius * 16;
+
+    if (
+      typeof botState.areChunksLoadedAround === 'function' &&
+      botState.areChunksLoadedAround(
+        radiusBlocks,
+        botState.self.position,
+        chunkWaitVerticalSectionRadius
+      )
+    ) {
+      return true;
+    }
 
     try {
       await botState.waitForChunksToLoad(
-        chunkWaitRadius * 16,
+        radiusBlocks,
         botState.self.position,
-        chunkWaitTimeoutMs
+        chunkWaitTimeoutMs,
+        chunkWaitVerticalSectionRadius
       );
       return true;
-    } catch {
+    } catch (err) {
+      console.warn('[physics] waiting for nearby chunks before physics:', err?.message || err);
       return false;
     }
   }
@@ -86,7 +101,13 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
 
     try {
       const ready = await waitForChunksAroundSelf();
-      if (!ready) throw new Error('[physics] nearby chunks did not load before physics start');
+      if (!ready) {
+        tickInterval = setTimeout(() => {
+          tickInterval = null;
+          void startTick();
+        }, 1000);
+        return;
+      }
       if (tickInterval) return;
 
       let nextTickAt = performance.now() + tickMs;
@@ -216,6 +237,8 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
   client.on('respawn', (pkt) => {
     if (!botState.self || !(pkt.state === 0 || pkt.state === 1)) return;
 
+    stopTick();
+
     botState.self.position.set(
       pkt.position.x,
       pkt.position.y - C.EYE_HEIGHT,
@@ -225,6 +248,8 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
     botState.self.velocity.set(0, 0, 0);
     botState.self.unvalidatedPosition = botState.self.position.clone();
     botState.self._prevEye = null;
+
+    void startTick();
   });
 
   client.on('correct_player_move_prediction', (pkt) => {

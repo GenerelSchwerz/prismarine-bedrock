@@ -10,7 +10,13 @@
 //   - botState.itemClass.toNotch(stack) exists (prismarine-item provides it)
 
 const Vec3 = require('vec3').Vec3
-const { getBlockRuntimeId: getRuntimeIdAt, itemToRaw: toRawItem, logAction } = require('../utils')
+const {
+  clickPositionForFace,
+  getBlockRuntimeId: getRuntimeIdAt,
+  itemToRaw: toRawItem,
+  logAction,
+  toVec3f
+} = require('../utils')
 
 /**
  * @param {import('../state')} botState
@@ -19,6 +25,22 @@ const { getBlockRuntimeId: getRuntimeIdAt, itemToRaw: toRawItem, logAction } = r
 function inject (botState, options) {
   const client = botState.client
 
+  function blockFace (pos) {
+    const eye = botState.self.position.offset(0, 1.62, 0)
+    const center = {
+      x: Math.floor(pos.x) + 0.5,
+      y: Math.floor(pos.y) + 0.5,
+      z: Math.floor(pos.z) + 0.5
+    }
+    const dx = eye.x - center.x
+    const dy = eye.y - center.y
+    const dz = eye.z - center.z
+
+    if (Math.abs(dy) >= Math.abs(dx) && Math.abs(dy) >= Math.abs(dz)) return dy > 0 ? 1 : 0
+    if (Math.abs(dx) >= Math.abs(dz)) return dx > 0 ? 5 : 4
+    return dz > 0 ? 3 : 2
+  }
+
   // ------------------------------------------------------------------
   // Helper: send the actual InventoryTransaction packet
   // ------------------------------------------------------------------
@@ -26,7 +48,7 @@ function inject (botState, options) {
     // Build the Transaction object
     const transaction = {
       legacy: { legacy_request_id: 0 },
-      transaction_type: 2, // item_use
+      transaction_type: 'item_use',
       // actions is an empty array for block placement; the inventory change is
       // handled by the server after the transaction is accepted.
       actions: [],
@@ -42,13 +64,14 @@ function inject (botState, options) {
   // ------------------------------------------------------------------
   /**
    * @param {Vec3} targetPos - position of the block to place against
-   * @param {number} [face=1] - block face to click (0=bottom, 1=top, 2=z-, 3=z+, 4=x-, 5=x+)
+   * @param {number} [face] - block face to click (0=bottom, 1=top, 2=z-, 3=z+, 4=x-, 5=x+)
    * @returns {Promise<void>} resolves after the look and packet send
    */
-  botState.placeBlock = async function (targetPos, face = 1) {
+  botState.placeBlock = async function (targetPos, face) {
     if (!(targetPos instanceof Vec3)) {
       throw new TypeError('placeBlock: targetPos must be a Vec3')
     }
+    face ??= blockFace(targetPos)
 
     // Look at the centre of the target block
     if (typeof botState.lookAt === 'function') {
@@ -64,17 +87,18 @@ function inject (botState, options) {
     }
 
     // Build the TransactionUseItem data
+    const playerPos = botState.self?.position ?? botState.spawnPosition
     const useItemData = {
-      action_type: 0, // click_block
-      trigger_type: 1, // player_input (or 2 simulation_tick)
+      action_type: 'click_block',
+      trigger_type: 'player_input',
       block_position: { x: targetPos.x, y: targetPos.y, z: targetPos.z },
       face: face,
       hotbar_slot: heldSlot,
       held_item: toRawItem(heldItem, botState.itemClass),
-      player_pos: { x: botState.spawnPosition.x, y: botState.spawnPosition.y, z: botState.spawnPosition.z },
-      click_pos: { x: 0.5, y: 0.5, z: 0.5 }, // centre of the block face
+      player_pos: toVec3f(playerPos),
+      click_pos: clickPositionForFace(face),
       block_runtime_id: getRuntimeIdAt(botState, targetPos),
-      client_prediction: 1, // success
+      client_prediction: 'success',
       client_cooldown_state: 0 // off
     }
 
@@ -105,17 +129,18 @@ function inject (botState, options) {
     }
 
     // Use item on air (action_type = 1)
+    const playerPos = botState.self?.position ?? botState.spawnPosition
     const useItemData = {
-      action_type: 1, // click_air
-      trigger_type: 1, // player_input
+      action_type: 'click_air',
+      trigger_type: 'player_input',
       block_position: { x: targetPos.x, y: targetPos.y, z: targetPos.z },
       face: 1, // ignored for click_air
       hotbar_slot: heldSlot,
       held_item: toRawItem(heldItem, botState.itemClass),
-      player_pos: { x: botState.spawnPosition.x, y: botState.spawnPosition.y, z: botState.spawnPosition.z },
+      player_pos: toVec3f(playerPos),
       click_pos: { x: 0.5, y: 0.5, z: 0.5 },
       block_runtime_id: 0,
-      client_prediction: 1,
+      client_prediction: 'success',
       client_cooldown_state: 0
     }
 

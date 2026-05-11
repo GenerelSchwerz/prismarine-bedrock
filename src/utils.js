@@ -80,6 +80,18 @@ function getBlockRuntimeId (botState, pos) {
   return 0
 }
 
+function clickPositionForFace (face) {
+  switch (face) {
+    case 0: return { x: 0.5, y: 0, z: 0.5 }
+    case 1: return { x: 0.5, y: 1, z: 0.5 }
+    case 2: return { x: 0.5, y: 0.5, z: 0 }
+    case 3: return { x: 0.5, y: 0.5, z: 1 }
+    case 4: return { x: 0, y: 0.5, z: 0.5 }
+    case 5: return { x: 1, y: 0.5, z: 0.5 }
+    default: return { x: 0.5, y: 0.5, z: 0.5 }
+  }
+}
+
 function rawStackId (raw) {
   return raw?.stack_id ?? raw?.stackId ?? raw?.stack_network_id ?? raw?.network_stack_id
 }
@@ -208,6 +220,7 @@ module.exports = {
   withLayer,
   getStateId,
   getBlockRuntimeId,
+  clickPositionForFace,
   rawStackId,
   itemStackId,
   itemToRaw,

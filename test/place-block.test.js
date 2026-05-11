@@ -86,6 +86,11 @@ async function giveItem (botState, itemName, count = 1) {
   await sleep(SETUP_DELAY_MS)
 }
 
+async function setPlayerItemSlot (botState, slot, itemName, count = 1) {
+  sendCommand(botState, `item replace entity .${USERNAME} ${slot} with minecraft:${itemName} ${count}`)
+  await sleep(SETUP_DELAY_MS)
+}
+
 function findSlotByName (botState, name) {
   const slot = botState.inventory.slots.findIndex(item => item?.name === name)
   assert.notStrictEqual(slot, -1, `Could not find ${name} in inventory`)
@@ -96,12 +101,14 @@ function assertHasApi (botState, name) {
   assert.strictEqual(typeof botState[name], 'function', `Expected botState.${name} to exist`)
 }
 
-function captureQueuedPackets (botState) {
+function captureQueuedPackets (botState, options = {}) {
+  const suppress = new Set(options.suppress || [])
   const packets = []
   const originalQueue = botState.client.queue.bind(botState.client)
 
   botState.client.queue = function queueWithCapture (name, packet) {
     packets.push({ name, packet })
+    if (suppress.has(name)) return
     return originalQueue(name, packet)
   }
 
@@ -113,8 +120,8 @@ function captureQueuedPackets (botState) {
   }
 }
 
-function findQueuedPacket (packets, name) {
-  return packets.find(entry => entry.name === name)
+function findQueuedPacket (packets, name, predicate = () => true) {
+  return packets.find(entry => entry.name === name && predicate(entry.packet))
 }
 
 async function waitForBlockName (botState, pos, expectedName, timeoutMs = 8000) {
@@ -158,7 +165,6 @@ describe('block placing integration', function () {
     try {
       sendCommand(botState, 'setblock 0 65 0 minecraft:air')
       sendCommand(botState, 'setblock 1 65 0 minecraft:air')
-      sendCommand(botState, 'setblock 0 65 3 minecraft:air')
       await sleep(250)
     } catch {}
 
@@ -177,6 +183,8 @@ describe('block placing integration', function () {
   it('equips a hotbar block item and sends a placement transaction', async function () {
     await setupFlatPlacementArea(botState)
     await giveItem(botState, 'dirt', 4)
+    setPlayerGamemode(botState, USERNAME, 'survival')
+    await sleep(SETUP_DELAY_MS)
 
     const dirtSlot = findSlotByName(botState, 'dirt')
     assert(
@@ -184,6 +192,7 @@ describe('block placing integration', function () {
       `Expected /give dirt to land in hotbar for this test, got slot ${dirtSlot}`
     )
 
+    const alreadySelected = botState.heldItemSlot === dirtSlot
     const capture = captureQueuedPackets(botState)
 
     try {
@@ -194,22 +203,29 @@ describe('block placing integration', function () {
       await sleep(PLACE_DELAY_MS)
 
       const equipmentPacket = findQueuedPacket(capture.packets, 'mob_equipment')
-      assert(equipmentPacket, 'Expected equipItem to send mob_equipment')
-      assert.strictEqual(equipmentPacket.packet.selected_slot, dirtSlot)
+      if (alreadySelected) {
+        assert(!equipmentPacket, 'Expected already-selected hotbar equip to avoid mob_equipment')
+      } else {
+        assert(equipmentPacket, 'Expected equipItem to send mob_equipment')
+        assert.strictEqual(equipmentPacket.packet.selected_slot, dirtSlot)
+      }
 
       const placePacket = findQueuedPacket(capture.packets, 'inventory_transaction')
       assert(placePacket, 'Expected placeBlock to send inventory_transaction')
 
       const tx = placePacket.packet.transaction
-      assert.strictEqual(tx.transaction_type, 2)
+      assert.strictEqual(tx.transaction_type, 'item_use')
 
       const data = tx.transaction_data
-      assert.strictEqual(data.action_type, 0)
+      assert.strictEqual(data.action_type, 'click_block')
       assert.deepStrictEqual(data.block_position, { x: 0, y: 64, z: 0 })
       assert.strictEqual(data.face, 1)
       assert.strictEqual(data.hotbar_slot, dirtSlot)
+      assert.deepStrictEqual(data.click_pos, { x: 0.5, y: 1, z: 0.5 })
       assert(data.held_item, 'Expected placement packet to include held_item')
       assert.strictEqual(data.held_item.network_id !== 0, true)
+
+      await waitForBlockName(botState, new Vec3(0, 65, 0), 'dirt')
     } finally {
       capture.restore()
     }
@@ -221,11 +237,14 @@ describe('block placing integration', function () {
     clearPlayer(botState, USERNAME)
     await sleep(SETUP_DELAY_MS)
 
-    // Fill hotbar first so the block item is pushed outside the hotbar.
-    givePlayer(botState, USERNAME, 'stick', 9)
+    // Fill all nine hotbar slots first so the block item starts outside the hotbar.
+    for (let slot = 0; slot <= 8; slot++) {
+      sendCommand(botState, `item replace entity .${USERNAME} hotbar.${slot} with minecraft:stick 64`)
+    }
     await sleep(SETUP_DELAY_MS)
 
-    givePlayer(botState, USERNAME, 'oak_planks', 4)
+    await setPlayerItemSlot(botState, 'inventory.0', 'oak_planks', 4)
+    setPlayerGamemode(botState, USERNAME, 'survival')
     await sleep(SETUP_DELAY_MS)
 
     const planksSlot = findSlotByName(botState, 'oak_planks')
@@ -234,6 +253,7 @@ describe('block placing integration', function () {
       `Expected oak_planks to be outside hotbar after filling hotbar, got slot ${planksSlot}`
     )
 
+    const alreadySelected = botState.heldItemSlot === 0
     const capture = captureQueuedPackets(botState)
 
     try {
@@ -243,7 +263,11 @@ describe('block placing integration', function () {
       await botState.placeBlock(new Vec3(1, 64, 0), 1)
       await sleep(PLACE_DELAY_MS)
 
-      const authPacket = findQueuedPacket(capture.packets, 'player_auth_input')
+      const authPacket = findQueuedPacket(
+        capture.packets,
+        'player_auth_input',
+        packet => packet.item_stack_request
+      )
       assert(authPacket, 'Expected non-hotbar equip to send player_auth_input')
       assert(authPacket.packet.item_stack_request, 'Expected player_auth_input.item_stack_request')
       assert.strictEqual(authPacket.packet.item_stack_request.actions[0].type_id, 'swap')
@@ -251,14 +275,18 @@ describe('block placing integration', function () {
       assert.strictEqual(authPacket.packet.item_stack_request.actions[0].destination.slot, 0)
 
       const equipmentPacket = findQueuedPacket(capture.packets, 'mob_equipment')
-      assert(equipmentPacket, 'Expected equipItem to select hotbar slot after swap')
-      assert.strictEqual(equipmentPacket.packet.selected_slot, 0)
+      if (alreadySelected) {
+        assert(!equipmentPacket, 'Expected already-selected hotbar equip to avoid mob_equipment')
+      } else {
+        assert(equipmentPacket, 'Expected equipItem to select hotbar slot after swap')
+        assert.strictEqual(equipmentPacket.packet.selected_slot, 0)
+      }
 
       const placePacket = findQueuedPacket(capture.packets, 'inventory_transaction')
       assert(placePacket, 'Expected placeBlock to send inventory_transaction')
 
       const data = placePacket.packet.transaction.transaction_data
-      assert.strictEqual(data.action_type, 0)
+      assert.strictEqual(data.action_type, 'click_block')
       assert.deepStrictEqual(data.block_position, { x: 1, y: 64, z: 0 })
       assert.strictEqual(data.face, 1)
       assert.strictEqual(data.hotbar_slot, 0)
@@ -272,6 +300,8 @@ describe('block placing integration', function () {
     await setupFlatPlacementArea(botState)
 
     clearPlayer(botState, USERNAME)
+    await sleep(SETUP_DELAY_MS)
+    setPlayerGamemode(botState, USERNAME, 'survival')
     await sleep(SETUP_DELAY_MS)
 
     botState.heldItemSlot = 0

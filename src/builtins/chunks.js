@@ -185,6 +185,56 @@ module.exports = (botState, options = {}) => {
     return true;
   }
 
+  function chunkAreaLoadState(
+    radius = 6,
+    center = undefined,
+    verticalSectionRadius = 1
+  ) {
+    const pos = center || (
+      botState.spawnPosition
+        ? new Vec3(botState.spawnPosition.x, botState.spawnPosition.y, botState.spawnPosition.z)
+        : new Vec3(0, WORLD_MIN_Y, 0)
+    );
+
+    const minCX = Math.floor((pos.x - radius) / 16);
+    const maxCX = Math.floor((pos.x + radius) / 16);
+    const minCZ = Math.floor((pos.z - radius) / 16);
+    const maxCZ = Math.floor((pos.z + radius) / 16);
+
+    const centerSectionY = Math.floor(pos.y / 16);
+    const requiredSectionYs = [];
+
+    for (let dy = -verticalSectionRadius; dy <= verticalSectionRadius; dy++) {
+      requiredSectionYs.push(centerSectionY + dy);
+    }
+
+    const required = new Set();
+
+    for (let cx = minCX; cx <= maxCX; cx++) {
+      for (let cz = minCZ; cz <= maxCZ; cz++) {
+        required.add(chunkKey(cx, cz));
+      }
+    }
+
+    const missing = [];
+
+    for (const key of required) {
+      const [cxRaw, czRaw] = key.split(',');
+      const cx = Number(cxRaw);
+      const cz = Number(czRaw);
+
+      if (!isChunkBlockDataLoaded(cx, cz, requiredSectionYs)) {
+        missing.push(key);
+      }
+    }
+
+    return {
+      loaded: missing.length === 0,
+      missing,
+      required
+    };
+  }
+
   // ── Apply blob data to a pending chunk or subchunk ──
   function dispatchBlobReceived(hash, payload) {
     const key = hash.toString();
@@ -548,6 +598,14 @@ module.exports = (botState, options = {}) => {
    * @param {number} [verticalSectionRadius=1] number of section layers above/below center section to require
    * @returns {Promise<void>}
    */
+  botState.areChunksLoadedAround = function areChunksLoadedAround(
+    radius = 6,
+    center = undefined,
+    verticalSectionRadius = 1
+  ) {
+    return chunkAreaLoadState(radius, center, verticalSectionRadius).loaded;
+  };
+
   botState.waitForChunksToLoad = function waitForChunksToLoad(
     radius = 6,
     center = undefined,
@@ -555,48 +613,16 @@ module.exports = (botState, options = {}) => {
     verticalSectionRadius = 1
   ) {
     return new Promise((resolve, reject) => {
-      const pos = center || (
-        botState.spawnPosition
-          ? new Vec3(botState.spawnPosition.x, botState.spawnPosition.y, botState.spawnPosition.z)
-          : new Vec3(0, WORLD_MIN_Y, 0)
-      );
-
-      const minCX = Math.floor((pos.x - radius) / 16);
-      const maxCX = Math.floor((pos.x + radius) / 16);
-      const minCZ = Math.floor((pos.z - radius) / 16);
-      const maxCZ = Math.floor((pos.z + radius) / 16);
-
-      const centerSectionY = Math.floor(pos.y / 16);
-      const requiredSectionYs = [];
-
-      for (let dy = -verticalSectionRadius; dy <= verticalSectionRadius; dy++) {
-        requiredSectionYs.push(centerSectionY + dy);
-      }
-
-      const required = new Set();
-
-      for (let cx = minCX; cx <= maxCX; cx++) {
-        for (let cz = minCZ; cz <= maxCZ; cz++) {
-          required.add(chunkKey(cx, cz));
-        }
-      }
-
       const start = Date.now();
 
       const interval = setInterval(() => {
-        const missing = [];
+        const { loaded, missing, required } = chunkAreaLoadState(
+          radius,
+          center,
+          verticalSectionRadius
+        );
 
-        for (const key of required) {
-          const [cxRaw, czRaw] = key.split(',');
-          const cx = Number(cxRaw);
-          const cz = Number(czRaw);
-
-          if (!isChunkBlockDataLoaded(cx, cz, requiredSectionYs)) {
-            missing.push(key);
-          }
-        }
-
-        if (missing.length === 0) {
+        if (loaded) {
           clearInterval(interval);
           resolve();
           return;

@@ -14,6 +14,20 @@
 const BotState = require('../src/state');
 const Vec3 = require('vec3').Vec3;
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 const options = {
   host: 'localhost',
   port: 19132,

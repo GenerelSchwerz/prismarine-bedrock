@@ -15,7 +15,7 @@
     "@nxg-org/mineflayer-util-plugin": "^1.9.3",
     "bedrock-protocol": "^3.55.0",
     "minecraft-data": "^3.109.1",
-    "mineflayer-crafting-util": "^0.4.1",
+    "mineflayer-crafting-util": "^0.4.4",
     "prismarine-block": "^1.23.0",
     "prismarine-chat": "^1.13.0",
     "prismarine-chunk": "^1.40.0",

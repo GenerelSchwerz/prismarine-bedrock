@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "mocha"
   },
   "keywords": [],
   "author": "",
@@ -27,5 +27,8 @@
     "prismarine-windows": "^2.10.0",
     "prismarine-world": "^3.7.0",
     "vec3": "^0.2.0"
+  },
+  "devDependencies": {
+    "mocha": "^11.7.5"
   }
 }

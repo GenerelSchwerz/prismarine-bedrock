@@ -94,7 +94,6 @@ class BotState extends EventEmitter {
       this.client.disconnect(reason);
     } else {
       this.client.close();
-      process.exit(0);
     }
   }
 

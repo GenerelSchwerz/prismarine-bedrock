@@ -198,7 +198,6 @@ module.exports = (botState, options) => {
 
   client.on('close', () => {
     logAction('[→]', 'close', { msg: 'Connection closed' });
-    process.exit(0);
   });
 
   process.on('SIGINT', () => botState.disconnect('User interrupted'));

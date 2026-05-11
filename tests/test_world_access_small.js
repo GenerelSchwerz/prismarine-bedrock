@@ -10,7 +10,7 @@
 //   [x, y, z]
 //   [x, y, z, expectedName]
 
-const BotState = require('./state');
+const BotState = require('../src/state');
 const Vec3 = require('vec3').Vec3;
 
 const options = {

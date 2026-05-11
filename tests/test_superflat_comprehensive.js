@@ -7,7 +7,7 @@
 //
 // This version intentionally avoids bedrockCompat and uses native world access.
 
-const BotState = require('./state');
+const BotState = require('../src/state');
 const Vec3 = require('vec3').Vec3;
 
 // ===== CONFIGURATION =====

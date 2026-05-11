@@ -15,7 +15,7 @@
 //   accessStateId disagrees with rawXZY.
 //   getBlockAt() says Air where rawXZY says dirt/grass/bedrock/etc.
 
-const BotState = require('./state');
+const BotState = require('../src/state');
 const Vec3 = require('vec3').Vec3;
 
 const options = {

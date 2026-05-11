@@ -291,7 +291,7 @@ function inject (botState, options) {
   botState.client.on('item_stack_response', (packet) => {
     if (packet.responses) {
       for (const resp of packet.responses) {
-        if (resp.status === 0) {
+        if (resp.status === 0 || resp.status === 'ok') {
           logAction('[trading]', `trade request ${resp.request_id} accepted`)
           botState.emit('tradeComplete', { requestId: resp.request_id })
         } else {

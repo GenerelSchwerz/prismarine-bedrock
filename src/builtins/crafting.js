@@ -1,291 +1,364 @@
 // builtins/crafting.js
 // Auto-loaded by BotState._loadBuiltins().
-// Provides planning and execution of crafting using mineflayer-crafting-util (optional)
-// and inventory-simulation for local window state.  Execution sends item_stack_request
-// actions (take, place, craft_recipe) exactly like the trading.js plugin.
 
 const { logAction } = require('../utils')
-const Vec3 = require('vec3').Vec3
-const { simulateClick } = require('./inventory-simulation')
 
-// --------------------------------------------------------------------------
-// Optional mineflayer-crafting-util for planning
-// --------------------------------------------------------------------------
-let craftUtil = null
-try {
-  const mod = require('mineflayer-crafting-util')
-  if (mod.buildStatic && mod.craftPlan) craftUtil = mod
-} catch (_) { /* not installed – fallback plan used */ }
-
-// --------------------------------------------------------------------------
-// Helpers
-// --------------------------------------------------------------------------
-
-/**
- * Wait for a window to open (used after interacting with a crafting table).
- */
-function waitForWindow (botState, timeout = 5000) {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('Timeout waiting for window')), timeout)
-    const handler = (windowId) => {
-      const win = botState.windows.get(windowId)
-      if (win) {
-        clearTimeout(timer)
-        botState.client.removeListener('container_open', handler)
-        resolve(win)
-      }
-    }
-    botState.client.on('container_open', handler)
-  })
+const CONTAINER = {
+  hotbar: 'hotbar',
+  inventory: 'inventory',
+  cursor: 'cursor',
+  input: 'crafting_input',
+  output: 'creative_output',
 }
 
-/**
- * Find the first slot in the bot's inventory containing the given item id (and optional metadata).
- */
-function findInventorySlot (botState, itemId, metadata = null) {
-  const inv = botState.inventory
-  if (!inv) return null
-  for (let i = inv.inventoryStart; i <= inv.inventoryEnd; i++) {
-    const item = inv.slots[i]
-    if (item && item.type === itemId) {
-      if (metadata == null || item.metadata === metadata) return i
-    }
-  }
-  return null
+const ACTION = {
+  take: 'take',
+  place: 'place',
+  consume: 'consume',
+  create: 'create',
+  craftRecipe: 'craft_recipe',
+  craftRecipeAuto: 'craft_recipe_auto',
+  resultsDeprecated: 'results_deprecated',
 }
 
-/**
- * Find the first empty slot in the bot's inventory.
- */
-function findEmptyInventorySlot (botState) {
-  const inv = botState.inventory
-  if (!inv) return null
-  for (let i = inv.inventoryStart; i <= inv.inventoryEnd; i++) {
-    if (inv.slots[i] == null) return i
-  }
-  return null
+function nextRequestId (botState) {
+  botState._craftRequestId = (botState._craftRequestId || 0) + 1
+  return botState._craftRequestId
 }
 
-/**
- * Build a cross-container SlotInfo object for item_stack_request.
- */
 function slotInfo (containerId, slot, stackId = 0) {
-  return {
-    slot_type: { container_id: containerId, dynamic_container_id: 0 },
-    slot,
-    stack_id: stackId,
-  }
+  return { slot_type: { container_id: containerId, dynamic_container_id: 0 }, slot, stack_id: stackId || 0 }
 }
 
-// --------------------------------------------------------------------------
-// Craft execution (Bedrock item_stack_request path)
-// --------------------------------------------------------------------------
+function inventorySlotInfo (slot, stackId = 0) {
+  return slot < 9
+    ? slotInfo(CONTAINER.hotbar, slot, stackId)
+    : slotInfo(CONTAINER.inventory, slot - 9, stackId)
+}
 
-async function executeCraft (botState, recipe, count, craftingTableBlock) {
-  // 1. Open crafting table if needed
-  let window
-  if (recipe.requiresTable && craftingTableBlock) {
-    // Interact with the block – the server will send a container_open.
-    // A full implementation would also walk near the block.
-    if (typeof botState.lookAt === 'function') {
-      botState.lookAt(craftingTableBlock.position)
+function recipeBody (entry) {
+  return entry?.recipe || entry
+}
+
+function recipeNetworkId (entry) {
+  const recipe = recipeBody(entry)
+  return recipe?.network_id ?? entry?.network_id
+}
+
+function recipeOutputs (entry) {
+  const recipe = recipeBody(entry)
+  if (!recipe) return []
+  if (Array.isArray(recipe.output)) return recipe.output
+  return recipe.output ? [recipe.output] : []
+}
+
+function recipeResult (entry, itemId) {
+  return recipeOutputs(entry).find(item => item?.network_id === itemId || item?.id === itemId)
+}
+
+function ingredientCount (ingredient) {
+  return Math.max(1, Math.abs(ingredient?.count ?? 1))
+}
+
+function itemName (botState, item) {
+  return botState.registry.items[item.type]?.name || item.name || ''
+}
+
+function normalizeTag (tag = '') {
+  return tag.replace(/^minecraft:/, '')
+}
+
+function ingredientMatchesItem (botState, ingredient, item) {
+  if (!ingredient || !item) return false
+
+  if (ingredient.type === 'int_id_meta' || ingredient.network_id != null) {
+    if (ingredient.network_id !== item.type) return false
+    return ingredient.metadata == null || ingredient.metadata === 0 || ingredient.metadata === item.metadata
+  }
+
+  if (ingredient.type === 'string_id_meta' || ingredient.name) {
+    const wanted = String(ingredient.name).replace(/^minecraft:/, '')
+    if (wanted !== itemName(botState, item)) return false
+    return ingredient.metadata == null || ingredient.metadata === item.metadata
+  }
+
+  if (ingredient.type === 'item_tag' || ingredient.tag) {
+    const tag = normalizeTag(ingredient.tag)
+    const name = itemName(botState, item)
+    if (tag === 'logs') return /(^|_)log$|(^|_)stem$|hyphae$/.test(name)
+    if (tag === 'planks') return name.endsWith('_planks')
+  }
+
+  return false
+}
+
+function flattenIngredients (entry) {
+  const recipe = recipeBody(entry)
+  if (!recipe) return []
+
+  if (Array.isArray(recipe.input)) {
+    return recipe.input.flatMap(part => Array.isArray(part) ? part : [part])
+      .filter(ingredient => ingredient && ingredient.type !== 'invalid')
+  }
+
+  return []
+}
+
+function isTableRecipe (entry) {
+  const recipe = recipeBody(entry)
+  if (!recipe) return false
+  return (entry.type === 'shaped' || entry.type === 1) && (recipe.width > 2 || recipe.height > 2)
+}
+
+function reserveIngredients (botState, ingredients, times) {
+  const used = new Map()
+  const placements = []
+
+  for (let gridSlot = 0; gridSlot < ingredients.length; gridSlot++) {
+    const ingredient = ingredients[gridSlot]
+    let remaining = ingredientCount(ingredient) * times
+
+    for (let slot = 0; slot < botState.inventory.slots.length && remaining > 0; slot++) {
+      const item = botState.inventory.slots[slot]
+      const available = (item?.count || 0) - (used.get(slot) || 0)
+      if (available <= 0 || !ingredientMatchesItem(botState, ingredient, item)) continue
+
+      const count = Math.min(available, remaining)
+      used.set(slot, (used.get(slot) || 0) + count)
+      placements.push({ gridSlot, slot, count, stackId: item.stackId || 0, item })
+      remaining -= count
     }
-    botState.client.queue('player_action', {
-      runtime_entity_id: botState.client.entityId,
-      action: 'start_break', // Bedrock uses start_break to "use" a block? Actually use interact_block.
-      // Better: send interact action: 'interact_block'? For now keep existing pattern.
-      action: 25, // interact_block
-      position: { x: craftingTableBlock.position.x, y: craftingTableBlock.position.y, z: craftingTableBlock.position.z },
-      result_position: { x: 0, y: 0, z: 0 },
-      face: 0,
+
+    if (remaining > 0) return null
+  }
+
+  return placements
+}
+
+function outputSlot (botState, result, used) {
+  const stackSize = botState.registry.items[result.network_id]?.stackSize || 64
+
+  for (let slot = 0; slot < botState.inventory.slots.length; slot++) {
+    const item = botState.inventory.slots[slot]
+    const countAfterCraft = (item?.count || 0) - (used.get(slot) || 0)
+    if (item?.type === result.network_id && countAfterCraft + result.count <= stackSize) return slot
+  }
+
+  for (let slot = 0; slot < botState.inventory.slots.length; slot++) {
+    const item = botState.inventory.slots[slot]
+    if (!item || (item.count || 0) <= (used.get(slot) || 0)) return slot
+  }
+
+  return null
+}
+
+function findCraft (botState, itemId, count) {
+  for (const entry of botState.bedrockCraftingRecipes || []) {
+    if (recipeNetworkId(entry) == null) continue
+    const result = recipeResult(entry, itemId)
+    if (!result?.count) continue
+
+    const times = Math.ceil(count / result.count)
+    if (times > 255) continue
+
+    const ingredients = flattenIngredients(entry)
+    if (ingredients.length === 0) continue
+
+    const placements = reserveIngredients(botState, ingredients, times)
+    if (!placements) continue
+
+    const used = new Map()
+    for (const placement of placements) {
+      used.set(placement.slot, (used.get(placement.slot) || 0) + placement.count)
+    }
+
+    const outSlot = outputSlot(botState, { ...result, count: result.count * times }, used)
+    if (outSlot == null) continue
+
+    return {
+      entry,
+      baseResult: result,
+      result: { ...result, count: result.count * times },
+      ingredients,
+      placements,
+      outSlot,
+      times,
+      used,
+    }
+  }
+
+  return null
+}
+
+async function openCraftingTable (botState, block) {
+  if (!block?.position) throw new Error('Recipe requires a crafting table position')
+
+  const opened = new Promise((resolve, reject) => {
+    const done = (err, value) => {
+      clearTimeout(timer)
+      botState.client.removeListener('container_open', onOpen)
+      err ? reject(err) : resolve(value)
+    }
+    const onOpen = packet => done(null, packet)
+    const timer = setTimeout(() => done(new Error('Timed out opening crafting table')), 5000)
+    botState.client.on('container_open', onOpen)
+  })
+
+  botState.client.queue('player_action', {
+    runtime_entity_id: botState.client.entityId,
+    action: 'interact_block',
+    position: block.position,
+    result_position: { x: 0, y: 0, z: 0 },
+    face: 0,
+  })
+
+  return opened
+}
+
+function buildActions (botState, craft) {
+  const actions = []
+
+  actions.push({
+    type_id: ACTION.craftRecipeAuto,
+    recipe_network_id: recipeNetworkId(craft.entry),
+    times_crafted_2: craft.times,
+    times_crafted: craft.times,
+    ingredients: craft.ingredients,
+  })
+
+  actions.push({
+    type_id: ACTION.resultsDeprecated,
+    result_items: [craft.baseResult],
+    times_crafted: craft.times,
+  })
+
+  for (const placement of craft.placements) {
+    actions.push({
+      type_id: ACTION.consume,
+      count: placement.count,
+      source: inventorySlotInfo(placement.slot, placement.stackId),
     })
-    window = await waitForWindow(botState)
-  } else {
-    window = botState.inventory // 2×2 grid in inventory window
-  }
-  if (!window) throw new Error('Could not obtain crafting window')
-
-  // 2. Determine grid layout
-  const gridWidth = recipe.requiresTable ? 3 : 2
-  const gridHeight = recipe.requiresTable ? 3 : 2
-  const gridStart = 1 // slot 0 = result, slots 1–gridWidth*gridHeight = grid
-
-  // 3. Build the list of required items (grid slot → item descriptor)
-  const required = []
-  if (recipe.inShape) {
-    for (let y = 0; y < recipe.inShape.length; y++) {
-      const row = recipe.inShape[y]
-      for (let x = 0; x < row.length; x++) {
-        required.push({
-          id: row[x].id,
-          metadata: row[x].metadata ?? null,
-          slot: gridStart + x + y * gridWidth,
-        })
-      }
-    }
-  } else if (recipe.ingredients) {
-    // Shapeless – fill sequentially
-    for (let i = 0; i < recipe.ingredients.length; i++) {
-      required.push({
-        id: recipe.ingredients[i].id,
-        metadata: recipe.ingredients[i].metadata ?? null,
-        slot: gridStart + i,
-      })
-    }
   }
 
-  // 4. Clear the grid (quick-move any existing items to inventory)
-  let carried = null
-  for (let i = gridStart; i < gridStart + gridWidth * gridHeight; i++) {
-    if (window.slots[i] !== null) {
-      // Simulate shift-click to move out
-      const op = { type: 'QuickMove', slot: i }
-      const result = simulateClick(window, op, carried, false)
-      carried = result.newCarriedItem
-      // If item couldn't be moved, carry it
-    }
-  }
+  const existing = botState.inventory.slots[craft.outSlot]
+  const outSlotCountAfterConsume = (existing?.count || 0) - (craft.used.get(craft.outSlot) || 0)
+  const outputStackId = existing?.type === craft.result.network_id && outSlotCountAfterConsume > 0
+    ? existing.stackId || 0
+    : botState.itemClass.nextStackId()
+  const destinationStackId = outSlotCountAfterConsume > 0 ? (existing?.stackId || 0) : 0
 
-  // 5. Build the list of take actions for moving ingredients into grid
-  const takeActions = []
-  for (const req of required) {
-    if (req.id === -1) continue
-    const invSlot = findInventorySlot(botState, req.id, req.metadata)
-    if (invSlot === null) {
-      // The simulation may have moved items; re‑check after clearing?
-      // For a real server we rely on actual inventory; we'll throw.
-      throw new Error(`Missing ingredient: id=${req.id}`)
-    }
-    const srcItem = window.slots[invSlot]
-    if (!srcItem) throw new Error(`Slot ${invSlot} became empty unexpectedly`)
+  actions.push({
+    type_id: ACTION.take,
+    count: craft.result.count,
+    source: slotInfo(CONTAINER.output, 0, outputStackId),
+    destination: inventorySlotInfo(craft.outSlot, destinationStackId),
+  })
 
-    // Move one item from inventory slot to grid slot via Pickup simulation
-    // First pick up from inventory
-    const pickupOp = { type: 'Pickup', mode: 'left', slot: invSlot }
-    const r1 = simulateClick(window, pickupOp, carried, false)
-    carried = r1.newCarriedItem
-    // Then place into grid slot
-    const placeOp = { type: 'Pickup', mode: 'left', slot: req.slot }
-    const r2 = simulateClick(window, placeOp, carried, false)
-    carried = r2.newCarriedItem
+  actions._craftEntry = craft.entry
+  return actions
+}
 
-    // Build the network action
-    takeActions.push({
-      type_id: 0, // take
-      count: 1,   // move one item
-      source: slotInfo('inventory', invSlot, srcItem.stackId || 0),
-      destination: slotInfo('crafting_input', req.slot, 0),
-    })
-  }
+function sendRequest (botState, actions) {
+  const requestId = nextRequestId(botState)
+  const request = { request_id: requestId, actions, custom_names: [], cause: 'chat_public' }
 
-  // 6. Craft the recipe
-  const recipeNetworkId = recipe.networkId // should be set by the planner
-  const craftActions = [
-    {
-      type_id: 12, // craft_recipe
-      recipe_network_id: recipeNetworkId,
-      times_crafted: count,
-    },
-  ]
+  logAction('[craft]', 'item_stack_request', {
+    requestId,
+    actions: actions.map(action => action.type_id),
+  })
 
-  // 7. Build the full request
-  const requestId = botState.itemClass.nextStackId() // generate unique ID
-  const request = {
-    request_id: requestId,
-    actions: [...takeActions, ...craftActions],
-    custom_names: [],
-    cause: 0, // chat_public
-  }
-
-  // 8. Send the request
-  botState.client.queue('item_stack_request', { requests: [request] })
-
-  // 9. Wait for the response (the inventory plugin will update windows automatically)
   return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      botState.client.removeListener('item_stack_response', handler)
-      reject(new Error('Craft request timed out'))
-    }, 10000)
-
-    const handler = (packet) => {
-      if (!packet.responses) return
-      for (const resp of packet.responses) {
-        if (resp.request_id === requestId) {
-          clearTimeout(timeout)
-          botState.client.removeListener('item_stack_response', handler)
-          if (resp.status === 0) {
-            logAction('[craft]', 'craft accepted', { requestId, count })
-            resolve(resp)
-          } else {
-            reject(new Error(`Craft rejected (status ${resp.status})`))
-          }
-        }
-      }
+    const done = (err, value) => {
+      clearTimeout(timer)
+      botState.client.removeListener('item_stack_response', onResponse)
+      err ? reject(err) : resolve(value)
     }
-    botState.client.on('item_stack_response', handler)
+
+    const timer = setTimeout(() => done(new Error(`Craft request ${requestId} timed out`)), 5000)
+    const onResponse = packet => {
+      const response = packet?.responses?.find(resp => resp.request_id === requestId)
+      if (!response) return
+      if (response.status !== 0 && response.status !== 'ok') {
+        done(new Error(`Craft rejected: status=${response.status}`))
+        return
+      }
+      done(null, response)
+    }
+
+    botState.client.on('item_stack_response', onResponse)
+
+    botState.queuePlayerAuthInputEdit(packet => {
+      botState.setAuthInputFlag(packet, 'item_stack_request')
+      packet.item_stack_request = request
+    })
+    botState.flushPlayerAuthInput?.()
   })
 }
 
-// --------------------------------------------------------------------------
-// Plugin inject
-// --------------------------------------------------------------------------
+function cloneItem (item, count) {
+  if (!item || count <= 0) return null
+  return new item.constructor(item.type, count, item.metadata, item.nbt, item.stackId, true)
+}
 
-module.exports = async (botState, options) => {
-  const Registry = botState.registry
+function predictInventory (botState, craft) {
+  for (const [slot, count] of craft.used) {
+    const item = botState.inventory.slots[slot]
+    botState.inventory.updateSlot(slot, cloneItem(item, (item?.count || 0) - count))
+  }
 
-  // ── Planning (using optional mineflayer-crafting-util or simple fallback) ──
-  let craftPlanFn = null
-  let craftItemFn = null
+  const existing = botState.inventory.slots[craft.outSlot]
+  if (existing?.type === craft.result.network_id) {
+    botState.inventory.updateSlot(craft.outSlot, cloneItem(existing, existing.count + craft.result.count))
+    return
+  }
 
-  if (craftUtil) {
-    const craftFunc = await craftUtil.buildStatic(Registry)
-    craftPlanFn = craftFunc
-    // also craftPlan and craftItem from the module
-    craftItemFn = craftUtil.craftItem
-  } else {
-    // Simple fallback: just execute a single recipe step without planning
-    botState.planCraft = (wantedItem) => {
-      return { success: false, error: 'mineflayer-crafting-util not installed' }
+  const item = new botState.itemClass(
+    craft.result.network_id,
+    craft.result.count,
+    craft.result.metadata || 0,
+    null,
+    botState.itemClass.nextStackId(),
+    true
+  )
+  botState.inventory.updateSlot(craft.outSlot, item)
+}
+
+module.exports = async (botState, options = {}) => {
+  botState.bedrockCraftingRecipes = []
+
+  botState.client.on('crafting_data', packet => {
+    botState.bedrockCraftingRecipes.push(...(packet.recipes || []))
+    if (!options.quietCraftingDataLog) {
+      logAction('[craft]', 'crafting_data', { recipes: botState.bedrockCraftingRecipes.length })
     }
-    botState.planCraftInventory = () => botState.planCraft()
-  }
-
-  botState.planCraft = (wantedItem, craftOpts) => {
-    if (craftPlanFn) return craftPlanFn(wantedItem, craftOpts)
-    return { success: false, error: 'No planner available' }
-  }
+  })
 
   botState.planCraftInventory = (wantedItem) => {
-    if (!craftPlanFn) return { success: false }
-    const items = botState.inventory.slots
-      .filter(i => i != null)
-      .map(i => ({ id: i.type, count: i.count }))
-    return craftPlanFn(wantedItem, {
-      availableItems: items,
-      careAboutExisting: false,
-      includeRecursion: true,
-      multipleRecipes: true,
-    })
+    const craft = findCraft(botState, wantedItem.id, wantedItem.count)
+    return craft
+      ? { success: true, recipesToDo: [craft], requiresCraftingTable: isTableRecipe(craft.entry) }
+      : { success: false, error: `No craftable recipe for item ${wantedItem.id}x${wantedItem.count}` }
   }
 
-  // ── Execution (uses item_stack_request) ──
+  botState.planCraft = botState.planCraftInventory
 
-  botState.craftPlan = async (plan, craftingTable) => {
-    if (!plan.success) throw new Error('Cannot craft an unsuccessful plan')
-    for (const step of plan.recipesToDo) {
-      await executeCraft(botState, step.recipe, step.recipeApplications, craftingTable)
+  botState.craftPlan = async (plan, craftingTableBlock) => {
+    if (!plan?.success) throw new Error(plan?.error || 'Cannot craft unsuccessful plan')
+
+    for (const craft of plan.recipesToDo) {
+      if (isTableRecipe(craft.entry)) await openCraftingTable(botState, craftingTableBlock)
+      await sendRequest(botState, buildActions(botState, craft))
+      predictInventory(botState, craft)
     }
+
     return plan
   }
 
-  botState.craftItem = async (itemId, count, craftingTable, options = {}, craftOptions = {}) => {
+  botState.craftItem = async (itemId, count, craftingTableBlock) => {
     const plan = botState.planCraftInventory({ id: itemId, count })
-    if (!plan.success) {
-      throw new Error('Could not plan craft for item ' + itemId)
-    }
-    await botState.craftPlan(plan, craftingTable)
+    await botState.craftPlan(plan, craftingTableBlock)
     return plan
   }
 
-  logAction('[craft]', 'crafting plugin loaded (using item_stack_request)')
+  logAction('[craft]', 'crafting plugin loaded')
 }

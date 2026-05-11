@@ -11,7 +11,7 @@
 //   This script intentionally pokes prismarine-chunk internals because we are
 //   debugging Bedrock section storage/palette state.
 
-const BotState = require('./state');
+const BotState = require('../src/state');
 const Vec3 = require('vec3').Vec3;
 
 const options = {

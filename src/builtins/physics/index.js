@@ -2,14 +2,8 @@ const { Vec3 } = require('vec3');
 const { getConstants } = require('../physics-constants');
 const { createBedrockWorldAdapter } = require('./bedrock-world-adapter');
 const { createNxgPhysicsAdapter, installBedrockMovementStateHandlers } = require('./nxg-physics-utils-adapter');
-const { installControls, updateEyeDeltaAndTick, numberOrZero } = require('./input-controls');
-
-function deltaDeg(y1, y2) {
-  let d = (y1 - y2) % 360;
-  if (d < -180) d += 360;
-  else if (d > 180) d -= 360;
-  return d;
-}
+const { installControls, updateEyeDeltaAndTick } = require('./input-controls');
+const { createMovementPacketSender } = require('./movement-packets');
 
 module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
   const client = botState.client;
@@ -18,11 +12,8 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
   installBedrockMovementStateHandlers(botState);
   const world = createBedrockWorldAdapter(botState);
   const physics = createNxgPhysicsAdapter(options);
+  const movementPackets = createMovementPacketSender(botState, C);
 
-  let lastSentYaw = null;
-  let lastSentPitch = null;
-  let lookResolve = null;
-  let lookPromise = null;
   let tickInterval = null;
   let movementMode = 'server';
   let tickInProgress = false;
@@ -43,102 +34,6 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
     controls.setFlag('vertical_collision', !!self.verticalCollision);
 
     updateEyeDeltaAndTick(self, C);
-  }
-
-  function interpolateRotation(dt) {
-    if (!botState.self) return;
-
-    if (lastSentYaw === null) {
-      lastSentYaw = botState.self.yaw;
-      lastSentPitch = botState.self.pitch;
-      return;
-    }
-
-    const dYaw = deltaDeg(botState.self.yaw, lastSentYaw);
-    const dPitch = botState.self.pitch - lastSentPitch;
-    const maxYaw = 180 * dt;
-    const maxPitch = 180 * dt;
-
-    lastSentYaw += Math.max(-maxYaw, Math.min(maxYaw, dYaw));
-    lastSentPitch += Math.max(-maxPitch, Math.min(maxPitch, dPitch));
-
-    if (
-      Math.abs(deltaDeg(botState.self.yaw, lastSentYaw)) < 0.001 &&
-      Math.abs(botState.self.pitch - lastSentPitch) < 0.001
-    ) {
-      if (lookResolve) {
-        lookResolve();
-        lookResolve = null;
-        lookPromise = null;
-      }
-    }
-  }
-
-  function sendPlayerAuthInput(dt) {
-    const self = botState.self;
-    if (!self) return;
-
-    interpolateRotation(dt);
-
-    const eyeY = numberOrZero(self.position.y) + C.EYE_HEIGHT;
-    const moveVector = self.moveVector || { x: 0, z: 0 };
-    const analogueMoveVector = self.analogueMoveVector || moveVector;
-    const rawMoveVector = self.rawMoveVector || moveVector;
-
-    client.queue('player_auth_input', {
-      pitch: numberOrZero(lastSentPitch),
-      yaw: numberOrZero(lastSentYaw),
-      position: {
-        x: numberOrZero(self.position.x),
-        y: eyeY,
-        z: numberOrZero(self.position.z)
-      },
-      move_vector: {
-        x: numberOrZero(moveVector.x),
-        z: numberOrZero(moveVector.z)
-      },
-      head_yaw: numberOrZero(self.headYaw !== undefined ? self.headYaw : self.yaw),
-      input_data: self.inputData || 0n,
-      input_mode: 0,
-      play_mode: 0,
-      interaction_model: 0,
-      interact_rotation: { x: 0, z: 0 },
-      tick: self.tick || 0n,
-      delta: self.delta || { x: 0, y: 0, z: 0 },
-      analogue_move_vector: {
-        x: numberOrZero(analogueMoveVector.x),
-        z: numberOrZero(analogueMoveVector.z)
-      },
-      camera_orientation: { x: 0, y: 0, z: 0 },
-      raw_move_vector: {
-        x: numberOrZero(rawMoveVector.x),
-        z: numberOrZero(rawMoveVector.z)
-      }
-    });
-  }
-
-  function sendMovePlayer(mode, dt) {
-    const self = botState.self;
-    if (!self) return;
-
-    interpolateRotation(dt);
-
-    client.queue('move_player', {
-      runtime_id: client.entityId || 0n,
-      position: {
-        x: numberOrZero(self.position.x),
-        y: numberOrZero(self.position.y) + C.EYE_HEIGHT,
-        z: numberOrZero(self.position.z)
-      },
-      pitch: numberOrZero(lastSentPitch),
-      yaw: numberOrZero(lastSentYaw),
-      head_yaw: numberOrZero(self.headYaw !== undefined ? self.headYaw : self.yaw),
-      mode,
-      on_ground: !!self.onGround,
-      ridden_runtime_id: 0,
-      teleport: undefined,
-      tick: self.tick || 0n
-    });
   }
 
   async function waitForChunksAroundSelf() {
@@ -180,8 +75,8 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
 
           await tickSimulation();
 
-          if (movementMode !== 'client') sendPlayerAuthInput(dt);
-          else sendMovePlayer(0, dt);
+          if (movementMode !== 'client') movementPackets.sendPlayerAuthInput(dt);
+          else movementPackets.sendMovePlayer(0, dt);
         } catch (err) {
           console.warn('[physics] tick error:', err?.stack || err);
         } finally {
@@ -201,54 +96,15 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
   }
 
   botState.applyMovement = tickSimulation;
+  botState.sendPlayerAuthInputNow = () => movementPackets.sendPlayerAuthInput(0.05);
 
   botState.setPosition = (x, y, z) => {
     if (botState.self) botState.self.position.set(x, y, z);
   };
 
-  botState.look = (yaw, pitch, force = false) => {
-    if (!botState.self) return;
-
-    botState.self.yaw = yaw;
-    botState.self.pitch = pitch;
-    botState.self.headYaw = yaw;
-
-    if (force) {
-      lastSentYaw = yaw;
-      lastSentPitch = pitch;
-    }
-  };
-
-  botState.lookAt = (point, force = false) => {
-    if (!botState.self) return;
-
-    const eye = botState.self.position.offset(0, C.EYE_HEIGHT, 0);
-    const d = point.minus ? point.minus(eye) : new Vec3(point.x - eye.x, point.y - eye.y, point.z - eye.z);
-    const yaw = (Math.atan2(-d.x, d.z) * 180) / Math.PI;
-    const pitch = (-Math.atan2(d.y, Math.sqrt(d.x * d.x + d.z * d.z)) * 180) / Math.PI;
-
-    botState.look(yaw, pitch, force);
-  };
-
-  botState.waitForLookComplete = () => {
-    if (!botState.self) return Promise.resolve();
-
-    if (
-      lastSentYaw !== null &&
-      Math.abs(deltaDeg(botState.self.yaw, lastSentYaw)) < 0.001 &&
-      Math.abs(botState.self.pitch - lastSentPitch) < 0.001
-    ) {
-      return Promise.resolve();
-    }
-
-    if (!lookPromise) {
-      lookPromise = new Promise((resolve) => {
-        lookResolve = resolve;
-      });
-    }
-
-    return lookPromise;
-  };
+  botState.look = movementPackets.look;
+  botState.lookAt = movementPackets.lookAt;
+  botState.waitForLookComplete = movementPackets.waitForLookComplete;
 
   client.on('start_game', (pkt) => {
     if (!botState.self) return;
@@ -265,15 +121,13 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
     botState.self.velocity.set(0, 0, 0);
     botState.self.unvalidatedPosition = botState.self.position.clone();
 
-    lastSentYaw = null;
-    lastSentPitch = null;
+    movementPackets.resetRotation();
     botState.self._prevEye = null;
   });
 
   client.on('set_spawn_position', () => {
     botState.clearControlStates();
-    lastSentYaw = null;
-    lastSentPitch = null;
+    movementPackets.resetRotation();
     if (botState.self) botState.self._prevEye = null;
     void startTick();
   });
@@ -298,8 +152,7 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
       botState.self.unvalidatedPosition = botState.self.position.clone();
     }
 
-    lastSentYaw = null;
-    lastSentPitch = null;
+    movementPackets.resetRotation();
     botState.self._prevEye = null;
   });
 

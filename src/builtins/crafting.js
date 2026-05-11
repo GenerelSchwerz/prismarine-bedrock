@@ -3,7 +3,7 @@
 
 const { buildStatic } = require('mineflayer-crafting-util')
 const recipeLoader = require('prismarine-recipe')
-const { logAction } = require('../utils')
+const { cloneItem, inventoryRequestSlotInfo, logAction, requestSlotInfo } = require('../utils')
 
 const CONTAINER = {
   hotbar: 'hotbar',
@@ -26,16 +26,6 @@ const ACTION = {
 function nextRequestId (botState) {
   botState._craftRequestId = (botState._craftRequestId || 0) + 1
   return botState._craftRequestId
-}
-
-function slotInfo (containerId, slot, stackId = 0) {
-  return { slot_type: { container_id: containerId, dynamic_container_id: 0 }, slot, stack_id: stackId || 0 }
-}
-
-function inventorySlotInfo (slot, stackId = 0) {
-  return slot < 9
-    ? slotInfo(CONTAINER.hotbar, slot, stackId)
-    : slotInfo(CONTAINER.inventory, slot - 9, stackId)
 }
 
 function recipeBody (entry) {
@@ -299,7 +289,7 @@ function buildActions (botState, craft) {
     actions.push({
       type_id: ACTION.consume,
       count: placement.count,
-      source: inventorySlotInfo(placement.slot, placement.stackId),
+      source: inventoryRequestSlotInfo(placement.slot, placement.stackId),
     })
   }
 
@@ -313,8 +303,8 @@ function buildActions (botState, craft) {
   actions.push({
     type_id: ACTION.take,
     count: craft.result.count,
-    source: slotInfo(CONTAINER.output, 0, outputStackId),
-    destination: inventorySlotInfo(craft.outSlot, destinationStackId),
+    source: requestSlotInfo(CONTAINER.output, 0, outputStackId),
+    destination: inventoryRequestSlotInfo(craft.outSlot, destinationStackId),
   })
 
   actions._craftEntry = craft.entry
@@ -358,20 +348,15 @@ function sendRequest (botState, actions) {
   })
 }
 
-function cloneItem (item, count) {
-  if (!item || count <= 0) return null
-  return new item.constructor(item.type, count, item.metadata, item.nbt, item.stackId, true)
-}
-
 function predictInventory (botState, craft) {
   for (const [slot, count] of craft.used) {
     const item = botState.inventory.slots[slot]
-    botState.inventory.updateSlot(slot, cloneItem(item, (item?.count || 0) - count))
+    botState.inventory.updateSlot(slot, cloneItem(item, (item?.count || 0) - count, { preserveIdentity: false }))
   }
 
   const existing = botState.inventory.slots[craft.outSlot]
   if (existing?.type === craft.result.network_id) {
-    botState.inventory.updateSlot(craft.outSlot, cloneItem(existing, existing.count + craft.result.count))
+    botState.inventory.updateSlot(craft.outSlot, cloneItem(existing, existing.count + craft.result.count, { preserveIdentity: false }))
     return
   }
 

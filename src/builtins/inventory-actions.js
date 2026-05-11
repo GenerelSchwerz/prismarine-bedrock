@@ -23,6 +23,7 @@
 //   botState.destroyOneInventoryItem(slot)
 
 const {
+  cloneItem,
   itemToRaw,
   logAction,
   selfRuntimeEntityId,
@@ -81,21 +82,6 @@ module.exports = function inventoryActionsPlugin (botState, options = {}) {
 
   function maxStackSize (item) {
     return item.stackSize || item.maxStackSize || 64
-  }
-
-  function cloneItem (item, count = item?.count) {
-    if (!item || count <= 0) return null
-
-    const clone = new item.constructor(item.type, count, item.metadata, item.nbt, item.stackId, true)
-    clone.stack_id = item.stack_id
-    clone.networkId = item.networkId
-    clone.network_id = item.network_id
-    clone.blockRuntimeId = item.blockRuntimeId
-    clone.block_runtime_id = item.block_runtime_id
-    clone.raw = item.raw
-    if (item.blocksCanPlaceOn) clone.blocksCanPlaceOn = item.blocksCanPlaceOn
-    if (item.blocksCanDestroy) clone.blocksCanDestroy = item.blocksCanDestroy
-    return clone
   }
 
   function setStackId (item, id) {

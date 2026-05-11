@@ -62,7 +62,8 @@ function waitForPacket (client, name, predicate = () => true, timeoutMs = 5000) 
 
 async function setupFlatPlacementArea (botState) {
   // Keep this small and deterministic.
-  // Places a stone support block with air above it.
+  // Places stone support blocks with air above them and gives the teleported
+  // bot a floor so the test does not depend on flying.
   setPlayerGamemode(botState, USERNAME, 'creative')
   await sleep(SETUP_DELAY_MS)
 
@@ -73,6 +74,9 @@ async function setupFlatPlacementArea (botState) {
   sendCommand(botState, 'setblock 0 65 0 minecraft:air')
   sendCommand(botState, 'setblock 1 64 0 minecraft:stone')
   sendCommand(botState, 'setblock 1 65 0 minecraft:air')
+  sendCommand(botState, 'setblock 0 65 3 minecraft:stone')
+  sendCommand(botState, 'setblock 0 66 3 minecraft:air')
+  sendCommand(botState, 'setblock 0 67 3 minecraft:air')
   teleportPlayer(botState, USERNAME, 0.5, 66, 3.5)
   await sleep(SETUP_DELAY_MS)
 }
@@ -154,6 +158,7 @@ describe('block placing integration', function () {
     try {
       sendCommand(botState, 'setblock 0 65 0 minecraft:air')
       sendCommand(botState, 'setblock 1 65 0 minecraft:air')
+      sendCommand(botState, 'setblock 0 65 3 minecraft:air')
       await sleep(250)
     } catch {}
 

@@ -128,12 +128,43 @@ function fullContainerName (containerId = 'inventory') {
   }
 }
 
+function requestSlotInfo (containerId, slot, stackId = 0) {
+  return {
+    slot_type: fullContainerName(containerId),
+    slot,
+    stack_id: stackId || 0
+  }
+}
+
+function inventoryRequestSlotInfo (slot, stackId = 0) {
+  return slot < 9
+    ? requestSlotInfo('hotbar', slot, stackId)
+    : requestSlotInfo('inventory', slot - 9, stackId)
+}
+
 function stackRequestSlotInfo (slot, item, containerId = 'inventory') {
   return {
     slot_type: fullContainerName(containerId),
     slot,
     stack_id: itemStackId(item)
   }
+}
+
+function cloneItem (item, count = item?.count, options = {}) {
+  if (!item || count <= 0) return null
+
+  const clone = new item.constructor(item.type, count, item.metadata, item.nbt, item.stackId, true)
+  if (options.preserveIdentity === false) return clone
+
+  clone.stack_id = item.stack_id
+  clone.networkId = item.networkId
+  clone.network_id = item.network_id
+  clone.blockRuntimeId = item.blockRuntimeId
+  clone.block_runtime_id = item.block_runtime_id
+  clone.raw = item.raw
+  if (item.blocksCanPlaceOn) clone.blocksCanPlaceOn = item.blocksCanPlaceOn
+  if (item.blocksCanDestroy) clone.blocksCanDestroy = item.blocksCanDestroy
+  return clone
 }
 
 function mergePatch (target, patch) {
@@ -183,7 +214,10 @@ module.exports = {
   toBedrockItem,
   selfRuntimeEntityId,
   fullContainerName,
+  requestSlotInfo,
+  inventoryRequestSlotInfo,
   stackRequestSlotInfo,
+  cloneItem,
   mergePatch,
   normalizeInputData,
   numberOrZero,

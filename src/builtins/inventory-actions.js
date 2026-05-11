@@ -8,6 +8,10 @@
 // Provides:
 //   botState.sendItemStackRequest(request)
 //   botState.waitForItemStackResponse(requestId)
+//   botState.setHeldItemSlot(slot)
+//   botState.selectHotbarSlot(slot)
+//   botState.equipItem(slot, [hotbarSlot])
+//   botState.equipInventorySlot(slot, [hotbarSlot])
 //   botState.swapInventorySlots(slotA, slotB)
 //   botState.moveInventorySlot(fromSlot, toSlot)
 //   botState.mergeInventorySlots(fromSlot, toSlot)
@@ -38,8 +42,35 @@ module.exports = function inventoryActionsPlugin (botState, options = {}) {
     return botState.inventory.slots[slot]
   }
 
+  function assertInventorySlot (slot, name = 'slot') {
+    if (!Number.isInteger(slot) || slot < 0 || slot >= botState.inventory.slots.length) {
+      throw new RangeError(`${name} must be an inventory slot between 0 and ${botState.inventory.slots.length - 1}`)
+    }
+  }
+
+  function assertHotbarSlot (slot, name = 'slot') {
+    if (!Number.isInteger(slot) || slot < 0 || slot > 8) {
+      throw new RangeError(`${name} must be a hotbar slot between 0 and 8`)
+    }
+  }
+
+  function isHotbarSlot (slot) {
+    return slot >= 0 && slot <= 8
+  }
+
   function stackId (item) {
     return item ? item.stackId ?? item.stack_id ?? 0 : 0
+  }
+
+  function itemToRaw (item) {
+    if (!item) return { network_id: 0 }
+    if (item.raw) return item.raw
+    if (typeof item.toNotch === 'function') return item.toNotch()
+    return botState.itemClass.toNotch(item)
+  }
+
+  function selfRuntimeEntityId () {
+    return botState.self?.runtimeId ?? botState.entity?.runtime_entity_id ?? client.entityId
   }
 
   function fullContainerName (containerId = 'inventory') {
@@ -118,6 +149,38 @@ module.exports = function inventoryActionsPlugin (botState, options = {}) {
     })
 
     return request.request_id
+  }
+
+  function selectHotbarSlot (slot) {
+    assertHotbarSlot(slot)
+
+    if (botState.heldItemSlot === slot) {
+      return itemAt(slot)
+    }
+
+    const runtimeEntityId = selfRuntimeEntityId()
+    if (runtimeEntityId == null) {
+      throw new Error('Cannot select hotbar slot before self entity is known')
+    }
+
+    const item = itemAt(slot)
+    client.queue('mob_equipment', {
+      runtime_entity_id: runtimeEntityId,
+      item: itemToRaw(item),
+      slot,
+      selected_slot: slot,
+      window_id: 'inventory'
+    })
+
+    botState.heldItemSlot = slot
+    botState.emit('held_item_slot_changed', slot, item)
+
+    logAction('[inventory-actions]', 'mob_equipment', {
+      slot,
+      item: item ? `${item.name} x${item.count}` : 'empty'
+    })
+
+    return item
   }
 
   function waitForItemStackResponse (id, timeoutMs = responseTimeoutMs) {
@@ -358,6 +421,25 @@ module.exports = function inventoryActionsPlugin (botState, options = {}) {
     return transactInventory(request, [slotA, slotB])
   }
 
+  async function equipItem (slot, hotbarSlot = 0) {
+    assertInventorySlot(slot)
+    assertHotbarSlot(hotbarSlot, 'hotbarSlot')
+
+    const item = itemAt(slot)
+    if (!item) throw new Error(`No item in slot ${slot}`)
+
+    if (slot === botState.heldItemSlot) return item
+
+    if (isHotbarSlot(slot)) {
+      selectHotbarSlot(slot)
+      return itemAt(slot)
+    }
+
+    await swapInventorySlots(slot, hotbarSlot)
+    selectHotbarSlot(hotbarSlot)
+    return itemAt(hotbarSlot)
+  }
+
   async function moveInventorySlot (fromSlot, toSlot) {
     const source = stackSlot(fromSlot)
     const destination = stackSlot(toSlot)
@@ -449,6 +531,10 @@ module.exports = function inventoryActionsPlugin (botState, options = {}) {
 
   botState.sendItemStackRequest = sendItemStackRequest
   botState.waitForItemStackResponse = waitForItemStackResponse
+  botState.setHeldItemSlot = selectHotbarSlot
+  botState.selectHotbarSlot = selectHotbarSlot
+  botState.equipItem = equipItem
+  botState.equipInventorySlot = equipItem
 
   botState.swapInventorySlots = swapInventorySlots
   botState.moveInventorySlot = moveInventorySlot

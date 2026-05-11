@@ -21,6 +21,7 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
   let startingTick = false;
   const tickMs = 50;
   const timerLeadMs = options.timerLeadMs ?? 16;
+  const maxCatchUpTicks = options.maxCatchUpTicks ?? 4;
 
   const chunkWaitRadius = options.chunkWaitRadius ?? 0;
   const chunkWaitTimeoutMs = options.chunkWaitTimeoutMs ?? 10000;
@@ -37,6 +38,13 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
     controls.setFlag('vertical_collision', !!self.verticalCollision);
 
     updateEyeDeltaAndTick(self, C);
+  }
+
+  async function sendMovementTick() {
+    await tickSimulation();
+
+    if (movementMode !== 'client') movementPackets.sendPlayerAuthInput(tickMs / 1000);
+    else movementPackets.sendMovePlayer(0, tickMs / 1000);
   }
 
   function sleep(ms) {
@@ -96,16 +104,29 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
           await waitUntil(nextTickAt);
           if (!tickInterval) return;
 
-          await tickSimulation();
+          const workStart = performance.now();
+          await sendMovementTick();
+          let workEnd = performance.now();
+          const workOverranTick = workEnd - workStart >= tickMs;
 
-          if (movementMode !== 'client') movementPackets.sendPlayerAuthInput(tickMs / 1000);
-          else movementPackets.sendMovePlayer(0, tickMs / 1000);
+          nextTickAt += tickMs;
+
+          if (workOverranTick) {
+            let catchUpTicks = 0;
+            while (tickInterval && nextTickAt <= workEnd && catchUpTicks < maxCatchUpTicks) {
+              await sendMovementTick();
+              nextTickAt += tickMs;
+              catchUpTicks++;
+              workEnd = performance.now();
+            }
+          } else if (nextTickAt <= workEnd) {
+            nextTickAt = workEnd + tickMs;
+          }
         } catch (err) {
           console.warn('[physics] tick error:', err?.stack || err);
         } finally {
           tickInProgress = false;
           if (tickInterval) {
-            nextTickAt += tickMs;
             if (nextTickAt <= performance.now() - tickMs) {
               nextTickAt = performance.now() + tickMs;
             }

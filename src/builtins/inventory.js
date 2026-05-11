@@ -243,9 +243,19 @@ function inject (botState, options) {
   })
 
   // ---------- mob_equipment ----------
-  const myEntityId = () => botState.entity?.runtime_entity_id
+  function sameRuntimeEntityId (a, b) {
+    if (a === b) return true
+    if (a == null || b == null) return false
+    try {
+      return BigInt(a) === BigInt(b)
+    } catch {
+      return false
+    }
+  }
+
+  const myEntityId = () => botState.self?.runtimeId ?? botState.entity?.runtime_entity_id ?? botState.client?.entityId
   botState.client.on('mob_equipment', (packet) => {
-    if (myEntityId() === undefined || packet.runtime_entity_id !== myEntityId()) return
+    if (!sameRuntimeEntityId(packet.runtime_entity_id, myEntityId())) return
     if (typeof packet.slot !== 'number') return
     const item = toItem(packet.item)
     const itemDesc = item ? `${item.name} x${item.count}` : 'empty'

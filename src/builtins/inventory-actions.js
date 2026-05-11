@@ -22,7 +22,12 @@
 //   botState.destroyInventorySlot(slot)
 //   botState.destroyOneInventoryItem(slot)
 
-const { logAction } = require('../utils')
+const {
+  itemToRaw,
+  logAction,
+  selfRuntimeEntityId,
+  stackRequestSlotInfo
+} = require('../utils')
 
 module.exports = function inventoryActionsPlugin (botState, options = {}) {
   const client = botState.client
@@ -58,42 +63,12 @@ module.exports = function inventoryActionsPlugin (botState, options = {}) {
     return slot >= 0 && slot <= 8
   }
 
-  function stackId (item) {
-    return item ? item.stackId ?? item.stack_id ?? 0 : 0
-  }
-
-  function itemToRaw (item) {
-    if (!item) return { network_id: 0 }
-    if (item.raw) return item.raw
-    if (typeof item.toNotch === 'function') return item.toNotch()
-    return botState.itemClass.toNotch(item)
-  }
-
-  function selfRuntimeEntityId () {
-    return botState.self?.runtimeId ?? botState.entity?.runtime_entity_id ?? client.entityId
-  }
-
-  function fullContainerName (containerId = 'inventory') {
-    return {
-      container_id: containerId,
-      dynamic_container_id: 0
-    }
-  }
-
   function stackSlot (slot) {
-    return {
-      slot_type: fullContainerName(),
-      slot,
-      stack_id: stackId(itemAt(slot))
-    }
+    return stackRequestSlotInfo(slot, itemAt(slot))
   }
 
   function stackSlotWithItem (slot, item) {
-    return {
-      slot_type: fullContainerName(),
-      slot,
-      stack_id: stackId(item)
-    }
+    return stackRequestSlotInfo(slot, item)
   }
 
   function countOf (slot) {
@@ -158,7 +133,7 @@ module.exports = function inventoryActionsPlugin (botState, options = {}) {
       return itemAt(slot)
     }
 
-    const runtimeEntityId = selfRuntimeEntityId()
+    const runtimeEntityId = selfRuntimeEntityId(botState)
     if (runtimeEntityId == null) {
       throw new Error('Cannot select hotbar slot before self entity is known')
     }
@@ -166,7 +141,7 @@ module.exports = function inventoryActionsPlugin (botState, options = {}) {
     const item = itemAt(slot)
     client.queue('mob_equipment', {
       runtime_entity_id: runtimeEntityId,
-      item: itemToRaw(item),
+      item: itemToRaw(item, botState.itemClass),
       slot,
       selected_slot: slot,
       window_id: 'inventory'

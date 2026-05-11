@@ -7,20 +7,10 @@
  *   botState.mouseOverEntity(entity)
  */
 
+const { toVec3f, itemToRaw } = require('../utils')
+
 module.exports = (botState) => {
   const client = botState.client
-
-  function vec3f (pos) {
-    return {
-      x: Number(pos.x),
-      y: Number(pos.y),
-      z: Number(pos.z)
-    }
-  }
-
-  function heldItemToNotch (item) {
-    return item ? item.toNotch() : { network_id: 0 }
-  }
 
   function queueMouseOverEntity (entity) {
     client.queue('interact', {
@@ -53,9 +43,9 @@ module.exports = (botState) => {
           entity_runtime_id: entity.runtimeId,
           action_type: actionType,
           hotbar_slot: opts.hotbarSlot ?? botState.heldItemSlot,
-          held_item: heldItemToNotch(opts.heldItem ?? botState.heldItem),
-          player_pos: vec3f(opts.position ?? botState.self.position),
-          click_pos: vec3f(opts.clickPos ?? { x: 0, y: 0, z: 0 })
+          held_item: itemToRaw(opts.heldItem ?? botState.heldItem, botState.itemClass),
+          player_pos: toVec3f(opts.position ?? botState.self.position),
+          click_pos: toVec3f(opts.clickPos ?? { x: 0, y: 0, z: 0 })
         }
       }
     })

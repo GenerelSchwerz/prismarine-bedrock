@@ -1,13 +1,5 @@
 const { Vec3 } = require('vec3')
-const { numberOrZero } = require('./input-controls')
-const { logAction } = require('../../utils')
-
-function deltaDeg (y1, y2) {
-  let d = (y1 - y2) % 360
-  if (d < -180) d += 360
-  else if (d > 180) d -= 360
-  return d
-}
+const { deltaDeg, logAction, numberOrZero } = require('../../utils')
 
 function createMovementPacketSender (botState, C) {
   const client = botState.client

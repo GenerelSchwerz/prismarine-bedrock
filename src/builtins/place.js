@@ -10,7 +10,7 @@
 //   - botState.itemClass.toNotch(stack) exists (prismarine-item provides it)
 
 const Vec3 = require('vec3').Vec3
-const { logAction } = require('../utils')
+const { getBlockRuntimeId: getRuntimeIdAt, itemToRaw: toRawItem, logAction } = require('../utils')
 
 /**
  * @param {import('../state')} botState
@@ -18,49 +18,6 @@ const { logAction } = require('../utils')
  */
 function inject (botState, options) {
   const client = botState.client
-
-  // ------------------------------------------------------------------
-  // Helper: construct the raw item representation for a prismarine-item stack
-  // ------------------------------------------------------------------
-  function itemToRaw (stack) {
-    if (!stack) {
-      // Empty item (network_id = 0)
-      return { network_id: 0 }
-    }
-    try {
-      // prismarine-item's toNotch returns the proper bedrock raw format
-      return botState.itemClass.toNotch(stack)
-    } catch (e) {
-      logAction('[place]', 'itemToRaw error', { msg: e.message })
-      // Fallback: return a minimal placeholder – may not work on strict servers
-      return {
-        network_id: stack.type,
-        count: stack.count,
-        metadata: 0,
-        block_runtime_id: 0,
-        extra: { can_place_on: [], can_destroy: [] }
-      }
-    }
-  }
-
-  // ------------------------------------------------------------------
-  // Helper: get the block runtime ID at a given world position
-  // ------------------------------------------------------------------
-  function getBlockRuntimeId (pos) {
-    try {
-      const block = botState.world.getBlock(pos)
-      // block.stateId should be set by the version-respecting prismarine-chunk
-      if (block && block.stateId != null) {
-        // In Bedrock, if block_network_ids_are_hashes is true, we need to use
-        // the hash mapping. For simplicity, assume normal (no hash) for now.
-        // You can extend this by checking registry.features.blockHashes.
-        return block.stateId
-      }
-    } catch (e) {
-      logAction('[place]', 'getBlockRuntimeId error', { pos: pos.toString(), msg: e.message })
-    }
-    return 0
-  }
 
   // ------------------------------------------------------------------
   // Helper: send the actual InventoryTransaction packet
@@ -113,10 +70,10 @@ function inject (botState, options) {
       block_position: { x: targetPos.x, y: targetPos.y, z: targetPos.z },
       face: face,
       hotbar_slot: heldSlot,
-      held_item: itemToRaw(heldItem),
+      held_item: toRawItem(heldItem, botState.itemClass),
       player_pos: { x: botState.spawnPosition.x, y: botState.spawnPosition.y, z: botState.spawnPosition.z },
       click_pos: { x: 0.5, y: 0.5, z: 0.5 }, // centre of the block face
-      block_runtime_id: getBlockRuntimeId(targetPos),
+      block_runtime_id: getRuntimeIdAt(botState, targetPos),
       client_prediction: 1, // success
       client_cooldown_state: 0 // off
     }
@@ -154,7 +111,7 @@ function inject (botState, options) {
       block_position: { x: targetPos.x, y: targetPos.y, z: targetPos.z },
       face: 1, // ignored for click_air
       hotbar_slot: heldSlot,
-      held_item: itemToRaw(heldItem),
+      held_item: toRawItem(heldItem, botState.itemClass),
       player_pos: { x: botState.spawnPosition.x, y: botState.spawnPosition.y, z: botState.spawnPosition.z },
       click_pos: { x: 0.5, y: 0.5, z: 0.5 },
       block_runtime_id: 0,

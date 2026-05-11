@@ -1,6 +1,8 @@
 // builtins/auth-input.js
 // Shared pre-send hook point for player_auth_input packets.
 
+const { mergePatch, normalizeInputData } = require('../utils')
+
 const INPUT_FLAG = {
   ascend: 0n,
   descend: 1n,
@@ -73,24 +75,6 @@ const INPUT_FLAG_BY_BIT = Object.fromEntries(
   Object.entries(INPUT_FLAG).map(([name, bit]) => [bit.toString(), name])
 )
 
-function normalizeInputData (inputData) {
-  if (inputData && typeof inputData === 'object') return inputData
-
-  const flags = {}
-  const value = BigInt(inputData || 0)
-  for (const [bit, name] of Object.entries(INPUT_FLAG_BY_BIT)) {
-    flags[name] = (value & (1n << BigInt(bit))) !== 0n
-  }
-  return flags
-}
-
-function mergePatch (target, patch) {
-  if (!patch) return
-  for (const [key, value] of Object.entries(patch)) {
-    target[key] = value
-  }
-}
-
 module.exports = function authInputPlugin (botState) {
   if (botState._authInputHooks) return
 
@@ -103,7 +87,7 @@ module.exports = function authInputPlugin (botState) {
     const bit = typeof flag === 'bigint' ? flag : INPUT_FLAG[flag]
     if (bit == null) throw new Error(`Unknown player_auth_input flag: ${flag}`)
 
-    packet.input_data = normalizeInputData(packet.input_data)
+    packet.input_data = normalizeInputData(packet.input_data, INPUT_FLAG_BY_BIT)
     const name = INPUT_FLAG_BY_BIT[bit.toString()]
     if (!name) throw new Error(`No protocol flag name for player_auth_input bit: ${bit}`)
     packet.input_data[name] = enabled

@@ -2,7 +2,7 @@
 // Auto-loaded by BotState._loadBuiltins().
 // Provides botState.dig(block).
 
-const { logAction } = require('../utils')
+const { logAction, toVec3i } = require('../utils')
 
 module.exports = (botState) => {
   const digState = {
@@ -16,14 +16,6 @@ module.exports = (botState) => {
   }
 
   botState.currentDig = digState
-
-  function vec3i (pos) {
-    return {
-      x: Math.floor(pos.x),
-      y: Math.floor(pos.y),
-      z: Math.floor(pos.z)
-    }
-  }
 
   function heldItem () {
     return botState.heldItem
@@ -71,7 +63,7 @@ module.exports = (botState) => {
     for (const action of actions) {
       packet.block_action.push({
         action,
-        position: vec3i(pos),
+        position: toVec3i(pos),
         face
       })
     }

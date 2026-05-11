@@ -1,8 +1,4 @@
-const { Vec3 } = require('vec3');
-
-function floorPos(pos) {
-  return new Vec3(Math.floor(pos.x), Math.floor(pos.y), Math.floor(pos.z));
-}
+const { floorVec3 } = require('../../utils');
 
 /**
  * @param {import('../../state') botState}
@@ -14,7 +10,7 @@ function createBedrockWorldAdapter(botState) {
 
   return {
     getBlock(pos) {
-      const block = botState.world.sync.getBlock(floorPos(pos));
+      const block = botState.world.sync.getBlock(floorVec3(pos));
 
       if (block && typeof block.then === 'function') {
         throw new Error(

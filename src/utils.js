@@ -1,3 +1,5 @@
+const Vec3 = require('vec3').Vec3
+
 let seq = 0
 
 function jsonSafeReplacer (_, value) {
@@ -21,7 +23,11 @@ function logAction (dir, packetName, detail = '') {
 
 function sameRuntimeId (a, b) {
   if (a == null || b == null) return false
-  return BigInt(a) === BigInt(b)
+  try {
+    return BigInt(a) === BigInt(b)
+  } catch {
+    return false
+  }
 }
 
 function toPlainId (value) {
@@ -29,4 +35,157 @@ function toPlainId (value) {
   return value
 }
 
-module.exports = { logAction, sameRuntimeId, toPlainId, jsonSafeReplacer }
+function toVec3f (pos) {
+  return {
+    x: Number(pos.x),
+    y: Number(pos.y),
+    z: Number(pos.z)
+  }
+}
+
+function toVec3i (pos) {
+  return {
+    x: Math.floor(pos.x),
+    y: Math.floor(pos.y),
+    z: Math.floor(pos.z)
+  }
+}
+
+function floorVec3 (pos) {
+  return new Vec3(Math.floor(pos.x), Math.floor(pos.y), Math.floor(pos.z))
+}
+
+function normalizeBlockPos (x, y, z) {
+  if (x instanceof Vec3 || (x && x.x !== undefined)) return floorVec3(x)
+  return new Vec3(Math.floor(x), Math.floor(y), Math.floor(z))
+}
+
+function withLayer (pos, layer = 0) {
+  if (pos.l !== undefined) return pos
+  return Object.assign(Object.create(pos), pos, { l: layer })
+}
+
+function getStateId (registry, runtimeId) {
+  return registry.blocksByRuntimeId?.[runtimeId]?.stateId
+}
+
+function getBlockRuntimeId (botState, pos) {
+  try {
+    const block = botState.world.getBlock(pos)
+    if (block?.stateId != null) return block.stateId
+  } catch (err) {
+    logAction('[utils]', 'getBlockRuntimeId error', { pos: pos.toString(), msg: err.message })
+  }
+
+  return 0
+}
+
+function rawStackId (raw) {
+  return raw?.stack_id ?? raw?.stackId ?? raw?.stack_network_id ?? raw?.network_stack_id
+}
+
+function itemStackId (item) {
+  return item ? item.stackId ?? item.stack_id ?? 0 : 0
+}
+
+function itemToRaw (item, itemClass) {
+  if (!item) return { network_id: 0 }
+  if (item.raw) return item.raw
+  try {
+    if (typeof item.toNotch === 'function') return item.toNotch()
+    if (itemClass && typeof itemClass.toNotch === 'function') return itemClass.toNotch(item)
+  } catch (err) {
+    logAction('[utils]', 'itemToRaw error', { msg: err.message })
+  }
+
+  return {
+    network_id: item.type,
+    count: item.count,
+    metadata: item.metadata ?? 0,
+    block_runtime_id: item.blockRuntimeId ?? item.block_runtime_id ?? 0,
+    extra: { can_place_on: [], can_destroy: [] }
+  }
+}
+
+function toBedrockItem (item) {
+  if (!item) return null
+  return {
+    network_id: item.type,
+    count: item.count,
+    metadata: item.metadata ?? 0,
+    stack_id: 0
+  }
+}
+
+function selfRuntimeEntityId (botState) {
+  return botState.self?.runtimeId ?? botState.entity?.runtime_entity_id ?? botState.client?.entityId
+}
+
+function fullContainerName (containerId = 'inventory') {
+  return {
+    container_id: containerId,
+    dynamic_container_id: 0
+  }
+}
+
+function stackRequestSlotInfo (slot, item, containerId = 'inventory') {
+  return {
+    slot_type: fullContainerName(containerId),
+    slot,
+    stack_id: itemStackId(item)
+  }
+}
+
+function mergePatch (target, patch) {
+  if (!patch) return
+  for (const [key, value] of Object.entries(patch)) {
+    target[key] = value
+  }
+}
+
+function normalizeInputData (inputData, flagByBit) {
+  if (inputData && typeof inputData === 'object') return inputData
+
+  const flags = {}
+  const value = BigInt(inputData || 0)
+  for (const [bit, name] of Object.entries(flagByBit)) {
+    flags[name] = (value & (1n << BigInt(bit))) !== 0n
+  }
+  return flags
+}
+
+function numberOrZero (value) {
+  return Number.isFinite(value) ? value : 0
+}
+
+function deltaDeg (y1, y2) {
+  let d = (y1 - y2) % 360
+  if (d < -180) d += 360
+  else if (d > 180) d -= 360
+  return d
+}
+
+module.exports = {
+  logAction,
+  sameRuntimeId,
+  toPlainId,
+  jsonSafeReplacer,
+  toVec3f,
+  toVec3i,
+  floorVec3,
+  normalizeBlockPos,
+  withLayer,
+  getStateId,
+  getBlockRuntimeId,
+  rawStackId,
+  itemStackId,
+  itemToRaw,
+  toBedrockItem,
+  selfRuntimeEntityId,
+  fullContainerName,
+  stackRequestSlotInfo,
+  mergePatch,
+  normalizeInputData,
+  numberOrZero,
+  deltaDeg
+}

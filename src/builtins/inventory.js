@@ -19,7 +19,7 @@
 
 const Item = require('prismarine-item')
 const createWindow = require('prismarine-windows')
-const { logAction } = require('../utils')
+const { logAction, rawStackId, sameRuntimeId, selfRuntimeEntityId } = require('../utils')
 
 // Map of Bedrock WindowType enum name -> prismarine-windows window type key
 // and the expected total slot count for that container.
@@ -127,10 +127,6 @@ function inject (botState, options) {
   // Helpers
   // ------------------------------------------------------------------
   let loggedRawItemIdentity = false
-
-  function rawStackId (raw) {
-    return raw.stack_id ?? raw.stackId ?? raw.stack_network_id ?? raw.network_stack_id
-  }
 
   function toItem (raw) {
     if (!raw || raw.network_id === 0) return null
@@ -243,19 +239,8 @@ function inject (botState, options) {
   })
 
   // ---------- mob_equipment ----------
-  function sameRuntimeEntityId (a, b) {
-    if (a === b) return true
-    if (a == null || b == null) return false
-    try {
-      return BigInt(a) === BigInt(b)
-    } catch {
-      return false
-    }
-  }
-
-  const myEntityId = () => botState.self?.runtimeId ?? botState.entity?.runtime_entity_id ?? botState.client?.entityId
   botState.client.on('mob_equipment', (packet) => {
-    if (!sameRuntimeEntityId(packet.runtime_entity_id, myEntityId())) return
+    if (!sameRuntimeId(packet.runtime_entity_id, selfRuntimeEntityId(botState))) return
     if (typeof packet.slot !== 'number') return
     const item = toItem(packet.item)
     const itemDesc = item ? `${item.name} x${item.count}` : 'empty'

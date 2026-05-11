@@ -1,4 +1,4 @@
-const Vec3 = require('vec3').Vec3;
+const { numberOrZero } = require('../../utils');
 
 function installControls(botState, C) {
   const controlState = {
@@ -143,10 +143,6 @@ function updateEyeDeltaAndTick(self, C) {
   self.unvalidatedPosition = self.position.clone();
   self.uncertainVelocity = null;
   self.tick = (self.tick || 0n) + 1n;
-}
-
-function numberOrZero(value) {
-  return Number.isFinite(value) ? value : 0;
 }
 
 module.exports = {

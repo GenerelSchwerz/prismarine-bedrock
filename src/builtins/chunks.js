@@ -1,28 +1,9 @@
 const Vec3 = require('vec3').Vec3;
 const nbt = require('prismarine-nbt');
+const { getStateId, normalizeBlockPos, withLayer } = require('../utils');
 
 // ── Helper types for blob store ──
 const BlobType = { ChunkSection: 0, Biomes: 1 };
-
-// ── Utility ──
-function withLayer(pos, layer = 0) {
-  if (pos.l !== undefined) return pos;
-  return Object.assign(Object.create(pos), pos, { l: layer });
-}
-
-function normalizeBlockPos(x, y, z) {
-  if (x instanceof Vec3 || (x && x.x !== undefined)) {
-    return new Vec3(Math.floor(x.x), Math.floor(x.y), Math.floor(x.z));
-  }
-
-  return new Vec3(Math.floor(x), Math.floor(y), Math.floor(z));
-}
-
-function getStateId(registry, runtimeId) {
-  const descriptor = registry.blocksByRuntimeId?.[runtimeId];
-  if (!descriptor) return undefined;
-  return descriptor.stateId;
-}
 
 /**
  * @param {import('../state')} botState

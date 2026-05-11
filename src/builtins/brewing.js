@@ -12,7 +12,7 @@
 // Methods are async so that the caller can await inventory updates
 // (a tick is yielded after each packet).
 
-const { logAction } = require('../utils');
+const { logAction, toBedrockItem } = require('../utils');
 
 // --------------------------------------------------------------------------
 // Plugin inject
@@ -42,21 +42,6 @@ module.exports = (botState, options) => {
       });
       setImmediate(resolve);
     });
-  }
-
-  // ------------------------------------------------------------------
-  // Helper: build a bedrock protocol Item union
-  // ------------------------------------------------------------------
-  function toBedrockItem (prismarineItem) {
-    if (!prismarineItem) return null;
-    // prismarine-item stores .type (numeric id), .count, .metadata (damage/variant)
-    return {
-      network_id: prismarineItem.type,
-      count: prismarineItem.count,
-      metadata: prismarineItem.metadata ?? 0,
-      // stack_id is not strictly required for simple transfers
-      stack_id: 0,
-    };
   }
 
   // ------------------------------------------------------------------

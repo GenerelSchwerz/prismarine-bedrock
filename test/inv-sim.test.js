@@ -1,5 +1,6 @@
 const assert = require("assert");
 const BotState = require("../src/state");
+const { clearPlayer, givePlayer } = require("./helpers/commands");
 
 const HOST = process.env.HOST || "localhost";
 const PORT = parseInt(process.env.PORT, 10) || 19132;
@@ -31,12 +32,12 @@ async function setupInventory(botState) {
 
 //   botState.client.on("text", listener);
 
-  botState.command(`clear .${USERNAME}`);
+  clearPlayer(botState, USERNAME);
   await sleep(SETUP_DELAY_MS);
 
-  botState.command(`give .${USERNAME} minecraft:diamond 3`);
-  botState.command(`give .${USERNAME} minecraft:stick 5`);
-  botState.command(`give .${USERNAME} minecraft:dirt 7`);
+  givePlayer(botState, USERNAME, "diamond", 3);
+  givePlayer(botState, USERNAME, "stick", 5);
+  givePlayer(botState, USERNAME, "dirt", 7);
   await sleep(SETUP_DELAY_MS);
 
 //   botState.client.off("text", listener);

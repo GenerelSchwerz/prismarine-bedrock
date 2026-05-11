@@ -7,7 +7,7 @@ const USERNAME = "OpBot";
 const OFFLINE = process.env.OFFLINE !== "false";
 const VERSION = process.env.MC_VERSION || "1.21.130";
 
-const SETUP_DELAY_MS = Number(process.env.SETUP_DELAY_MS || 1000);
+const SETUP_DELAY_MS = Number(process.env.SETUP_DELAY_MS || 500);
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -25,25 +25,21 @@ function waitForSpawn(botState, timeoutMs = 30000) {
 }
 
 async function setupInventory(botState) {
-  const listener = (packet) => {
-    console.log("[command text response]", packet);
-  };
+//   const listener = (packet) => {
+//     console.log("[command text response]", packet);
+//   };
 
-  botState.client.on("text", listener);
+//   botState.client.on("text", listener);
 
   botState.command(`clear .${USERNAME}`);
   await sleep(SETUP_DELAY_MS);
 
   botState.command(`give .${USERNAME} minecraft:diamond 3`);
-  await sleep(SETUP_DELAY_MS);
-
   botState.command(`give .${USERNAME} minecraft:stick 5`);
-  await sleep(SETUP_DELAY_MS);
-
   botState.command(`give .${USERNAME} minecraft:dirt 7`);
   await sleep(SETUP_DELAY_MS);
 
-  botState.client.off("text", listener);
+//   botState.client.off("text", listener);
 }
 
 function cloneItem(item) {

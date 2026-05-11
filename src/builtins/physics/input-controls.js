@@ -130,22 +130,16 @@ function installControls(botState, C) {
 }
 
 function updateEyeDeltaAndTick(self, C) {
-  const previousEye = self._prevEye;
-  const eyeNow = {
-    x: self.position.x,
-    y: self.position.y + C.EYE_HEIGHT,
-    z: self.position.z
+  self.delta = {
+    x: numberOrZero(self.velocity?.x),
+    y: numberOrZero(self.velocity?.y),
+    z: numberOrZero(self.velocity?.z)
   };
 
-  self.delta = previousEye
-    ? {
-        x: numberOrZero(eyeNow.x - previousEye.x),
-        y: numberOrZero(eyeNow.y - previousEye.y),
-        z: numberOrZero(eyeNow.z - previousEye.z)
-      }
-    : { x: 0, y: 0, z: 0 };
+  if (self.verticalCollision && self.delta.y >= 0) {
+    self.delta.y = -C.GRAVITY;
+  }
 
-  self._prevEye = eyeNow;
   self.unvalidatedPosition = self.position.clone();
   self.uncertainVelocity = null;
   self.tick = (self.tick || 0n) + 1n;

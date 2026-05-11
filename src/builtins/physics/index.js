@@ -1,4 +1,5 @@
 const { Vec3 } = require('vec3');
+const { performance } = require('perf_hooks');
 const { getConstants } = require('../physics-constants');
 const { createBedrockWorldAdapter } = require('./bedrock-world-adapter');
 const { createNxgPhysicsAdapter, installBedrockMovementStateHandlers } = require('./nxg-physics-utils-adapter');
@@ -18,6 +19,8 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
   let movementMode = 'server';
   let tickInProgress = false;
   let startingTick = false;
+  const tickMs = 50;
+  const timerLeadMs = options.timerLeadMs ?? 16;
 
   const chunkWaitRadius = options.chunkWaitRadius ?? 0;
   const chunkWaitTimeoutMs = options.chunkWaitTimeoutMs ?? 10000;
@@ -34,6 +37,23 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
     controls.setFlag('vertical_collision', !!self.verticalCollision);
 
     updateEyeDeltaAndTick(self, C);
+  }
+
+  function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  function yieldImmediate() {
+    return new Promise(resolve => setImmediate(resolve));
+  }
+
+  async function waitUntil(deadline) {
+    while (tickInterval) {
+      const remaining = deadline - performance.now();
+      if (remaining <= 0) return;
+      if (remaining > 2) await sleep(Math.max(0, remaining - 2));
+      else await yieldImmediate();
+    }
   }
 
   async function waitForChunksAroundSelf() {
@@ -61,35 +81,51 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
       if (!ready) throw new Error('[physics] nearby chunks did not load before physics start');
       if (tickInterval) return;
 
-      let lastTick = Date.now();
+      let nextTickAt = performance.now() + tickMs;
       if (botState.self) botState.self._prevEye = null;
 
-      tickInterval = setInterval(async () => {
-        if (tickInProgress) return;
+      async function runTickLoop() {
+        if (!tickInterval) return;
+        if (tickInProgress) {
+          tickInterval = setTimeout(runTickLoop, 1);
+          return;
+        }
         tickInProgress = true;
 
         try {
-          const now = Date.now();
-          const dt = (now - lastTick) / 1000;
-          lastTick = now;
+          await waitUntil(nextTickAt);
+          if (!tickInterval) return;
 
           await tickSimulation();
 
-          if (movementMode !== 'client') movementPackets.sendPlayerAuthInput(dt);
-          else movementPackets.sendMovePlayer(0, dt);
+          if (movementMode !== 'client') movementPackets.sendPlayerAuthInput(tickMs / 1000);
+          else movementPackets.sendMovePlayer(0, tickMs / 1000);
         } catch (err) {
           console.warn('[physics] tick error:', err?.stack || err);
         } finally {
           tickInProgress = false;
+          if (tickInterval) {
+            nextTickAt += tickMs;
+            if (nextTickAt <= performance.now() - tickMs) {
+              nextTickAt = performance.now() + tickMs;
+            }
+
+            tickInterval = setTimeout(
+              runTickLoop,
+              Math.max(0, nextTickAt - performance.now() - timerLeadMs)
+            );
+          }
         }
-      }, 50);
+      }
+
+      tickInterval = setTimeout(runTickLoop, Math.max(0, tickMs - timerLeadMs));
     } finally {
       startingTick = false;
     }
   }
 
   function stopTick() {
-    if (tickInterval) clearInterval(tickInterval);
+    if (tickInterval) clearTimeout(tickInterval);
     tickInterval = null;
     tickInProgress = false;
     startingTick = false;

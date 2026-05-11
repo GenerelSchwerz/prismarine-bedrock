@@ -1,191 +1,162 @@
 // builtins/dig.js
 // Auto-loaded by BotState._loadBuiltins().
-// Provides botState.dig(targetBlock) and listens for block updates.
-//
-// Loads block hardness/diggable from a prismarine-registry instance (passed in options).
-// Uses prismarine-block's digTime() when available to avoid hardcoded tool multipliers.
-// Falls back to a minimal tool-speed map (still hardcoded but clearly noted).
+// Provides botState.dig(block).
 
-const { logAction } = require('../utils');
+const { logAction } = require('../utils')
 
-// --------------------------------------------------------------------------
-// Tool multiplier fallback (only used when prismarine-block is not available)
-// --------------------------------------------------------------------------
-const FALLBACK_TOOL_MULTIPLIER = {
-  wooden_pickaxe:    2.0,
-  stone_pickaxe:     2.5,
-  iron_pickaxe:      3.0,
-  golden_pickaxe:    2.0,
-  diamond_pickaxe:   4.0,
-  netherite_pickaxe: 5.0,
-  wooden_shovel:     1.5,
-  stone_shovel:      2.0,
-  iron_shovel:       2.5,
-  golden_shovel:     1.5,
-  diamond_shovel:    3.0,
-  netherite_shovel:  4.0,
-  wooden_axe:        2.0,
-  stone_axe:         2.5,
-  iron_axe:          3.0,
-  golden_axe:        2.0,
-  diamond_axe:       4.0,
-  netherite_axe:     5.0,
-  __default:         1.0,
-}
-
-// --------------------------------------------------------------------------
-// Compute dig time (ms) – uses prismarine-block if available
-// --------------------------------------------------------------------------
-function calcDigTime (registry, blockName, heldItemName) {
-  const blockInfo = registry.blocksByName[blockName?.replace('minecraft:', '')]
-
-  if (!blockInfo) {
-    // unknown block – fallback
-    const oldFallback = 0.8
-    return Math.max(100, (oldFallback / 1.0) * 1000)
-  }
-
-  if (!blockInfo.diggable || blockInfo.hardness < 0) {
-    return Infinity
-  }
-
-  // If prismarine-block is available, use its authoritative digTime()
-  let Block
-  try {
-    Block = require('prismarine-block')(registry)
-  } catch (e) {
-    // prismarine-block not installed – use fallback
-  }
-
-  if (Block && typeof Block.getDigTime === 'function') {
-    // Construct a fake block object with the properties prismarine-block expects
-    const fakeBlock = {
-      name: blockInfo.name,
-      hardness: blockInfo.hardness,
-      diggable: blockInfo.diggable,
-      material: blockInfo.material,
-      harvestTools: blockInfo.harvestTools,
-    }
-    const fakeHeldItem = heldItemName
-      ? { name: heldItemName.replace('minecraft:', '') }
-      : null
-    return Block.getDigTime(fakeBlock, fakeHeldItem)
-  }
-
-  // Fallback: manual formula (uses hardcoded multipliers – see note above)
-  const heldName = (heldItemName || '').replace('minecraft:', '').toLowerCase()
-  const toolMult = FALLBACK_TOOL_MULTIPLIER[heldName] ?? FALLBACK_TOOL_MULTIPLIER.__default
-
-  let baseSecs = blockInfo.hardness * 1.5
-
-  // Simple tool-penalty check (not as accurate as prismarine-block)
-  if (blockInfo.harvestTools && Object.keys(blockInfo.harvestTools).length > 0 && toolMult <= 1.0) {
-    baseSecs *= 3.0
-  }
-
-  const finalSecs = baseSecs / toolMult
-  return Math.max(100, finalSecs * 1000)
-}
-
-// --------------------------------------------------------------------------
-// Plugin inject
-// --------------------------------------------------------------------------
-module.exports = (botState, options = {}) => {
-  const registry = botState.registry
-  if (!registry) {
-    throw new Error('dig.js requires a prismarine-registry instance in options.registry')
-  }
-
+module.exports = (botState) => {
   const digState = {
     target: null,
-    timeout: null,
     startTime: null,
+    startTick: null,
+    digTicks: null,
+    face: null,
+    started: false,
+    unhook: null
   }
+
   botState.currentDig = digState
 
-  const client = botState.client
+  function vec3i (pos) {
+    return {
+      x: Math.floor(pos.x),
+      y: Math.floor(pos.y),
+      z: Math.floor(pos.z)
+    }
+  }
 
-  function digBlock (block) {
+  function heldItem () {
+    return botState.heldItem
+  }
+
+  function heldItemType () {
+    return heldItem()?.type ?? null
+  }
+
+  function digTime (block) {
+    return block.digTime(heldItemType(), false, false, !botState.self.onGround)
+  }
+
+  function clearDigState () {
+    digState.unhook?.()
+
+    digState.target = null
+    digState.startTime = null
+    digState.startTick = null
+    digState.digTicks = null
+    digState.face = null
+    digState.started = false
+    digState.unhook = null
+  }
+
+  function blockFace (pos) {
+    const eye = botState.self.position.offset(0, 1.62, 0)
+    const center = {
+      x: Math.floor(pos.x) + 0.5,
+      y: Math.floor(pos.y) + 0.5,
+      z: Math.floor(pos.z) + 0.5
+    }
+    const dx = eye.x - center.x
+    const dy = eye.y - center.y
+    const dz = eye.z - center.z
+
+    if (Math.abs(dy) >= Math.abs(dx) && Math.abs(dy) >= Math.abs(dz)) return dy > 0 ? 1 : 0
+    if (Math.abs(dx) >= Math.abs(dz)) return dx > 0 ? 5 : 4
+    return dz > 0 ? 3 : 2
+  }
+
+  function appendBlockActions (packet, actions, pos, face) {
+    botState.setAuthInputFlag(packet, 'block_action', true)
+    packet.block_action ??= []
+    for (const action of actions) {
+      packet.block_action.push({
+        action,
+        position: vec3i(pos),
+        face
+      })
+    }
+  }
+
+  function installDigHook () {
+    digState.unhook = botState.onPlayerAuthInputPreSend(packet => {
+      if (!digState.target) return
+
+      if (digState.startTick === null) digState.startTick = packet.tick
+
+      const elapsedTicks = Number(BigInt(packet.tick) - BigInt(digState.startTick))
+      let actions
+      if (!digState.started) {
+        digState.startTime = Date.now()
+        actions = ['start_break']
+      } else if (elapsedTicks >= digState.digTicks) {
+        actions = ['continue_break', 'predict_break']
+      } else {
+        actions = ['continue_break']
+      }
+
+      digState.started = true
+      appendBlockActions(packet, actions, digState.target, digState.face)
+
+      if (actions.includes('predict_break')) {
+        logAction('[dig]', 'predict break', {
+          pos: digState.target.toString(),
+          dugMs: Date.now() - digState.startTime,
+          dugTicks: elapsedTicks
+        })
+
+        clearDigState()
+      }
+    })
+  }
+
+  async function digBlock (block) {
     if (digState.target) {
-      logAction('[dig]', 'already digging, ignoring', { target: digState.target })
-      return
+      throw new Error(`Already digging ${digState.target}`)
     }
 
-    if (!block) {
-      logAction('[dig]', 'called with null/undefined block')
-      return
+    if (!block.diggable || block.hardness < 0) {
+      throw new Error(`Cannot dig block: ${block.name}`)
     }
 
     const pos = block.position
-    const blockName = block.name || 'unknown'
 
-    if (typeof botState.lookAt === 'function') {
-      botState.lookAt(pos)
-    }
+    // if (typeof botState.lookAt === 'function') {
+    //   await botState.lookAt(pos)
+    // }
 
-    client.queue('player_action', {
-      runtime_entity_id: client.entityId,
-      action: 'start_break',
-      position: { x: pos.x, y: pos.y, z: pos.z },
-      result_position: { x: 0, y: 0, z: 0 },
-      face: 0,
-    })
-
-    let heldItemName = ''
-    try {
-      if (botState.inventory) {
-        const held = botState.inventory.slots[0]
-        if (held) heldItemName = held.name
-      }
-    } catch (e) {}
-
-    const digMs = calcDigTime(registry, blockName, heldItemName)
-
-    if (!isFinite(digMs)) {
-      logAction('[dig]', 'cannot dig this block (undiggable or unbreakable)', { block: blockName })
-      return
-    }
+    const ms = digTime(block)
 
     digState.target = pos.clone()
-    digState.startTime = Date.now()
+    digState.startTime = null
+    digState.startTick = null
+    digState.digTicks = Math.max(1, Math.ceil(ms / 50))
+    digState.face = blockFace(pos)
+    installDigHook()
 
     logAction('[dig]', 'start break', {
-      block: blockName,
+      block: block.name,
       pos: pos.toString(),
-      digMs,
-      tool: heldItemName || '(empty)',
+      digMs: ms,
+      tool: heldItem()?.name || 'empty'
     })
-
-    digState.timeout = setTimeout(() => {
-      if (digState.target) {
-        client.queue('player_action', {
-          runtime_entity_id: client.entityId,
-          action: 'stop_break',
-          position: { x: pos.x, y: pos.y, z: pos.z },
-          result_position: { x: 0, y: 0, z: 0 },
-          face: 0,
-        })
-        logAction('[dig]', 'stop break', { pos: pos.toString(), dugMs: Date.now() - digState.startTime })
-        digState.target = null
-        digState.timeout = null
-        digState.startTime = null
-      }
-    }, digMs)
   }
 
   botState.dig = digBlock
 
-  client.on('update_block', (packet) => {
+  botState.client.on('update_block', (packet) => {
     if (!digState.target) return
-    const { position } = packet
-    if (position.x === digState.target.x &&
-        position.y === digState.target.y &&
-        position.z === digState.target.z) {
-      logAction('[dig]', 'block updated while digging, clearing timeout', { pos: digState.target.toString() })
-      if (digState.timeout) clearTimeout(digState.timeout)
-      digState.target = null
-      digState.timeout = null
-      digState.startTime = null
-    }
+
+    const pos = packet.position
+    if (
+      pos.x !== digState.target.x ||
+      pos.y !== digState.target.y ||
+      pos.z !== digState.target.z
+    ) return
+
+    logAction('[dig]', 'block updated while digging', {
+      pos: digState.target.toString()
+    })
+
+    clearDigState()
   })
 }

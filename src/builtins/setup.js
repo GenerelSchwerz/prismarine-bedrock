@@ -15,6 +15,7 @@ module.exports = (botState, options) => {
   botState.isDead = false;
   botState.respawnTimeout = null;
   botState.playerHealth = null;
+  botState.bedrockCraftingRecipes = [];
 
   // -- required because p-registry is bugged.
   function loadItemStates(itemStates) {
@@ -79,6 +80,14 @@ module.exports = (botState, options) => {
       count: packet.biome_definitions.length,
     });
     // Store if needed: botState.biomeStringList = packet.string_list;
+  });
+
+  // Bedrock server-authoritative recipes used by crafting/trading packet senders.
+  client.on('crafting_data', packet => {
+    botState.bedrockCraftingRecipes.push(...(packet.recipes || []));
+    if (!options.quietCraftingDataLog) {
+      logAction('[craft]', 'crafting_data', { recipes: botState.bedrockCraftingRecipes.length });
+    }
   });
 
   // ── Play Status (player_spawn → request_chunk_radius + set_local_player_as_initialized) ──

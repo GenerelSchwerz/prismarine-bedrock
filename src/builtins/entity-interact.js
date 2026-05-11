@@ -1,117 +1,78 @@
 /**
- * builtins/entityInteract.js
+ * builtins/entity-interact.js
  *
- * Plugin that adds async entity interaction methods to BotState.
- * Relies on the inventory.js plugin (or equivalent) to populate:
- *   botState.heldItem  – currently held item (getter from main inventory)
- *   botState.selectedSlot – currently selected hotbar slot index
- *
- * Methods added:
- *   botState.attackEntity(entity, opts?)     – left‑click attack
- *   botState.interactEntity(entity, opts?)   – right‑click interact
- *   botState.mouseOverEntity(entity)         – highlight entity (client‑side hint)
- *
- * The bot's own position is read from botState.self.position (set by entities.js).
+ * Adds:
+ *   botState.attackEntity(entity, opts?)
+ *   botState.interactEntity(entity, opts?)
+ *   botState.mouseOverEntity(entity)
  */
 
-const { Vec3 } = require('vec3');
-
 module.exports = (botState) => {
-  const client = botState.client;
+  const client = botState.client
 
-  // ── Resolve an entity argument to its runtime ID ──
-  function resolveEntityRuntimeId(entity) {
-    return (
-      entity?.runtime_id ??
-      entity?.id ??
-      entity?.runtime_entity_id ??
-      entity
-    );
+  function vec3f (pos) {
+    return {
+      x: Number(pos.x),
+      y: Number(pos.y),
+      z: Number(pos.z)
+    }
   }
 
-  // ── Internal helper: queue an item_use_on_entity transaction ──
-  function queueItemUseOnEntity(entityRuntimeId, actionType, opts) {
-    const pos = opts.position || botState.self?.position || new Vec3(0, 0, 0);
-    const slot = opts.hotbar_slot ?? botState.selectedSlot;
-    const item = opts.held_item ?? botState.heldItem;
-
-    client.queue('inventory_transaction', {
-      legacy: { legacy_request_id: 0, legacy_transactions: [] },
-      transaction_type: 3,                   // item_use_on_entity
-      actions: [],
-      transaction_data: {
-        entity_runtime_id: entityRuntimeId,
-        action_type: actionType,             // 0 = interact, 1 = attack
-        hotbar_slot: slot,
-        held_item: item,
-        player_pos: { x: pos.x, y: pos.y, z: pos.z },
-        click_pos: opts.click_pos ?? { x: 0, y: 0, z: 0 },
-      },
-    });
+  function heldItemToNotch (item) {
+    return item ? item.toNotch() : { network_id: 0 }
   }
 
-  // ── Attack an entity (left‑click) ──
-  //
-  // Sends a swing_arm animation followed by an inventory transaction with
-  // action_type=1 (attack).
-  //
-  // @param {object|number} entity   – Entity object with a runtime ID, or raw runtime ID
-  // @param {object}        [opts]
-  // @param {Vec3}          [opts.position]   – Override player position
-  // @param {number}        [opts.hotbar_slot]– Override hotbar slot
-  // @param {object}        [opts.held_item]  – Override held item (Item format)
-  // @param {object}        [opts.click_pos]  – Override click position relative to entity
-  // @returns {Promise<void>}
-  //
-  botState.attackEntity = async (entity, opts = {}) => {
-    const runtimeId = resolveEntityRuntimeId(entity);
-    if (runtimeId == null) throw new Error('Cannot attack: entity has no runtime_id');
+  function queueMouseOverEntity (entity) {
+    client.queue('interact', {
+      action_id: 'mouse_over_entity',
+      target_entity_id: entity.runtimeId,
+      has_position: false
+    })
+  }
 
-    // Swing arm animation
+  function queueSwingArm () {
     client.queue('animate', {
-      action_id: 1, // swing_arm
-      runtime_entity_id: client.entityId,
+      action_id: 1,
+      runtime_entity_id: botState.self.runtimeId,
       data: 0,
       has_swing_source: false,
-      swing_source: '',
-    });
+      swing_source: ''
+    })
+  }
 
-    queueItemUseOnEntity(runtimeId, 1, opts);
-  };
+  function queueItemUseOnEntity (entity, actionType, opts = {}) {
+    client.queue('inventory_transaction', {
+      transaction: {
+        legacy: {
+          legacy_request_id: 0,
+          legacy_transactions: []
+        },
+        transaction_type: 'item_use_on_entity',
+        actions: [],
+        transaction_data: {
+          entity_runtime_id: entity.runtimeId,
+          action_type: actionType,
+          hotbar_slot: opts.hotbarSlot ?? botState.heldItemSlot,
+          held_item: heldItemToNotch(opts.heldItem ?? botState.heldItem),
+          player_pos: vec3f(opts.position ?? botState.self.position),
+          click_pos: vec3f(opts.clickPos ?? { x: 0, y: 0, z: 0 })
+        }
+      }
+    })
+  }
 
-  // ── Right‑click / interact with an entity ──
-  //
-  // Sends an inventory transaction with action_type=0 (interact).
-  // Used for trading, NPC interaction, etc.
-  //
-  // @param {object|number} entity
-  // @param {object}        [opts]     – Same options as attackEntity
-  // @returns {Promise<void>}
-  //
+  botState.attackEntity = async (entity, opts = {}) => {
+    if (opts.mouseOver !== false) queueMouseOverEntity(entity)
+    queueItemUseOnEntity(entity, 'attack', opts)
+    if (opts.swing !== false) queueSwingArm()
+  }
+
   botState.interactEntity = async (entity, opts = {}) => {
-    const runtimeId = resolveEntityRuntimeId(entity);
-    if (runtimeId == null) throw new Error('Cannot interact: entity has no runtime_id');
+    if (opts.mouseOver !== false) queueMouseOverEntity(entity)
+    queueItemUseOnEntity(entity, 'interact', opts)
+  }
 
-    queueItemUseOnEntity(runtimeId, 0, opts);
-  };
-
-  // ── Mouse‑over an entity (for targeting / highlighting) ──
-  //
-  // Uses the Interact packet (0x21) with action_id=4 (mouse_over_entity).
-  // This is a purely visual client‑side hint, not an attack or interaction.
-  //
-  // @param {object|number} entity
-  // @returns {Promise<void>}
-  //
   botState.mouseOverEntity = async (entity) => {
-    const runtimeId = resolveEntityRuntimeId(entity);
-    if (runtimeId == null) throw new Error('Cannot mouse-over: entity has no runtime_id');
-
-    client.queue('interact', {
-      action_id: 4,   // mouse_over_entity
-      target_entity_id: runtimeId,
-      has_position: false,
-      position: null,
-    });
-  };
-};
+    queueMouseOverEntity(entity)
+  }
+}

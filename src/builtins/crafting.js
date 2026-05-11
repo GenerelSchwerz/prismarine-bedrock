@@ -1,6 +1,8 @@
 // builtins/crafting.js
 // Auto-loaded by BotState._loadBuiltins().
 
+const { buildStatic } = require('mineflayer-crafting-util')
+const recipeLoader = require('prismarine-recipe')
 const { logAction } = require('../utils')
 
 const CONTAINER = {
@@ -105,6 +107,7 @@ function flattenIngredients (entry) {
 }
 
 function isTableRecipe (entry) {
+  if (entry?._craftingUtilRecipe) return !!entry._craftingUtilRecipe.requiresTable
   const recipe = recipeBody(entry)
   if (!recipe) return false
   return (entry.type === 'shaped' || entry.type === 1) && (recipe.width > 2 || recipe.height > 2)
@@ -152,39 +155,99 @@ function outputSlot (botState, result, used) {
   return null
 }
 
-function findCraft (botState, itemId, count) {
-  for (const entry of botState.bedrockCraftingRecipes || []) {
+function makeCraftFromEntry (botState, entry, itemId, count) {
+  const result = recipeResult(entry, itemId)
+  if (!result?.count) return null
+
+  const times = Math.ceil(count / result.count)
+  if (times > 255) return null
+
+  const ingredients = flattenIngredients(entry)
+  if (ingredients.length === 0) return null
+
+  const placements = reserveIngredients(botState, ingredients, times)
+  if (!placements) return null
+
+  const used = new Map()
+  for (const placement of placements) {
+    used.set(placement.slot, (used.get(placement.slot) || 0) + placement.count)
+  }
+
+  const outSlot = outputSlot(botState, { ...result, count: result.count * times }, used)
+  if (outSlot == null) return null
+
+  return {
+    entry,
+    baseResult: result,
+    result: { ...result, count: result.count * times },
+    ingredients,
+    placements,
+    outSlot,
+    times,
+    used,
+  }
+}
+
+function findCraftInEntries (botState, entries, itemId, count) {
+  for (const entry of entries || []) {
     if (recipeNetworkId(entry) == null) continue
-    const result = recipeResult(entry, itemId)
-    if (!result?.count) continue
+    const craft = makeCraftFromEntry(botState, entry, itemId, count)
+    if (craft) return craft
+  }
 
-    const times = Math.ceil(count / result.count)
-    if (times > 255) continue
+  return null
+}
 
-    const ingredients = flattenIngredients(entry)
-    if (ingredients.length === 0) continue
+function utilRecipeName (recipe) {
+  return recipe?.name || recipe?.recipe_id || ''
+}
 
-    const placements = reserveIngredients(botState, ingredients, times)
-    if (!placements) continue
+function entryRecipeId (entry) {
+  return recipeBody(entry)?.recipe_id || entry?.recipe_id || ''
+}
 
-    const used = new Map()
-    for (const placement of placements) {
-      used.set(placement.slot, (used.get(placement.slot) || 0) + placement.count)
-    }
+function entryResultId (entry) {
+  const output = recipeOutputs(entry)[0]
+  return output?.network_id ?? output?.id
+}
 
-    const outSlot = outputSlot(botState, { ...result, count: result.count * times }, used)
-    if (outSlot == null) continue
+function liveItemIdByName (botState, name) {
+  if (!name) return undefined
+  return botState.registry.itemsByName?.[name.replace(/^minecraft:/, '')]?.id
+}
 
-    return {
-      entry,
-      baseResult: result,
-      result: { ...result, count: result.count * times },
-      ingredients,
-      placements,
-      outSlot,
-      times,
-      used,
-    }
+function utilityOutputItemIds (botState, recipe) {
+  const resultName = recipe?.result?.name?.replace(/^minecraft:/, '')
+  const recipeName = utilRecipeName(recipe).replace(/^minecraft:/, '')
+  const ids = [
+    liveItemIdByName(botState, recipeName),
+    liveItemIdByName(botState, resultName),
+    recipe?.result?.id,
+  ].filter(id => id != null)
+
+  return [...new Set(ids)]
+}
+
+function resolveCraftStep (botState, step) {
+  if (step?.entry) return step
+
+  const recipe = step?._craftingUtilRecipe
+  if (!recipe?.result?.id) return null
+
+  const count = (recipe.result.count || 1) * (step.recipeApplications || 1)
+  const recipeName = utilRecipeName(recipe)
+  const itemIds = utilityOutputItemIds(botState, recipe)
+
+  for (const itemId of itemIds) {
+    const candidates = (botState.bedrockCraftingRecipes || [])
+      .filter(entry => entryResultId(entry) === itemId)
+
+    const named = recipeName
+      ? candidates.filter(entry => entryRecipeId(entry) === recipeName)
+      : []
+
+    const craft = findCraftInEntries(botState, named.concat(candidates.filter(entry => !named.includes(entry))), itemId, count)
+    if (craft) return craft
   }
 
   return null
@@ -323,29 +386,74 @@ function predictInventory (botState, craft) {
   botState.inventory.updateSlot(craft.outSlot, item)
 }
 
+function inventorySummary (botState) {
+  return botState.inventory.slots
+    .filter(item => item != null && item.count > 0)
+    .map(item => ({ id: item.type, count: item.count }))
+}
+
+function simplifyUtilityStep (step) {
+  const recipe = step.recipe
+  return {
+    _craftingUtilRecipe: {
+      name: recipe.name,
+      result: recipe.result,
+      delta: recipe.delta,
+      requiresTable: recipe.requiresTable,
+    },
+    recipeApplications: step.recipeApplications,
+  }
+}
+
+async function craftingUtilPlanner (botState) {
+  if (!botState._craftingUtilPlannerPromise) {
+    const { Recipe } = recipeLoader(botState.registry)
+    botState._craftingUtilPlannerPromise = buildStatic(Recipe)
+  }
+  return botState._craftingUtilPlannerPromise
+}
+
+async function planWithCraftingUtil (botState, wantedItem) {
+  try {
+    const planner = await craftingUtilPlanner(botState)
+    return planner(wantedItem, {
+      availableItems: inventorySummary(botState),
+      careAboutExisting: false,
+      includeRecursion: true,
+      multipleRecipes: true,
+    })
+  } catch (err) {
+    return { success: false, error: err.message }
+  }
+}
+
 module.exports = async (botState, options = {}) => {
-  botState.bedrockCraftingRecipes = []
-
-  botState.client.on('crafting_data', packet => {
-    botState.bedrockCraftingRecipes.push(...(packet.recipes || []))
-    if (!options.quietCraftingDataLog) {
-      logAction('[craft]', 'crafting_data', { recipes: botState.bedrockCraftingRecipes.length })
+  botState.planCraftInventory = async (wantedItem) => {
+    const utilPlan = await planWithCraftingUtil(botState, wantedItem)
+    if (utilPlan.success && Array.isArray(utilPlan.recipesToDo)) {
+      return {
+        ...utilPlan,
+        source: 'mineflayer-crafting-util',
+        recipesToDo: utilPlan.recipesToDo.map(simplifyUtilityStep),
+      }
     }
-  })
 
-  botState.planCraftInventory = (wantedItem) => {
-    const craft = findCraft(botState, wantedItem.id, wantedItem.count)
-    return craft
-      ? { success: true, recipesToDo: [craft], requiresCraftingTable: isTableRecipe(craft.entry) }
-      : { success: false, error: `No craftable recipe for item ${wantedItem.id}x${wantedItem.count}` }
+    return {
+      ...utilPlan,
+      source: 'mineflayer-crafting-util',
+      utilityError: utilPlan.error,
+    }
   }
 
+  botState.planCraftInventoryWithUtil = botState.planCraftInventory
   botState.planCraft = botState.planCraftInventory
 
   botState.craftPlan = async (plan, craftingTableBlock) => {
     if (!plan?.success) throw new Error(plan?.error || 'Cannot craft unsuccessful plan')
 
-    for (const craft of plan.recipesToDo) {
+    for (const step of plan.recipesToDo) {
+      const craft = resolveCraftStep(botState, step)
+      if (!craft) throw new Error('Could not resolve craft plan step against Bedrock crafting_data')
       if (isTableRecipe(craft.entry)) await openCraftingTable(botState, craftingTableBlock)
       await sendRequest(botState, buildActions(botState, craft))
       predictInventory(botState, craft)
@@ -355,7 +463,7 @@ module.exports = async (botState, options = {}) => {
   }
 
   botState.craftItem = async (itemId, count, craftingTableBlock) => {
-    const plan = botState.planCraftInventory({ id: itemId, count })
+    const plan = await botState.planCraftInventory({ id: itemId, count })
     await botState.craftPlan(plan, craftingTableBlock)
     return plan
   }

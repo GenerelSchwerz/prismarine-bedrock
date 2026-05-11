@@ -1,5 +1,6 @@
 # Agent Notes
 
+- For crafting changes, read `docs/crafting-util-implementation-notes.md` before editing `src/builtins/crafting.js`. It explains how `mineflayer-crafting-util` is bridged into the Bedrock packet sender.
 - For Bedrock protocol packet shapes, check the versioned `minecraft-data` sources before changing packet send/receive code. For the current test server version, use:
   - `node_modules/.pnpm/minecraft-data@3.109.1/node_modules/minecraft-data/minecraft-data/data/bedrock/1.21.130/proto.yml`
   - `node_modules/.pnpm/minecraft-data@3.109.1/node_modules/minecraft-data/minecraft-data/data/bedrock/1.21.130/types.yml`

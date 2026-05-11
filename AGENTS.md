@@ -1,54 +1,139 @@
 # Agent Notes
 
+## Crafting
+
 - For crafting changes, read `docs/crafting-util-implementation-notes.md` before editing `src/builtins/crafting.js`. It explains how `mineflayer-crafting-util` is bridged into the Bedrock packet sender.
-- For Bedrock protocol packet shapes, check the versioned `minecraft-data` sources before changing packet send/receive code. For the current test server version, use:
-  - `node_modules/.pnpm/minecraft-data@3.109.1/node_modules/minecraft-data/minecraft-data/data/bedrock/1.21.130/proto.yml`
-  - `node_modules/.pnpm/minecraft-data@3.109.1/node_modules/minecraft-data/minecraft-data/data/bedrock/1.21.130/types.yml`
-- In particular, verify `packet_item_stack_request`, `packet_item_stack_response`, `ItemStackRequest`, `StackRequestSlotInfo`, `FullContainerName`, and `ContainerSlotType` there when working on crafting, inventory, or trading behavior.
-- Before testing packet behavior against Geyser, round-trip any new packet shape through the local bedrock-protocol serializer/deserializer. This catches malformed conditional fields earlier and with less log noise than a server run. Example:
+
+## Bedrock Protocol Sources
+
+- For Bedrock protocol packet shapes, check the versioned `minecraft-data` sources before changing packet send/receive code.
+- For the current test server version, use the symlinked package paths:
+  - `node_modules/minecraft-data/minecraft-data/data/bedrock/1.21.130/proto.yml`
+  - `node_modules/minecraft-data/minecraft-data/data/bedrock/1.21.130/types.yml`
+- The pnpm store version currently installed is `minecraft-data@3.110.0`; avoid hard-coding older `.pnpm/minecraft-data@...` paths in notes or scripts.
+- In particular, verify these schema entries when working on crafting, inventory, or trading behavior:
+  - `packet_item_stack_request`
+  - `packet_item_stack_response`
+  - `ItemStackRequest`
+  - `ItemStackResponses`
+  - `StackRequestSlotInfo`
+  - `FullContainerName`
+  - `ContainerSlotType`
+
+## Packet Round-Trip Checks
+
+- Before testing packet behavior against Geyser, round-trip any new packet shape through the local `bedrock-protocol` serializer/deserializer. This catches malformed conditional fields earlier and with less server log noise.
+- Use:
 
 ```powershell
-@'
-const { createSerializer, createDeserializer } = require('bedrock-protocol/src/transforms/serializer')
-const serializer = createSerializer('1.21.130')
-const deserializer = createDeserializer('1.21.130')
-
-const packet = {
-  name: 'item_stack_request',
-  params: {
-    requests: [{
-      request_id: 1,
-      actions: [{
-        type_id: 'consume',
-        count: 1,
-        source: {
-          slot_type: { container_id: 'hotbar', dynamic_container_id: 0 },
-          slot: 0,
-          stack_id: 2,
-        },
-      }],
-      custom_names: [],
-      cause: 'chat_public',
-    }],
-  },
-}
-
-const buffer = serializer.createPacketBuffer(packet)
-console.log(buffer.toString('hex'))
-console.log(JSON.stringify(deserializer.parsePacketBuffer(buffer).data.params, null, 2))
-'@ | node -
+node scripts/roundtrip-packet.js --example item_stack_swap
+node scripts/roundtrip-packet.js --example item_stack_take
+node scripts/roundtrip-packet.js --example item_stack_drop
 ```
 
-- Protocol enum fields should be passed as their string names, not numeric ordinals. Protodef may encode a numeric `type_id`, but conditional branches like `if consume:` / `if take:` compare against the enum name. Numeric action IDs can therefore serialize only the action header and omit required bodies such as `StackRequestSlotInfo`, causing Geyser `readerIndex + length exceeds writerIndex` decode errors.
-- For optional fields such as `FullContainerName.dynamic_container_id?: u32`, include the field explicitly when targeting current Geyser/Cloudburst versions unless the round-trip test proves omission is valid for that packet shape.
+- For custom packets, put a full packet object in JSON and pass the file:
+
+```json
+{
+  "name": "item_stack_request",
+  "params": {
+    "requests": [{
+      "request_id": 1,
+      "actions": [{
+        "type_id": "take",
+        "count": 1,
+        "source": {
+          "slot_type": { "container_id": "hotbar", "dynamic_container_id": 0 },
+          "slot": 0,
+          "stack_id": 2
+        },
+        "destination": {
+          "slot_type": { "container_id": "hotbar", "dynamic_container_id": 0 },
+          "slot": 1,
+          "stack_id": 0
+        }
+      }],
+      "custom_names": [],
+      "cause": "chat_public"
+    }]
+  }
+}
+```
+
+```powershell
+node scripts/roundtrip-packet.js .\path\to\packet.json
+```
+
+- What the round-trip does:
+  - `createSerializer('1.21.130')` compiles the `minecraft-data` protocol schema used by `bedrock-protocol`.
+  - `serializer.createPacketBuffer({ name, params })` writes the packet ID plus encoded packet body. If a required conditional branch is missing, this usually fails in protodef before any server run.
+  - `createDeserializer('1.21.130')` reads the same bytes back.
+  - `deserializer.parsePacketBuffer(buffer).data` shows the packet as the library will put it on the wire. Compare this parsed object to the intended shape.
+- This check validates encoding shape, enum names, conditional bodies, and optional field layout. It does not prove Geyser will accept the request semantically; server acceptance still depends on stack IDs, slot IDs, inventory state, and game mode.
+
+## Item Stack Request Rules
+
+- Protocol enum fields must be passed as string names, not numeric ordinals. Protodef may encode numeric `type_id` values, but conditional branches like `if consume:` / `if take:` compare against enum names. Numeric action IDs can serialize only the action header and omit required action bodies, causing Geyser/Cloudburst decode errors such as `readerIndex + length exceeds writerIndex`.
+- `StackRequestSlotInfo` uses:
+
+```js
+{
+  slot_type: { container_id: 'hotbar', dynamic_container_id: 0 },
+  slot: 0,
+  stack_id: 2
+}
+```
+
+- Do not use flattened fields such as `container: 'inventory'` for stack request slots.
+- Include `FullContainerName.dynamic_container_id` explicitly when targeting current Geyser/Cloudburst unless a round-trip and server test prove omission is valid.
+- `ItemStackRequest` uses `custom_names: []` and `cause: 'chat_public'`; do not use stale names like `strings` or `filter_strings`.
+- In player-auth-input paths, `item_stack_request` is embedded in `player_auth_input`, but the standalone `item_stack_request` packet has the same `ItemStackRequest` structure and is a good first round-trip target for action shape validation.
+
+## Inventory State Notes
+
+- Preserve server-authoritative Bedrock stack identity from raw items into prismarine items:
+  - `stackId` and `stack_id`
+  - `networkId` and `network_id`
+  - `blockRuntimeId` and `block_runtime_id`
+  - `raw`
+- `item_stack_response` may report main player inventory changes under `slot_type.container_id: 'hotbar'`, not only `'inventory'`. Treat both as updates to the local main inventory mirror when applying accepted responses.
+- `destroy` item-stack-request actions are creative-inventory behavior. In survival tests, use `drop` for “remove from slot” behavior unless explicitly testing creative mode.
+- Keep these states conceptually separate:
+  - `inventory.js`: server-confirmed mirror
+  - `inventory-simulation.js`: pure prediction/planning
+  - `inventory-actions.js`: sends Bedrock requests, waits for response, then applies accepted server response data
+
+## Local Geyser Code
+
+- A local Geyser checkout exists at:
+
+```powershell
+cd C:\Users\owner\Documents\github\bedrock-test\temp-geyser-inspect
+```
+
+- Useful entrypoints:
+  - `core/src/main/java/org/geysermc/geyser/translator/protocol/bedrock/entity/player/input/BedrockPlayerAuthInputTranslator.java`
+    - Handles `player_auth_input`; look for `PERFORM_ITEM_STACK_REQUEST`.
+  - `core/src/main/java/org/geysermc/geyser/translator/protocol/bedrock/BedrockItemStackRequestTranslator.java`
+    - Handles standalone `ItemStackRequestPacket`.
+  - `core/src/main/java/org/geysermc/geyser/inventory/InventoryHolder.java`
+    - Contains `translateRequests(...)`.
+  - `core/src/main/java/org/geysermc/geyser/translator/inventory/InventoryTranslator.java`
+    - Core request/action validation and inventory translation logic.
+- Fast navigation commands:
+
+```powershell
+rg -n "PERFORM_ITEM_STACK_REQUEST|ItemStackRequestPacket|translateRequests" temp-geyser-inspect\core\src\main\java
+rg -n "TransferItemStackRequestAction|DestroyStackRequestAction|DropStackRequestAction" temp-geyser-inspect\core\src\main\java\org\geysermc\geyser\translator\inventory
+rg -n "bedrockSlotToJava|javaSlotToBedrock|ContainerSlotType" temp-geyser-inspect\core\src\main\java\org\geysermc\geyser\translator\inventory
+```
 
 ## Testing
 
-When testing, the bedrock server keeps the player connected for ~10-15 seconds after disconnect. If we are doing quick test successions, just wait 3-5 seconds before trying, after your first run. 
-
-Avoid running with unfiltered `DEBUG=minecraft-protocol` during normal test iteration because the 20 TPS `player_auth_input` spam consumes too much context. If packet debug is needed, filter out `player_auth_input`, for example:
+- When testing, the Bedrock server keeps the player connected for about 10-15 seconds after disconnect. If doing quick test successions, wait 3-5 seconds before trying after the first run.
+- Avoid running with unfiltered `DEBUG=minecraft-protocol` during normal test iteration because the 20 TPS `player_auth_input` spam consumes too much context. If packet debug is needed, filter out `player_auth_input`, for example:
 
 ```powershell
 $env:DEBUG='minecraft-protocol'
-node tests/test_crafting.js 2>&1 | Select-String -NotMatch 'player_auth_input'
+node scripts/test_crafting.js 2>&1 | Select-String -NotMatch 'player_auth_input'
 ```

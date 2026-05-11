@@ -17,10 +17,12 @@ const LATEST = {
   HALF_WIDTH: 0.3,
 
   // Physics
+  PLAYER_SPEED: 0.1,             // base movement_speed attribute
   GRAVITY: 0.08,                // blocks/tick²
+  SLOW_FALLING_GRAVITY: 0.01,
   JUMP_VELOCITY: 0.42,          // initial upward velocity on jump
   CLIMB_SPEED: 0.2,             // max downward speed on climbable blocks
-  STEP_HEIGHT: 0.5,             // max step-up height (vanilla = 0.5)
+  STEP_HEIGHT: 0.6,             // Bedrock/Geyser player step-up height
   DEFAULT_SLIPPERINESS: 0.6,    // friction factor for most blocks
   MAX_SPEED: 4.317 / 20,             // blocks/s at full sprint on ground
 
@@ -53,7 +55,20 @@ const LATEST = {
   BIT_JUMPING: 6,
   BIT_AUTO_JUMPING_IN_WATER: 7,
   BIT_SNEAKING: 8,
+  BIT_UP: 10,
+  BIT_DOWN: 11,
+  BIT_LEFT: 12,
+  BIT_RIGHT: 13,
+  BIT_UP_LEFT: 14,
+  BIT_UP_RIGHT: 15,
+  BIT_WANT_UP: 16,
+  BIT_WANT_DOWN: 17,
   BIT_SPRINTING: 20,
+  BIT_START_SPRINTING: 25,
+  BIT_STOP_SPRINTING: 26,
+  BIT_START_SNEAKING: 27,
+  BIT_STOP_SNEAKING: 28,
+  BIT_START_JUMPING: 31,
   BIT_RECEIVED_SERVER_DATA: 44,
   BIT_HORIZONTAL_COLLISION: 49,
   BIT_VERTICAL_COLLISION: 50,

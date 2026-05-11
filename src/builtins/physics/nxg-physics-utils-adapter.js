@@ -243,6 +243,16 @@ function normalizePose(pose) {
   return pose;
 }
 
+function degreesToRadians(value) {
+  return (Number(value) || 0) * Math.PI / 180;
+}
+
+function bedrockYawToNxgYaw(yawDegrees) {
+  // BotcraftPhysics uses Mineflayer-style radians and rotates with
+  // `Math.PI - yaw`; Bedrock packets store yaw directly in degrees.
+  return Math.PI - degreesToRadians(yawDegrees);
+}
+
 // ===================================================================
 // Create the physics adapter
 // ===================================================================
@@ -370,6 +380,8 @@ function createNxgPhysicsAdapter(options = {}) {
     playerState.sprintTriggerTime = 0;
     playerState.flyJumpTriggerTime = 0;
     playerState.age = proxy.age;
+    playerState.yaw = bedrockYawToNxgYaw(self.yaw);
+    playerState.pitch = degreesToRadians(self.pitch);
 
     // Create the entity physics context
     const ctx = EPhysicsCtx.FROM_ENTITY_STATE(engine, playerState, playerEntityType);

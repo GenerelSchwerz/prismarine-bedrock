@@ -2,7 +2,8 @@ const { Vec3 } = require('vec3');
 const { performance } = require('perf_hooks');
 const { getConstants } = require('../physics-constants');
 const { createBedrockWorldAdapter } = require('./bedrock-world-adapter');
-const { createNxgPhysicsAdapter, installBedrockMovementStateHandlers } = require('./nxg-physics-utils-adapter');
+const { installBedrockMovementStateHandlers } = require('./nxg-physics-utils-adapter');
+const { createBedrockPhysicsEngine } = require('./bedrock-physics-engine');
 const { installControls, updateEyeDeltaAndTick } = require('./input-controls');
 const { createMovementPacketSender } = require('./movement-packets');
 
@@ -12,7 +13,7 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
   const controls = installControls(botState, C);
   installBedrockMovementStateHandlers(botState);
   const world = createBedrockWorldAdapter(botState);
-  const physics = createNxgPhysicsAdapter(options);
+  const physics = createBedrockPhysicsEngine(options);
   const movementPackets = createMovementPacketSender(botState, C);
 
   let tickInterval = null;
@@ -33,7 +34,7 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
 
     controls.evaluateControls();
 
-    physics.simulateSelf(botState, controls.getControlStateSnapshot(), world);
+    physics.simulateSelf(botState, controls.getControlStateSnapshot(), world, C);
 
     controls.setFlag('horizontal_collision', !!self.horizontalCollision);
     controls.setFlag('vertical_collision', !!self.verticalCollision);

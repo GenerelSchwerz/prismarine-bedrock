@@ -39,12 +39,19 @@ module.exports = function inventoryActionsPlugin (botState, options = {}) {
   }
 
   function stackId (item) {
-    return item ? item.stack_id : 0
+    return item ? item.stackId ?? item.stack_id ?? 0 : 0
+  }
+
+  function fullContainerName (containerId = 'inventory') {
+    return {
+      container_id: containerId,
+      dynamic_container_id: 0
+    }
   }
 
   function stackSlot (slot) {
     return {
-      container: 'inventory',
+      slot_type: fullContainerName(),
       slot,
       stack_id: stackId(itemAt(slot))
     }
@@ -52,7 +59,7 @@ module.exports = function inventoryActionsPlugin (botState, options = {}) {
 
   function stackSlotWithItem (slot, item) {
     return {
-      container: 'inventory',
+      slot_type: fullContainerName(),
       slot,
       stack_id: stackId(item)
     }
@@ -70,6 +77,28 @@ module.exports = function inventoryActionsPlugin (botState, options = {}) {
     return item.stackSize || item.maxStackSize || 64
   }
 
+  function cloneItem (item, count = item?.count) {
+    if (!item || count <= 0) return null
+
+    const clone = new item.constructor(item.type, count, item.metadata, item.nbt, item.stackId, true)
+    clone.stack_id = item.stack_id
+    clone.networkId = item.networkId
+    clone.network_id = item.network_id
+    clone.blockRuntimeId = item.blockRuntimeId
+    clone.block_runtime_id = item.block_runtime_id
+    clone.raw = item.raw
+    if (item.blocksCanPlaceOn) clone.blocksCanPlaceOn = item.blocksCanPlaceOn
+    if (item.blocksCanDestroy) clone.blocksCanDestroy = item.blocksCanDestroy
+    return clone
+  }
+
+  function setStackId (item, id) {
+    if (!item) return item
+    item.stackId = id
+    item.stack_id = id
+    return item
+  }
+
   function queueRequestInAuthInput (request) {
     botState.queuePlayerAuthInputEdit(packet => {
       botState.setAuthInputFlag(packet, 'item_stack_request', true)
@@ -81,6 +110,7 @@ module.exports = function inventoryActionsPlugin (botState, options = {}) {
 
   function sendItemStackRequest (request) {
     queueRequestInAuthInput(request)
+    botState.emit('inventory_action_request', request)
 
     logAction('[inventory-actions]', 'item_stack_request', {
       requestId: request.request_id,
@@ -111,6 +141,95 @@ module.exports = function inventoryActionsPlugin (botState, options = {}) {
 
   function parseItemStackResponsePacket (packet) {
     return packet.responses || packet.response || packet.entries || []
+  }
+
+  function responseInventorySlots (response) {
+    const slots = new Map()
+
+    for (const container of response.containers || []) {
+      const containerId = container.slot_type?.container_id
+      if (containerId !== 'inventory' && containerId !== 'hotbar') continue
+
+      for (const slot of container.slots || []) {
+        slots.set(slot.slot, slot)
+      }
+    }
+
+    return slots
+  }
+
+  function applyServerSlotInfo (response, changedSlots) {
+    const serverSlots = responseInventorySlots(response)
+
+    for (const slot of changedSlots) {
+      const serverSlot = serverSlots.get(slot)
+      if (!serverSlot) continue
+
+      const item = botState.inventory.slots[slot]
+      if (!item || serverSlot.count === 0) {
+        botState.inventory.updateSlot(slot, null)
+        continue
+      }
+
+      const updated = setStackId(cloneItem(item, serverSlot.count), serverSlot.item_stack_id)
+      botState.inventory.updateSlot(slot, updated)
+    }
+  }
+
+  function applyConfirmedAction (action) {
+    if (action.type_id === 'swap') {
+      const sourceSlot = action.source.slot
+      const destinationSlot = action.destination.slot
+      const source = itemAt(sourceSlot)
+      const destination = itemAt(destinationSlot)
+
+      botState.inventory.updateSlot(sourceSlot, cloneItem(destination))
+      botState.inventory.updateSlot(destinationSlot, cloneItem(source))
+      return [sourceSlot, destinationSlot]
+    }
+
+    if (action.type_id === 'take' || action.type_id === 'place') {
+      const sourceSlot = action.source.slot
+      const destinationSlot = action.destination.slot
+      const source = itemAt(sourceSlot)
+      const destination = itemAt(destinationSlot)
+      const count = action.count
+
+      botState.inventory.updateSlot(sourceSlot, cloneItem(source, (source?.count || 0) - count))
+
+      if (destination) {
+        botState.inventory.updateSlot(destinationSlot, cloneItem(destination, destination.count + count))
+      } else {
+        botState.inventory.updateSlot(destinationSlot, cloneItem(source, count))
+      }
+
+      return [sourceSlot, destinationSlot]
+    }
+
+    if (action.type_id === 'drop' || action.type_id === 'destroy') {
+      const sourceSlot = action.source.slot
+      const source = itemAt(sourceSlot)
+      botState.inventory.updateSlot(sourceSlot, cloneItem(source, (source?.count || 0) - action.count))
+      return [sourceSlot]
+    }
+
+    return []
+  }
+
+  function applyConfirmedRequest (request, response, changedSlots) {
+    const appliedSlots = new Set()
+
+    for (const action of request.actions) {
+      for (const slot of applyConfirmedAction(action)) {
+        appliedSlots.add(slot)
+      }
+    }
+
+    for (const slot of changedSlots) {
+      appliedSlots.add(slot)
+    }
+
+    applyServerSlotInfo(response, appliedSlots)
   }
 
   client.on('item_stack_response', packet => {
@@ -172,7 +291,7 @@ module.exports = function inventoryActionsPlugin (botState, options = {}) {
   async function transactInventory (request, changedSlots) {
     const id = sendItemStackRequest(request)
     const response = await waitForItemStackResponse(id)
-    await waitForInventorySlots(changedSlots)
+    applyConfirmedRequest(request, response, changedSlots)
     return response
   }
 
@@ -180,8 +299,8 @@ module.exports = function inventoryActionsPlugin (botState, options = {}) {
     return {
       request_id: requestId(),
       actions,
-      strings: [],
-      filter_strings: []
+      custom_names: [],
+      cause: 'chat_public'
     }
   }
 
@@ -304,7 +423,7 @@ module.exports = function inventoryActionsPlugin (botState, options = {}) {
 
   async function destroyInventorySlot (slot) {
     const request = makeRequest([
-      destroyAction(countOf(slot), stackSlot(slot))
+      dropAction(countOf(slot), stackSlot(slot), false)
     ])
 
     return transactInventory(request, [slot])
@@ -312,7 +431,7 @@ module.exports = function inventoryActionsPlugin (botState, options = {}) {
 
   async function destroyOneInventoryItem (slot) {
     const request = makeRequest([
-      destroyAction(1, stackSlot(slot))
+      dropAction(1, stackSlot(slot), false)
     ])
 
     return transactInventory(request, [slot])

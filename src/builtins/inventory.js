@@ -126,10 +126,40 @@ function inject (botState, options) {
   // ------------------------------------------------------------------
   // Helpers
   // ------------------------------------------------------------------
+  let loggedRawItemIdentity = false
+
+  function rawStackId (raw) {
+    return raw.stack_id ?? raw.stackId ?? raw.stack_network_id ?? raw.network_stack_id
+  }
+
   function toItem (raw) {
     if (!raw || raw.network_id === 0) return null
     try {
-      return ItemClass.fromNotch(raw, raw.stack_id)
+      const stackId = rawStackId(raw)
+      const item = ItemClass.fromNotch(raw, stackId)
+
+      item.stackId = stackId
+      item.stack_id = stackId
+      item.networkId = raw.network_id
+      item.network_id = raw.network_id
+      item.blockRuntimeId = raw.block_runtime_id
+      item.block_runtime_id = raw.block_runtime_id
+      item.raw = raw
+
+      if (stackId == null && !loggedRawItemIdentity) {
+        loggedRawItemIdentity = true
+        logAction('[inventory]', 'raw item identity fields missing', {
+          keys: Object.keys(raw),
+          networkId: raw.network_id,
+          hasStackId: raw.has_stack_id,
+          stack_id: raw.stack_id,
+          stackId: raw.stackId,
+          stack_network_id: raw.stack_network_id,
+          network_stack_id: raw.network_stack_id
+        })
+      }
+
+      return item
     } catch (e) {
       logAction('[inventory]', 'deserialize error', { networkId: raw.network_id, error: e.message })
       return null

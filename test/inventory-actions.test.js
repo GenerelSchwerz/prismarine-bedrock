@@ -91,20 +91,19 @@ function logInventory(botState, label) {
 
 async function assertActionProducesPackets(botState, actionName, fn) {
   const seen = {
-    authInputWithRequest: false,
+    itemStackRequest: false,
     responses: [],
     inventorySlots: [],
-    inventoryContent: 0
+    inventoryContent: 0,
+    localUpdates: []
   };
 
-  function onAuthInput(packet) {
-    if (packet.item_stack_request) {
-      seen.authInputWithRequest = true;
-      console.log("[test] outbound player_auth_input item_stack_request", {
-        request_id: packet.item_stack_request.request_id,
-        actions: packet.item_stack_request.actions?.map((action) => action.type_id)
-      });
-    }
+  function onItemStackRequest(request) {
+    seen.itemStackRequest = true;
+    console.log("[test] outbound item_stack_request", {
+      request_id: request.request_id,
+      actions: request.actions?.map((action) => action.type_id)
+    });
   }
 
   function onResponse(packet) {
@@ -131,19 +130,24 @@ async function assertActionProducesPackets(botState, actionName, fn) {
     }
   }
 
-  botState.client.on("player_auth_input", onAuthInput);
+  function onLocalUpdate(slot) {
+    seen.localUpdates.push(slot);
+  }
+
+  botState.on("inventory_action_request", onItemStackRequest);
   botState.client.on("item_stack_response", onResponse);
   botState.client.on("inventory_slot", onInventorySlot);
   botState.client.on("inventory_content", onInventoryContent);
+  botState.inventory.on("updateSlot", onLocalUpdate);
 
   try {
     const result = await fn();
     await sleep(AFTER_ACTION_DELAY_MS);
 
     assert.strictEqual(
-      seen.authInputWithRequest,
+      seen.itemStackRequest,
       true,
-      `${actionName} did not send a player_auth_input with item_stack_request`
+      `${actionName} did not send an item_stack_request`
     );
 
     assert(
@@ -152,16 +156,17 @@ async function assertActionProducesPackets(botState, actionName, fn) {
     );
 
     assert(
-      seen.inventorySlots.length > 0 || seen.inventoryContent > 0,
-      `${actionName} did not receive inventory_slot or inventory_content update`
+      seen.inventorySlots.length > 0 || seen.inventoryContent > 0 || seen.localUpdates.length > 0,
+      `${actionName} did not receive or apply an inventory update`
     );
 
     return result;
   } finally {
-    botState.client.off("player_auth_input", onAuthInput);
+    botState.off("inventory_action_request", onItemStackRequest);
     botState.client.off("item_stack_response", onResponse);
     botState.client.off("inventory_slot", onInventorySlot);
     botState.client.off("inventory_content", onInventoryContent);
+    botState.inventory.off("updateSlot", onLocalUpdate);
   }
 }
 

@@ -28,13 +28,12 @@ function renderWindowSlots (window, failedSlot) {
 
   for (let slot = 0; slot < slots.length; slot++) {
     const item = slots[slot]
-    if (!item && slot !== failedSlot) continue
-
     const marker = slot === failedSlot ? '>>' : '  '
+
     rows.push(`${marker} [${String(slot).padStart(2, ' ')}] ${formatItemForSlotDump(item)}`)
   }
 
-  if (rows.length === 0) return '  <all slots empty>'
+  if (rows.length === 0) return '  <no slots>'
 
   return rows.join('\n')
 }

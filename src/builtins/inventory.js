@@ -14,7 +14,7 @@
 // slot sync through UIInventoryUpdater, so inventory.js keeps it as uiSlots and
 // projects known UI slots into the active logical window using container metadata.
 
-const { logAction, rawStackId, sameRuntimeId, selfRuntimeEntityId } = require('../utils')
+const { cloneItem, logAction, rawStackId, sameRuntimeId, selfRuntimeEntityId } = require('../utils')
 const {
   normalizeWindowId,
   windowInfoFor,
@@ -240,6 +240,61 @@ function inject (botState, options) {
     botState.emit('ui_content_updated', uiSlots, packet)
   }
 
+  function responseInventorySlots (response) {
+    const slots = new Map()
+
+    for (const container of response?.containers || []) {
+      const containerId = container.slot_type?.container_id
+      if (containerId !== 'hotbar' && containerId !== 'inventory') continue
+
+      for (const slot of container.slots || []) {
+        slots.set(slot.slot, slot)
+      }
+    }
+
+    return slots
+  }
+
+  function normalizeFallbackCounts (fallbackCounts) {
+    if (!fallbackCounts) return new Map()
+    if (fallbackCounts instanceof Map) return fallbackCounts
+    return new Map(Object.entries(fallbackCounts).map(([slot, count]) => [Number(slot), count]))
+  }
+
+  function applyItemStackResponseToInventory (response, options = {}) {
+    const serverSlots = responseInventorySlots(response)
+    const fallbackCounts = normalizeFallbackCounts(options.fallbackCounts)
+    const changedSlots = new Set([
+      ...serverSlots.keys(),
+      ...(options.changedSlots || []),
+      ...fallbackCounts.keys()
+    ])
+
+    for (const slot of changedSlots) {
+      const item = inv.slots[slot]
+      const serverSlot = serverSlots.get(slot)
+
+      if (serverSlot) {
+        if (!item || serverSlot.count === 0) {
+          inv.updateSlot(slot, null)
+          continue
+        }
+
+        const updated = cloneItem(item, serverSlot.count)
+        updated.stackId = serverSlot.item_stack_id
+        updated.stack_id = serverSlot.item_stack_id
+        inv.updateSlot(slot, updated)
+        continue
+      }
+
+      if (fallbackCounts.has(slot)) {
+        inv.updateSlot(slot, cloneItem(item, fallbackCounts.get(slot)))
+      }
+    }
+
+    botState.emit('inventory_response_applied', response, [...changedSlots])
+  }
+
   Object.defineProperty(botState, 'heldItem', {
     get () {
       const slot = botState.heldItemSlot
@@ -273,6 +328,8 @@ function inject (botState, options) {
     const win = getWindow(windowId)
     return win ? win.count(itemType, metadata) : 0
   }
+
+  botState.applyItemStackResponseToInventory = applyItemStackResponseToInventory
 
   botState.client.on('inventory_content', (packet) => {
     const windowId = normalizeWindowId(packet.window_id)

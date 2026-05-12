@@ -213,8 +213,6 @@ function inject (botState, options) {
   }
 
   function handleUiSlot (packet) {
-    if (packet.slot == null) return
-
     const item = toItem(packet.item)
     uiSlots.set(packet.slot, item)
 
@@ -231,12 +229,6 @@ function inject (botState, options) {
 
   function handleUiContent (packet) {
     const slots = packet.input
-    if (!Array.isArray(slots)) {
-      logAction('[inventory]', 'ui inventory_content without array', {
-        keys: Object.keys(packet)
-      })
-      return
-    }
 
     for (let i = 0; i < slots.length; i++) {
       const item = toItem(slots[i])
@@ -297,13 +289,6 @@ function inject (botState, options) {
     }
 
     const slots = packet.input
-    if (!Array.isArray(slots)) {
-      logAction('[inventory]', 'inventory_content without array', {
-        keys: Object.keys(packet)
-      })
-      return
-    }
-
     resizeFromContentIfNeeded(win, windowId, slots)
 
     logAction('[inventory]', `inventory_content: window=${windowId}, ${slots.length} slots`)
@@ -329,8 +314,6 @@ function inject (botState, options) {
       logAction('[inventory]', 'inventory_slot for unknown window', { windowId })
       return
     }
-
-    if (packet.slot == null) return
 
     const item = toItem(packet.item)
     logAction('[inventory]', `inventory_slot: window=${windowId}, slot=${packet.slot}, item=${itemDesc(item)}`)

@@ -20,7 +20,16 @@
  * https://github.com/GeyserMC/Geyser/blob/master/core/src/main/java/org/geysermc/geyser/translator/inventory/MerchantInventoryTranslator.java
  */
 
-const { logAction, sameRuntimeId } = require('../utils')
+const {
+  itemCount,
+  itemId,
+  itemStackId,
+  logAction,
+  nbtValue,
+  normalizeItemId,
+  playerInventorySlotInfo,
+  sameRuntimeId
+} = require('../utils')
 const { normalizeWindowId, containerSlotInfoFor } = require('../container-metadata')
 
 module.exports = function tradingPlugin (botState, options = {}) {
@@ -126,9 +135,6 @@ module.exports = function tradingPlugin (botState, options = {}) {
   async function openTrade (entity, opts = {}) {
     const runtimeId = runtimeIdOf(entity)
     if (runtimeId == null) throw new Error('Cannot open trade: target entity has no runtimeId')
-    if (typeof botState.interactEntity !== 'function') {
-      throw new Error('Cannot open trade: botState.interactEntity is not available')
-    }
 
     const tradeWindowPromise = waitForTradeWindow({
       entity,
@@ -173,45 +179,6 @@ module.exports = function tradingPlugin (botState, options = {}) {
     }
 
     clearCurrentTradeWindow()
-  }
-
-  function nbtValue (value) {
-    if (value == null || Buffer.isBuffer(value) || typeof value !== 'object') return value
-    if (Array.isArray(value)) return value.map(nbtValue)
-
-    if (
-      Object.prototype.hasOwnProperty.call(value, 'type') &&
-      Object.prototype.hasOwnProperty.call(value, 'value')
-    ) {
-      return nbtValue(value.value)
-    }
-
-    const out = {}
-    for (const [key, child] of Object.entries(value)) out[key] = nbtValue(child)
-    return out
-  }
-
-  function normalizeItemId (id) {
-    if (id == null) return null
-    const str = String(id)
-    return str.startsWith('minecraft:') ? str : `minecraft:${str}`
-  }
-
-  function itemId (item) {
-    item = nbtValue(item)
-    return normalizeItemId(
-      item?.id ??
-      item?.name ??
-      item?.Name ??
-      item?.identifier ??
-      item?.network_id ??
-      item?.networkId
-    )
-  }
-
-  function itemCount (item) {
-    item = nbtValue(item)
-    return Number(item?.count ?? item?.Count ?? item?.amount ?? item?.Amount ?? 0)
   }
 
   function recipeInputA (recipe) {
@@ -353,24 +320,7 @@ module.exports = function tradingPlugin (botState, options = {}) {
     return null
   }
 
-  function itemStackId (item) {
-    item = nbtValue(item)
-
-    const value =
-      item?.stackId ??
-      item?.stack_id ??
-      item?.stack_network_id ??
-      item?.network_stack_id ??
-      item?.StackNetworkId ??
-      item?.StackNetworkID
-
-    if (value == null) return 0
-
-    const number = Number(value)
-    return Number.isFinite(number) ? number : value
-  }
-
-  function requestSlotInfo (containerId, slot, stackId = 0, dynamicContainerId = 0) {
+  function requestSlot (containerId, slot, stackId = 0, dynamicContainerId = 0) {
     return {
       slot_type: {
         container_id: containerId,
@@ -381,21 +331,15 @@ module.exports = function tradingPlugin (botState, options = {}) {
     }
   }
 
-  function playerInventorySlotInfo (slot, item = botState.inventory?.slots?.[slot]) {
-    return slot >= 0 && slot <= 8
-      ? requestSlotInfo('hotbar', slot, itemStackId(item))
-      : requestSlotInfo('inventory', slot, itemStackId(item))
-  }
-
   function tradeSlotInfo (logicalSlot, stackId = 0) {
     const info = containerSlotInfoFor({ type: 'trading' }, logicalSlot)
     if (!info) throw new RangeError(`Unsupported trading slot: ${logicalSlot}`)
-    return requestSlotInfo(info.containerId, info.protocolSlot, stackId)
+    return requestSlot(info.containerId, info.protocolSlot, stackId)
   }
 
   function tradeIngredientSlotInfo (index, opts = {}) {
     if (index === 0 && opts.ingredientAContainerId) {
-      return requestSlotInfo(
+      return requestSlot(
         opts.ingredientAContainerId,
         opts.ingredientASlot ?? 4,
         opts.ingredientAStackId ?? 0,
@@ -404,7 +348,7 @@ module.exports = function tradingPlugin (botState, options = {}) {
     }
 
     if (index === 1 && opts.ingredientBContainerId) {
-      return requestSlotInfo(
+      return requestSlot(
         opts.ingredientBContainerId,
         opts.ingredientBSlot ?? 5,
         opts.ingredientBStackId ?? 0,
@@ -417,7 +361,7 @@ module.exports = function tradingPlugin (botState, options = {}) {
 
   function tradeResultSlotInfo (recipe, opts = {}) {
     if (opts.resultContainerId) {
-      return requestSlotInfo(
+      return requestSlot(
         opts.resultContainerId,
         opts.resultSlot ?? 50,
         opts.resultStackId ?? itemStackId(recipeOutput(recipe)),
@@ -425,7 +369,7 @@ module.exports = function tradingPlugin (botState, options = {}) {
       )
     }
 
-    return requestSlotInfo(
+    return requestSlot(
       'created_output',
       50,
       opts.resultStackId ?? 0
@@ -596,10 +540,6 @@ module.exports = function tradingPlugin (botState, options = {}) {
   }
 
   function makeRequest (actions) {
-    if (!botState.inventoryActionHelpers?.makeRequest) {
-      throw new Error('Cannot execute trade: inventory action helpers are not available')
-    }
-
     return botState.inventoryActionHelpers.makeRequest(actions)
   }
 
@@ -673,11 +613,11 @@ module.exports = function tradingPlugin (botState, options = {}) {
   }
 
   function tradeOutputItem () {
-    const uiOutput = typeof botState.getUiSlot === 'function' ? botState.getUiSlot(50) : null
+    const uiOutput = botState.getUiSlot(50)
     if (uiOutput) return uiOutput
 
     const windowId = botState.currentTradeWindow?.window_id
-    const win = typeof botState.getWindow === 'function' ? botState.getWindow(windowId) : null
+    const win = botState.getWindow(windowId)
     return win?.slots?.[2] ?? null
   }
 
@@ -706,7 +646,7 @@ module.exports = function tradingPlugin (botState, options = {}) {
   async function sendRawTradeRequest (request, timeoutMs) {
     const responsePromise = botState.waitForRawItemStackResponse(request.request_id, timeoutMs)
 
-    if (typeof botState.sendStandaloneItemStackRequest === 'function') {
+    if (botState.sendStandaloneItemStackRequest) {
       botState.sendStandaloneItemStackRequest(request)
     } else {
       botState.sendItemStackRequest(request)
@@ -724,7 +664,7 @@ module.exports = function tradingPlugin (botState, options = {}) {
       const uiSlot = index === 0 ? 4 : 5
       const containerId = index === 0 ? 'trade2_ingredient1' : 'trade2_ingredient2'
       const sourceSlot = sourceSlots[index]
-      const tradeItem = typeof botState.getUiSlot === 'function' ? botState.getUiSlot(uiSlot) : null
+      const tradeItem = botState.getUiSlot(uiSlot)
       const countToRestore = itemCount(tradeItem)
 
       if (!Number.isInteger(sourceSlot) || countToRestore <= 0) continue
@@ -732,7 +672,7 @@ module.exports = function tradingPlugin (botState, options = {}) {
 
       actions.push(takeAction(
         countToRestore,
-        requestSlotInfo(containerId, uiSlot, itemStackId(tradeItem) || 1),
+        requestSlot(containerId, uiSlot, itemStackId(tradeItem) || 1),
         playerInventorySlotInfo(sourceSlot, botState.inventory?.slots?.[sourceSlot] ?? null)
       ))
     }
@@ -794,14 +734,6 @@ module.exports = function tradingPlugin (botState, options = {}) {
   }
 
   async function executeTrade (tradeOrIndex, count = 1, opts = {}) {
-    if (typeof botState.sendItemStackRequest !== 'function') {
-      throw new Error('Cannot execute trade: botState.sendItemStackRequest is not available')
-    }
-
-    if (typeof botState.waitForRawItemStackResponse !== 'function') {
-      throw new Error('Cannot execute trade: botState.waitForRawItemStackResponse is required')
-    }
-
     const tradeCount = Number(count)
     if (!Number.isInteger(tradeCount) || tradeCount <= 0) {
       throw new RangeError(`Trade count must be a positive integer, got ${count}`)

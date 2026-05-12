@@ -100,6 +100,45 @@ function itemStackId (item) {
   return item ? item.stackId ?? item.stack_id ?? 0 : 0
 }
 
+function nbtValue (value) {
+  if (value == null || Buffer.isBuffer(value) || typeof value !== 'object') return value
+  if (Array.isArray(value)) return value.map(nbtValue)
+
+  if (
+    Object.prototype.hasOwnProperty.call(value, 'type') &&
+    Object.prototype.hasOwnProperty.call(value, 'value')
+  ) {
+    return nbtValue(value.value)
+  }
+
+  const out = {}
+  for (const [key, child] of Object.entries(value)) out[key] = nbtValue(child)
+  return out
+}
+
+function normalizeItemId (id) {
+  if (id == null) return null
+  const str = String(id)
+  return str.startsWith('minecraft:') ? str : `minecraft:${str}`
+}
+
+function itemId (item) {
+  item = nbtValue(item)
+  return normalizeItemId(
+    item?.id ??
+    item?.name ??
+    item?.Name ??
+    item?.identifier ??
+    item?.network_id ??
+    item?.networkId
+  )
+}
+
+function itemCount (item) {
+  item = nbtValue(item)
+  return Number(item?.count ?? item?.Count ?? item?.amount ?? item?.Amount ?? 0)
+}
+
 function itemToRaw (item, itemClass) {
   if (!item) return { network_id: 0 }
   if (item.raw) return item.raw
@@ -152,6 +191,10 @@ function inventoryRequestSlotInfo (slot, stackId = 0) {
   return slot < 9
     ? requestSlotInfo('hotbar', slot, stackId)
     : requestSlotInfo('inventory', slot - 9, stackId)
+}
+
+function playerInventorySlotInfo (slot, item = null) {
+  return inventoryRequestSlotInfo(slot, itemStackId(item))
 }
 
 function stackRequestSlotInfo (slot, item, containerId = 'inventory') {
@@ -223,12 +266,17 @@ module.exports = {
   clickPositionForFace,
   rawStackId,
   itemStackId,
+  nbtValue,
+  normalizeItemId,
+  itemId,
+  itemCount,
   itemToRaw,
   toBedrockItem,
   selfRuntimeEntityId,
   fullContainerName,
   requestSlotInfo,
   inventoryRequestSlotInfo,
+  playerInventorySlotInfo,
   stackRequestSlotInfo,
   cloneItem,
   mergePatch,

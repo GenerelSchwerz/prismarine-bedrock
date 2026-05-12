@@ -15,6 +15,7 @@ const {
 const TYPES_YML = path.join(
   __dirname,
   '..',
+  '..',
   'node_modules',
   'minecraft-data',
   'minecraft-data',

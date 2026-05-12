@@ -12,6 +12,7 @@ function normalizeEnchantOption (option, index) {
     index,
     cost: option.cost ?? 0,
     slotFlags: option.slot_flags,
+    recipeNetworkId: option.option_id,
     equipEnchants: cloneEnchantList(option.equip_enchants),
     heldEnchants: cloneEnchantList(option.held_enchants),
     selfEnchants: cloneEnchantList(option.self_enchants),
@@ -88,8 +89,8 @@ function apply (container) {
       : optionOrIndex
 
     if (!option) throw new Error(`No enchant option found for ${optionOrIndex}`)
-    if (!Number.isInteger(option.optionId)) {
-      throw new Error(`Enchant option is missing optionId: ${JSON.stringify(option)}`)
+    if (!Number.isInteger(option.recipeNetworkId)) {
+      throw new Error(`Enchant option is missing recipeNetworkId: ${JSON.stringify(option)}`)
     }
 
     const helpers = container.botState?.inventoryActionHelpers
@@ -97,7 +98,7 @@ function apply (container) {
 
     const request = helpers.makeRequest([{
       type_id: 'craft_recipe',
-      recipe_network_id: option.optionId,
+      recipe_network_id: option.recipeNetworkId,
       times_crafted: 1
     }])
     const id = container.botState.sendItemStackRequest(request)

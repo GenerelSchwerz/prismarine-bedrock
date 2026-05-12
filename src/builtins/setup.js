@@ -15,6 +15,8 @@ module.exports = (botState, options) => {
   botState.isDead = false;
   botState.respawnTimeout = null;
   botState.playerHealth = null;
+  botState.experience = 0;
+  botState.experienceLevel = 0;
   botState.bedrockCraftingRecipes = [];
 
   // -- required because p-registry is bugged.
@@ -119,6 +121,18 @@ module.exports = (botState, options) => {
     if (botState.playerHealth > 0 && botState.isDead) {
       botState.isDead = false;
       logAction('[→]', 'set_health -> alive');
+    }
+  });
+
+  client.on('update_attributes', (packet) => {
+    if (String(packet.runtime_entity_id) !== String(client.entityId)) return;
+
+    for (const attr of packet.attributes || []) {
+      if (attr.name === 'minecraft:player.experience') {
+        botState.experience = attr.current ?? attr.value ?? 0;
+      } else if (attr.name === 'minecraft:player.level') {
+        botState.experienceLevel = attr.current ?? attr.value ?? 0;
+      }
     }
   });
 

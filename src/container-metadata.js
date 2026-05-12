@@ -170,6 +170,10 @@ const EXACT_SLOT_MAPPINGS = {
 }
 
 const UI_SLOT_MAPPINGS = {
+  enchantment: {
+    14: 0,
+    15: 1
+  },
   trading: {
     4: 0,
     5: 1,

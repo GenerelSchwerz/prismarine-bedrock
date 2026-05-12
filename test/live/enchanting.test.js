@@ -3,7 +3,7 @@
 const assert = require("assert");
 const { Vec3 } = require("vec3");
 const BotState = require("../../src/state");
-const { clearPlayer, givePlayer, sendCommand, setBlockIfNeeded, setPlayerGamemode, teleportPlayer } = require("../helpers/commands");
+const { bedrockPlayerName, clearPlayer, givePlayer, sendCommand, setPlayerGamemode, teleportPlayer } = require("../helpers/commands");
 const { HOST, PORT, USERNAME, OFFLINE, VERSION, SETUP_DELAY_MS } = require("../helpers/test-env");
 const { assertSlot } = require("../helpers/shared");
 
@@ -74,6 +74,14 @@ async function waitForInventoryCount(botState, name, count, timeoutMs = 8000) {
   );
 }
 
+async function waitForExperienceLevel(botState, level, timeoutMs = 8000) {
+  await waitUntil(
+    `experience level to become at least ${level}`,
+    () => botState.experienceLevel >= level ? botState.experienceLevel : false,
+    timeoutMs,
+  );
+}
+
 async function waitForBlockName(botState, pos, expectedName, timeoutMs = 8000) {
   return waitUntil(
     `block ${expectedName} at ${pos}`,
@@ -111,7 +119,7 @@ function bookshelfPositions() {
 
 async function setupEnchantingWorld(botState) {
   const { x, y, z } = ENCHANT_POS;
-  const blocks = [];
+  const player = bedrockPlayerName(USERNAME);
 
   setPlayerGamemode(botState, USERNAME, "creative");
   await sleep(SETUP_DELAY_MS);
@@ -119,23 +127,20 @@ async function setupEnchantingWorld(botState) {
   clearPlayer(botState, USERNAME);
   await sleep(SETUP_DELAY_MS);
 
-  for (let dx = -3; dx <= 3; dx++) {
-    for (let dz = -3; dz <= 4; dz++) {
-      blocks.push({ pos: new Vec3(x + dx, y - 1, z + dz), block: "minecraft:stone" });
-      blocks.push({ pos: new Vec3(x + dx, y, z + dz), block: "minecraft:air" });
-      blocks.push({ pos: new Vec3(x + dx, y + 1, z + dz), block: "minecraft:air" });
-    }
-  }
-
-  blocks.push({ pos: ENCHANT_POS, block: "minecraft:enchanting_table" });
-
-  for (const pos of bookshelfPositions()) {
-    blocks.push({ pos, block: "minecraft:bookshelf" });
-  }
-
-  for (const { pos, block } of blocks) {
-    await setBlockIfNeeded(botState, pos, block, 100);
-  }
+  sendCommand(botState, `fill ${x - 3} ${y - 1} ${z - 3} ${x + 3} ${y - 1} ${z + 4} minecraft:stone`);
+  await sleep(SETUP_DELAY_MS);
+  sendCommand(botState, `fill ${x - 3} ${y} ${z - 3} ${x + 3} ${y + 1} ${z + 4} minecraft:air`);
+  await sleep(SETUP_DELAY_MS);
+  sendCommand(botState, `setblock ${x} ${y} ${z} minecraft:enchanting_table`);
+  await sleep(SETUP_DELAY_MS);
+  sendCommand(botState, `fill ${x - 2} ${y} ${z - 2} ${x + 2} ${y} ${z - 2} minecraft:bookshelf`);
+  await sleep(SETUP_DELAY_MS);
+  sendCommand(botState, `fill ${x - 2} ${y} ${z + 2} ${x + 2} ${y} ${z + 2} minecraft:bookshelf`);
+  await sleep(SETUP_DELAY_MS);
+  sendCommand(botState, `fill ${x - 2} ${y} ${z - 1} ${x - 2} ${y} ${z + 1} minecraft:bookshelf`);
+  await sleep(SETUP_DELAY_MS);
+  sendCommand(botState, `fill ${x + 2} ${y} ${z - 1} ${x + 2} ${y} ${z + 1} minecraft:bookshelf`);
+  await sleep(SETUP_DELAY_MS);
 
   await markLocalBlock(botState, ENCHANT_POS, "minecraft:enchanting_table");
   for (const pos of bookshelfPositions()) {
@@ -157,12 +162,13 @@ async function setupEnchantingWorld(botState) {
 
   setPlayerGamemode(botState, USERNAME, "survival");
   await sleep(SETUP_DELAY_MS);
-  sendCommand(botState, `experience set .${USERNAME} 30 levels`);
+  sendCommand(botState, `experience set ${player} 30 levels`);
   await sleep(SETUP_DELAY_MS);
-  sendCommand(botState, `experience add .${USERNAME} 30 levels`);
+  sendCommand(botState, `experience add ${player} 30 levels`);
   await sleep(SETUP_DELAY_MS);
-  sendCommand(botState, `xp 30L .${USERNAME}`);
+  sendCommand(botState, `xp 30L ${player}`);
   await sleep(SETUP_DELAY_MS);
+  await waitForExperienceLevel(botState, 30);
 
   await waitForInventoryCount(botState, "diamond_sword", 1);
   await waitForInventoryCount(botState, "lapis_lazuli", 3);
@@ -200,6 +206,7 @@ describe("live enchanting integration", function () {
   this.timeout(180000);
 
   let botState;
+  let spawned = false;
 
   before(async function () {
     botState = new BotState({
@@ -212,6 +219,7 @@ describe("live enchanting integration", function () {
 
     botState.start();
     await waitForSpawn(botState);
+    spawned = true;
 
     botState.setInventoryActionResponseTimeout?.(10000);
     botState.setInventoryActionUpdateTimeout?.(5000);
@@ -221,9 +229,10 @@ describe("live enchanting integration", function () {
     if (!botState?.client) return;
 
     try {
-      await setBlockIfNeeded(botState, ENCHANT_POS, "minecraft:air", 25);
-      for (const pos of bookshelfPositions()) {
-        await setBlockIfNeeded(botState, pos, "minecraft:air", 25);
+      if (spawned) {
+        const { x, y, z } = ENCHANT_POS;
+        sendCommand(botState, `fill ${x - 2} ${y} ${z - 2} ${x + 2} ${y} ${z + 2} minecraft:air`);
+        await sleep(SETUP_DELAY_MS);
       }
     } catch {}
 
@@ -244,6 +253,9 @@ describe("live enchanting integration", function () {
     assert.strictEqual(typeof enchanting.getEnchantOptions, "function");
     assert.strictEqual(typeof enchanting.selectEnchantOption, "function");
 
+    botState.selectHotbarSlot(8);
+    await sleep(SETUP_DELAY_MS);
+
     const swordSlot = findSlotByName(botState, "diamond_sword");
     await enchanting.putInput(swordSlot, 1);
     assertSlot(enchanting.window, 0, "diamond_sword", 1);
@@ -251,6 +263,7 @@ describe("live enchanting integration", function () {
     const lapisSlot = findSlotByName(botState, "lapis_lazuli");
     await enchanting.putLapis(lapisSlot, 3);
     assertSlot(enchanting.window, 1, "lapis_lazuli", 3);
+    await sleep(SETUP_DELAY_MS * 2);
 
     const options = await enchanting.waitForEnchantOptions(
       currentOptions => currentOptions.some(option => option.cost === 30 && option.optionId !== 0),
@@ -277,10 +290,10 @@ describe("live enchanting integration", function () {
     );
 
     await waitUntil(
-      "enchanting lapis slot to consume one item",
+      "enchanting lapis slot to consume three items",
       () => {
         const lapis = enchanting.getItem(1);
-        return lapis?.name === "lapis_lazuli" && lapis.count === 2 ? lapis : false;
+        return lapis == null ? true : false;
       },
       15000,
     );

@@ -8,8 +8,8 @@
   },
   "scripts": {
     "test": "pnpm run test:static",
-    "test:static": "mocha test/chunks-readiness.test.js test/container-metadata.test.js test/container-specialization.test.js test/inventory-mirror.test.js",
-    "test:live": "mocha --config .mocharc.live.json test/containers.test.js test/crafting.test.js test/enchanting.test.js test/inventory-actions.test.js test/inv-sim.test.js test/place-block.test.js test/trading.test.js",
+    "test:static": "mocha \"test/static/**/*.test.js\"",
+    "test:live": "mocha --config .mocharc.live.json \"test/live/**/*.test.js\"",
     "test:all": "pnpm run test:static && pnpm run test:live",
     "example:basic-bot": "node examples/basic-bot.js"
   },

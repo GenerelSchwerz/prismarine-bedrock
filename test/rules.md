@@ -10,9 +10,9 @@ When running tests back to back, wait 3-5 seconds before starting the next run. 
 
 ## Static And Live Tests
 
-Use `pnpm run test:static` for tests that do not connect to the shared Bedrock server. This is also the default `pnpm test` suite.
+Put tests that do not connect to the shared Bedrock server under `test/static/`. Run them with `pnpm run test:static`. This is also the default `pnpm test` suite.
 
-Use `pnpm run test:live` for tests that create a `BotState` and connect to the Bedrock server. Live tests acquire `.test-lock.json` at the repository root through `.mocharc.live.json`.
+Put tests that create a `BotState` and connect to the Bedrock server under `test/live/`. Run them with `pnpm run test:live`. Live tests acquire `.test-lock.json` at the repository root through `.mocharc.live.json`.
 
 If the lock exists, assume another agent is running live tests. Wait for that run to finish. Only delete the lock after confirming no test process is active; stale same-host locks from dead processes are removed automatically on the next live Mocha startup.
 

@@ -105,6 +105,17 @@ node scripts/roundtrip-packet.js .\path\to\packet.json
 
 ## Local Geyser Code
 
+- Treat Geyser as part of the system under test, not as a perfect oracle. After local packet round-trips pass and the packet shape matches `minecraft-data`, consider that a failure or suspicious `item_stack_response: ok` may be caused by Geyser routing or translator behavior.
+- Example: enchanting requests sent through `PERFORM_ITEM_STACK_REQUEST` inside `player_auth_input` may be routed to `session.getPlayerInventoryHolder().translateRequests(...)` in `BedrockPlayerAuthInputTranslator.java` instead of the currently open enchanting inventory holder. That bypasses `EnchantingInventoryTranslator`, so a bare `craft_recipe` action can be accepted by the generic inventory translator without sending the Java `ServerboundContainerButtonClickPacket` that actually applies an enchant.
+- For enchanting investigations, compare these paths:
+  - `core/src/main/java/org/geysermc/geyser/translator/protocol/bedrock/entity/player/input/BedrockPlayerAuthInputTranslator.java`
+    - `PERFORM_ITEM_STACK_REQUEST` auth-input routing.
+  - `core/src/main/java/org/geysermc/geyser/translator/protocol/bedrock/BedrockItemStackRequestTranslator.java`
+    - Standalone `ItemStackRequestPacket` routing through the active inventory holder.
+  - `core/src/main/java/org/geysermc/geyser/translator/inventory/EnchantingInventoryTranslator.java`
+    - Maps `recipeNetworkId` to the enchant option and sends the Java button click.
+  - `core/src/main/java/org/geysermc/geyser/translator/inventory/InventoryTranslator.java`
+    - Generic inventory request planning, where non-container-specific requests can appear accepted without doing the intended container action.
 - A local Geyser checkout exists at:
 
 ```powershell

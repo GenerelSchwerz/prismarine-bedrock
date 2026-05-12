@@ -7,7 +7,9 @@
 //
 // Provides:
 //   botState.sendItemStackRequest(request)
+//   botState.sendStandaloneItemStackRequest(request)
 //   botState.waitForItemStackResponse(requestId)
+//   botState.waitForRawItemStackResponse(requestId)
 //   botState.setHeldItemSlot(slot)
 //   botState.selectHotbarSlot(slot)
 //   botState.equipItem(slot, [hotbarSlot])
@@ -168,7 +170,24 @@ module.exports = function inventoryActionsPlugin (botState, options = {}) {
       pendingResponses.set(id, {
         resolve,
         reject,
-        timeout
+        timeout,
+        raw: false
+      })
+    })
+  }
+
+  function waitForRawItemStackResponse (id, timeoutMs = responseTimeoutMs) {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        pendingResponses.delete(id)
+        reject(new Error(`Timed out waiting for item_stack_response: ${id}`))
+      }, timeoutMs)
+
+      pendingResponses.set(id, {
+        resolve,
+        reject,
+        timeout,
+        raw: true
       })
     })
   }
@@ -283,7 +302,32 @@ module.exports = function inventoryActionsPlugin (botState, options = {}) {
       clearTimeout(waiter.timeout)
       pendingResponses.delete(id)
 
-      if (responseStatusOk(response)) {
+      // Normal inventory actions should reject on item_stack_response error.
+      // That catches real desyncs/malformed inventory operations early.
+      //
+      // However, villager trading through Geyser needs access to the raw response.
+      // In Geyser's MerchantInventoryTranslator, the merchant recipe action can
+      // send ServerboundSelectTradePacket(tradeChoice), then intentionally return
+      // rejectRequest(request) while scheduling delayed merchant handling for
+      // compatibility paths:
+      //
+      //   https://github.com/GeyserMC/Geyser/blob/master/core/src/main/java/org/geysermc/geyser/translator/inventory/MerchantInventoryTranslator.java
+      //
+      // The test log showed exactly this shape:
+      //
+      //   item_stack_request ["craft_recipe_auto","take"]
+      //   item_stack_response { status: "error", request_id: ... }
+      //
+      // See the uploaded failing run:
+      //
+      //   /mnt/data/output(4).log
+      //
+      // Therefore waitForRawItemStackResponse() resolves even on status "error".
+      // This does NOT weaken normal inventory behavior; waitForItemStackResponse()
+      // still rejects on non-ok responses.
+      if (waiter.raw) {
+        waiter.resolve(response)
+      } else if (responseStatusOk(response)) {
         waiter.resolve(response)
       } else {
         waiter.reject(new Error(`item_stack_response rejected request ${id}: ${response.status}`))
@@ -506,7 +550,15 @@ module.exports = function inventoryActionsPlugin (botState, options = {}) {
 
   botState.sendItemStackRequest = sendItemStackRequest
   botState.sendStandaloneItemStackRequest = sendStandaloneItemStackRequest
+
   botState.waitForItemStackResponse = waitForItemStackResponse
+
+  // Use this only when the caller needs to inspect a rejected response.
+  // The motivating case is villager trading through Geyser, where merchant
+  // handling may intentionally return item_stack_response status "error" while
+  // still scheduling Java-side trade selection/refresh handling.
+  botState.waitForRawItemStackResponse = waitForRawItemStackResponse
+
   botState.setHeldItemSlot = selectHotbarSlot
   botState.selectHotbarSlot = selectHotbarSlot
   botState.equipItem = equipItem

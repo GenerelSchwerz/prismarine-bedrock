@@ -172,6 +172,67 @@ async function setupTradingWorld (botState) {
   await sleep(SETUP_DELAY_MS)
 }
 
+async function closeTradeState (botState, label = 'closeTradeState') {
+  if (!botState?.client) return
+
+  try {
+    botState.closeTradeWindow?.()
+  } catch (err) {
+    console.log(`[trading.test] ${label}: closeTradeWindow failed`, err.message)
+  }
+
+  // Geyser/Bedrock merchant close can involve the generic UI window or -1
+  // depending on where the close is in the pending inventory flow.
+  for (const windowId of ['ui', 124, -1]) {
+    try {
+      botState.client.queue('container_close', {
+        window_id: windowId,
+        server: false
+      })
+
+      console.log(`[trading.test] ${label}: queued container_close`, JSON.stringify({ windowId }, jsonDebugReplacer))
+    } catch (err) {
+      console.log(`[trading.test] ${label}: container_close failed`, JSON.stringify({
+        windowId,
+        message: err.message
+      }, jsonDebugReplacer))
+    }
+  }
+
+  botState.currentTradeWindow = null
+  botState.currentTradingEntity = null
+
+  await sleep(500)
+}
+
+function installTradePacketDebug (botState) {
+  const packetNames = [
+    'update_trade',
+    'container_open',
+    'container_close',
+    'inventory_content',
+    'inventory_slot',
+    'item_stack_response'
+  ]
+
+  const listeners = []
+
+  for (const name of packetNames) {
+    const listener = packet => {
+      console.log(`[trade packet dbg] ${name}`, JSON.stringify(packet, jsonDebugReplacer, 2))
+    }
+
+    botState.client.on(name, listener)
+    listeners.push([name, listener])
+  }
+
+  return () => {
+    for (const [name, listener] of listeners) {
+      botState.client.off(name, listener)
+    }
+  }
+}
+
 function isTradeTestVillager (entity) {
   if (!entity?.position) return false
 
@@ -619,6 +680,7 @@ describe('real villager trading', function () {
   this.timeout(180000)
 
   let botState
+  let removeTradePacketDebug = null
 
   before(async function () {
     botState = new BotState({
@@ -632,16 +694,29 @@ describe('real villager trading', function () {
     botState.start()
     await waitForSpawn(botState)
 
+    removeTradePacketDebug = installTradePacketDebug(botState)
+
     botState.setInventoryActionResponseTimeout?.(10000)
     botState.setInventoryActionUpdateTimeout?.(10000)
     botState.setTradeTimeout?.(15000)
   })
 
   beforeEach(async function () {
+    await closeTradeState(botState, 'beforeEach pre-setup')
     await setupTradingWorld(botState)
+    await sleep(250)
+  })
+
+  afterEach(async function () {
+    await closeTradeState(botState, 'afterEach cleanup')
   })
 
   after(function () {
+    if (removeTradePacketDebug) {
+      removeTradePacketDebug()
+      removeTradePacketDebug = null
+    }
+
     if (botState?.client) {
       botState.disconnect('Trading mocha test complete')
     }

@@ -1,6 +1,6 @@
 const assert = require("assert");
-const BotState = require("../src/state");
-const { clearPlayer, givePlayer } = require("./helpers/commands");
+const BotState = require("../../src/state");
+const { clearPlayer, givePlayer } = require("../helpers/commands");
 const {
   HOST,
   PORT,
@@ -8,10 +8,10 @@ const {
   OFFLINE,
   VERSION,
   SETUP_DELAY_MS
-} = require("./helpers/test-env");
+} = require("../helpers/test-env");
 const {
   assertSlot
-} = require('./helpers/shared')
+} = require('../helpers/shared')
 
 
 const AFTER_ACTION_DELAY_MS = Number(process.env.AFTER_ACTION_DELAY_MS || 1000);

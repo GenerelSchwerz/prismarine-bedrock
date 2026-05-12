@@ -2,15 +2,16 @@
 'use strict'
 
 const assert = require('assert')
-const BotState = require('../src/state')
+const BotState = require('../../src/state')
 const { Vec3 } = require('vec3')
 const {
   clearPlayer,
   givePlayer,
   sendCommand,
+  setBlockIfNeeded,
   setPlayerGamemode,
   teleportPlayer
-} = require('./helpers/commands')
+} = require('../helpers/commands')
 
 const HOST = process.env.HOST || 'localhost'
 const PORT = parseInt(process.env.PORT, 10) || 19132
@@ -70,13 +71,13 @@ async function setupFlatPlacementArea (botState) {
   clearPlayer(botState, USERNAME)
   await sleep(SETUP_DELAY_MS)
 
-  sendCommand(botState, 'setblock 0 64 0 minecraft:stone')
-  sendCommand(botState, 'setblock 0 65 0 minecraft:air')
-  sendCommand(botState, 'setblock 1 64 0 minecraft:stone')
-  sendCommand(botState, 'setblock 1 65 0 minecraft:air')
-  sendCommand(botState, 'setblock 0 65 3 minecraft:stone')
-  sendCommand(botState, 'setblock 0 66 3 minecraft:air')
-  sendCommand(botState, 'setblock 0 67 3 minecraft:air')
+  await setBlockIfNeeded(botState, new Vec3(0, 64, 0), 'minecraft:stone')
+  await setBlockIfNeeded(botState, new Vec3(0, 65, 0), 'minecraft:air')
+  await setBlockIfNeeded(botState, new Vec3(1, 64, 0), 'minecraft:stone')
+  await setBlockIfNeeded(botState, new Vec3(1, 65, 0), 'minecraft:air')
+  await setBlockIfNeeded(botState, new Vec3(0, 65, 3), 'minecraft:stone')
+  await setBlockIfNeeded(botState, new Vec3(0, 66, 3), 'minecraft:air')
+  await setBlockIfNeeded(botState, new Vec3(0, 67, 3), 'minecraft:air')
   teleportPlayer(botState, USERNAME, 0.5, 66, 3.5)
   await sleep(SETUP_DELAY_MS)
 }
@@ -163,9 +164,8 @@ describe('block placing integration', function () {
     if (!botState?.client) return
 
     try {
-      sendCommand(botState, 'setblock 0 65 0 minecraft:air')
-      sendCommand(botState, 'setblock 1 65 0 minecraft:air')
-      await sleep(250)
+      await setBlockIfNeeded(botState, new Vec3(0, 65, 0), 'minecraft:air', 250)
+      await setBlockIfNeeded(botState, new Vec3(1, 65, 0), 'minecraft:air', 250)
     } catch {}
 
     botState.disconnect('Block placing integration test complete')

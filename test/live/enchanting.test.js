@@ -1,0 +1,302 @@
+"use strict";
+
+const assert = require("assert");
+const { Vec3 } = require("vec3");
+const BotState = require("../../src/state");
+const { clearPlayer, givePlayer, sendCommand, setBlockIfNeeded, setPlayerGamemode, teleportPlayer } = require("../helpers/commands");
+const { HOST, PORT, USERNAME, OFFLINE, VERSION, SETUP_DELAY_MS } = require("../helpers/test-env");
+const { assertSlot } = require("../helpers/shared");
+
+const ENCHANT_POS = new Vec3(
+  Number(process.env.ENCHANT_TEST_X || 24),
+  Number(process.env.ENCHANT_TEST_Y || 80),
+  Number(process.env.ENCHANT_TEST_Z || 24),
+);
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function waitForSpawn(botState, timeoutMs = 30000) {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("Timeout waiting for spawn")), timeoutMs);
+
+    botState.client.once("spawn", () => {
+      clearTimeout(timeout);
+      resolve();
+    });
+  });
+}
+
+async function waitUntil(label, predicate, timeoutMs = 30000, intervalMs = 250) {
+  const start = Date.now();
+  let lastValue;
+
+  while (Date.now() - start < timeoutMs) {
+    lastValue = await predicate();
+    if (lastValue) return lastValue;
+    await sleep(intervalMs);
+  }
+
+  throw new Error(`Timed out waiting for ${label}; last=${JSON.stringify(lastValue, safeJsonReplacer)}`);
+}
+
+function safeJsonReplacer(_, value) {
+  if (typeof value === "bigint") return value.toString();
+  if (Buffer.isBuffer(value)) {
+    return {
+      type: "Buffer",
+      length: value.length,
+      hex: value.toString("hex"),
+    };
+  }
+  return value;
+}
+
+function findSlotByName(botState, name) {
+  const slot = botState.inventory.slots.findIndex((item) => item?.name === name);
+  assert.notStrictEqual(slot, -1, `Could not find ${name} in inventory`);
+  return slot;
+}
+
+function countInventoryItem(botState, name) {
+  return botState.inventory.slots.reduce((total, item) => {
+    if (!item || item.name !== name) return total;
+    return total + item.count;
+  }, 0);
+}
+
+async function waitForInventoryCount(botState, name, count, timeoutMs = 8000) {
+  await waitUntil(
+    `${name} inventory count to become ${count}`,
+    () => countInventoryItem(botState, name) === count,
+    timeoutMs,
+  );
+}
+
+async function waitForBlockName(botState, pos, expectedName, timeoutMs = 8000) {
+  return waitUntil(
+    `block ${expectedName} at ${pos}`,
+    async () => {
+      const block = await botState.getBlock(pos);
+      return block?.name === expectedName ? block : false;
+    },
+    timeoutMs,
+  );
+}
+
+async function markLocalBlock(botState, pos, block) {
+  const name = block.replace(/^minecraft:/, "").split("[")[0];
+  const stateId = botState.registry.blocksByName[name]?.defaultState;
+  if (stateId == null || typeof botState.setBlockStateIdAt !== "function") return;
+  await botState.setBlockStateIdAt(pos, stateId);
+}
+
+function bookshelfPositions() {
+  const positions = [];
+  const { x, y, z } = ENCHANT_POS;
+
+  for (let dx = -2; dx <= 2; dx++) {
+    positions.push(new Vec3(x + dx, y, z - 2));
+    positions.push(new Vec3(x + dx, y, z + 2));
+  }
+
+  for (let dz = -1; dz <= 1; dz++) {
+    positions.push(new Vec3(x - 2, y, z + dz));
+    positions.push(new Vec3(x + 2, y, z + dz));
+  }
+
+  return positions.slice(0, 15);
+}
+
+async function setupEnchantingWorld(botState) {
+  const { x, y, z } = ENCHANT_POS;
+  const blocks = [];
+
+  setPlayerGamemode(botState, USERNAME, "creative");
+  await sleep(SETUP_DELAY_MS);
+
+  clearPlayer(botState, USERNAME);
+  await sleep(SETUP_DELAY_MS);
+
+  for (let dx = -3; dx <= 3; dx++) {
+    for (let dz = -3; dz <= 4; dz++) {
+      blocks.push({ pos: new Vec3(x + dx, y - 1, z + dz), block: "minecraft:stone" });
+      blocks.push({ pos: new Vec3(x + dx, y, z + dz), block: "minecraft:air" });
+      blocks.push({ pos: new Vec3(x + dx, y + 1, z + dz), block: "minecraft:air" });
+    }
+  }
+
+  blocks.push({ pos: ENCHANT_POS, block: "minecraft:enchanting_table" });
+
+  for (const pos of bookshelfPositions()) {
+    blocks.push({ pos, block: "minecraft:bookshelf" });
+  }
+
+  for (const { pos, block } of blocks) {
+    await setBlockIfNeeded(botState, pos, block, 100);
+  }
+
+  await markLocalBlock(botState, ENCHANT_POS, "minecraft:enchanting_table");
+  for (const pos of bookshelfPositions()) {
+    await markLocalBlock(botState, pos, "minecraft:bookshelf");
+  }
+
+  teleportPlayer(botState, USERNAME, x + 0.5, y, z + 3.5);
+  await sleep(SETUP_DELAY_MS);
+
+  if (typeof botState.waitForChunksToLoad === "function") {
+    await botState.waitForChunksToLoad(2, ENCHANT_POS, 10000);
+  }
+
+  await waitForBlockName(botState, ENCHANT_POS, "enchanting_table");
+
+  givePlayer(botState, USERNAME, "diamond_sword", 1);
+  givePlayer(botState, USERNAME, "lapis_lazuli", 3);
+  await sleep(SETUP_DELAY_MS);
+
+  setPlayerGamemode(botState, USERNAME, "survival");
+  await sleep(SETUP_DELAY_MS);
+  sendCommand(botState, `experience set .${USERNAME} 30 levels`);
+  await sleep(SETUP_DELAY_MS);
+  sendCommand(botState, `experience add .${USERNAME} 30 levels`);
+  await sleep(SETUP_DELAY_MS);
+  sendCommand(botState, `xp 30L .${USERNAME}`);
+  await sleep(SETUP_DELAY_MS);
+
+  await waitForInventoryCount(botState, "diamond_sword", 1);
+  await waitForInventoryCount(botState, "lapis_lazuli", 3);
+}
+
+function itemSignature(item) {
+  if (!item) return null;
+
+  return JSON.stringify(
+    {
+      type: item.type,
+      name: item.name,
+      count: item.count,
+      metadata: item.metadata,
+      nbt: item.nbt,
+      rawExtra: item.raw?.extra,
+    },
+    safeJsonReplacer,
+  );
+}
+
+function itemSummary(item) {
+  if (!item) return null;
+
+  return {
+    name: item.name,
+    count: item.count,
+    metadata: item.metadata,
+    nbt: item.nbt,
+    raw: item.raw,
+  };
+}
+
+describe("live enchanting integration", function () {
+  this.timeout(180000);
+
+  let botState;
+
+  before(async function () {
+    botState = new BotState({
+      host: HOST,
+      port: PORT,
+      username: USERNAME,
+      offline: OFFLINE,
+      version: VERSION,
+    });
+
+    botState.start();
+    await waitForSpawn(botState);
+
+    botState.setInventoryActionResponseTimeout?.(10000);
+    botState.setInventoryActionUpdateTimeout?.(5000);
+  });
+
+  after(async function () {
+    if (!botState?.client) return;
+
+    try {
+      await setBlockIfNeeded(botState, ENCHANT_POS, "minecraft:air", 25);
+      for (const pos of bookshelfPositions()) {
+        await setBlockIfNeeded(botState, pos, "minecraft:air", 25);
+      }
+    } catch {}
+
+    botState.disconnect("Enchanting mocha test complete");
+  });
+
+  it("reads enchantment table options and applies a level 30 enchant to a diamond sword", async function () {
+    await setupEnchantingWorld(botState);
+
+    const enchanting = await botState.openContainer(ENCHANT_POS, {
+      type: "enchantment",
+      face: 3,
+      contentTimeoutMs: 3000,
+    });
+
+    assert.strictEqual(enchanting.type, "enchantment");
+    assert.strictEqual(enchanting.containerSlotCount, 2);
+    assert.strictEqual(typeof enchanting.getEnchantOptions, "function");
+    assert.strictEqual(typeof enchanting.selectEnchantOption, "function");
+
+    const swordSlot = findSlotByName(botState, "diamond_sword");
+    await enchanting.putInput(swordSlot, 1);
+    assertSlot(enchanting.window, 0, "diamond_sword", 1);
+
+    const lapisSlot = findSlotByName(botState, "lapis_lazuli");
+    await enchanting.putLapis(lapisSlot, 3);
+    assertSlot(enchanting.window, 1, "lapis_lazuli", 3);
+
+    const options = await enchanting.waitForEnchantOptions(
+      currentOptions => currentOptions.some(option => option.cost === 30 && option.optionId !== 0),
+      15000,
+    );
+    const level30Option = options.find(option => option.cost === 30 && option.optionId !== 0);
+
+    assert(level30Option, `Expected a level 30 enchant option, got ${JSON.stringify(options, safeJsonReplacer, 2)}`);
+    assert(
+      level30Option.heldEnchants.length > 0 || level30Option.equipEnchants.length > 0 || level30Option.selfEnchants.length > 0,
+      `Expected visible enchant data on level 30 option, got ${JSON.stringify(level30Option, safeJsonReplacer, 2)}`,
+    );
+
+    const swordBefore = itemSignature(enchanting.getItem(0));
+    await enchanting.selectEnchantOption(level30Option);
+
+    await waitUntil(
+      "diamond sword to gain enchantment data",
+      () => {
+        const sword = enchanting.getItem(0);
+        return sword?.name === "diamond_sword" && itemSignature(sword) !== swordBefore ? sword : false;
+      },
+      15000,
+    );
+
+    await waitUntil(
+      "enchanting lapis slot to consume one item",
+      () => {
+        const lapis = enchanting.getItem(1);
+        return lapis?.name === "lapis_lazuli" && lapis.count === 2 ? lapis : false;
+      },
+      15000,
+    );
+
+    const enchantedSword = enchanting.getItem(0);
+    assert.strictEqual(enchantedSword.name, "diamond_sword");
+    assert.notStrictEqual(itemSignature(enchantedSword), swordBefore, [
+      "Expected sword item data to change after enchanting.",
+      "Before:",
+      swordBefore,
+      "After:",
+      JSON.stringify(itemSummary(enchantedSword), safeJsonReplacer, 2),
+      "Selected option:",
+      JSON.stringify(level30Option, safeJsonReplacer, 2),
+    ].join("\n"));
+
+    enchanting.close();
+  });
+});

@@ -192,6 +192,7 @@ module.exports = function containersPlugin (botState, options = {}) {
     const api = {
       id: windowId,
       windowId,
+      botState,
       type: windowType,
       containerSlotType,
       position: packet.coordinates,
@@ -379,33 +380,34 @@ module.exports = function containersPlugin (botState, options = {}) {
 
   async function transfer ({ source, destination, count }) {
     const amount = validateTransfer(source, destination, count)
+    const sourceItem = helpers().cloneItem(refItem(source))
+    const destinationItem = helpers().cloneItem(refItem(destination))
     const action = helpers().takeAction(amount, requestSlot(source), requestSlot(destination))
     const request = helpers().makeRequest([action])
     const id = botState.sendStandaloneItemStackRequest(request)
     const response = await botState.waitForItemStackResponse(id)
 
-    applyTransfer(source, destination, amount)
+    applyTransfer(source, destination, amount, sourceItem, destinationItem)
     applyServerSlots(response, [source, destination])
     return response
   }
 
   async function swap (source, destination) {
+    const sourceItem = helpers().cloneItem(refItem(source))
+    const destinationItem = helpers().cloneItem(refItem(destination))
     const action = helpers().swapAction(requestSlot(source), requestSlot(destination))
     const request = helpers().makeRequest([action])
     const id = botState.sendStandaloneItemStackRequest(request)
     const response = await botState.waitForItemStackResponse(id)
 
-    const sourceItem = refItem(source)
-    const destinationItem = refItem(destination)
     updateRef(source, helpers().cloneItem(destinationItem))
     updateRef(destination, helpers().cloneItem(sourceItem))
     applyServerSlots(response, [source, destination])
     return response
   }
 
-  function applyTransfer (sourceRef, destinationRef, count) {
-    const source = refItem(sourceRef)
-    const destination = refItem(destinationRef)
+  function applyTransfer (sourceRef, destinationRef, count, source, destination) {
+    if (!source) return
 
     updateRef(sourceRef, helpers().cloneItem(source, source.count - count))
     if (destination) {
@@ -549,6 +551,23 @@ module.exports = function containersPlugin (botState, options = {}) {
   })
 
   client.on('container_set_data', handleContainerSetData)
+
+  client.on('player_enchant_options', packet => {
+    const container = activeContainer ?? botState.currentContainer
+    const handled = container?.handlePlayerEnchantOptions?.(packet) === true
+
+    botState.emit('player_enchant_options', {
+      container: handled ? container : null,
+      packet,
+      handled
+    })
+
+    if (!handled) {
+      logAction('[containers]', 'unhandled player_enchant_options', {
+        optionCount: packet.options?.length ?? 0
+      })
+    }
+  })
 
   client.on('container_close', packet => {
     const windowId = normalizeWindowId(packet.window_id)

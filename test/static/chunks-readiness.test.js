@@ -3,7 +3,7 @@
 const assert = require('assert')
 const { EventEmitter } = require('events')
 const { Vec3 } = require('vec3')
-const injectChunks = require('../src/builtins/chunks')
+const injectChunks = require('../../src/builtins/chunks')
 
 function createBotState () {
   const client = new EventEmitter()

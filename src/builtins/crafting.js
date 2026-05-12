@@ -280,7 +280,7 @@ function inventorySignature (botState) {
   return JSON.stringify(inventoryDebugSummary(botState))
 }
 
-function waitForInventoryChange (botState, before, timeoutMs = 12000, quietMs = 750) {
+function waitForInventoryChange (botState, before, timeoutMs = 12000, quietMs = 3000) {
   return new Promise(resolve => {
     let changed = inventorySignature(botState) !== before
     let quietTimer = null
@@ -531,14 +531,20 @@ module.exports = async (botState, options = {}) => {
   botState.craftPlan = async (plan, craftingTableBlock) => {
     if (!plan?.success) throw new Error(plan?.error || 'Cannot craft unsuccessful plan')
 
-    for (const step of plan.recipesToDo) {
-      const craft = resolveCraftStep(botState, step)
-      if (!craft) throw unresolvedCraftStepError(botState, step)
-      const useStandaloneRequest = isTableRecipe(craft.entry)
-      if (useStandaloneRequest) await openCraftingTable(botState, craftingTableBlock)
-      const beforeInventory = inventorySignature(botState)
-      await sendRequest(botState, buildActions(botState, craft), { standalone: useStandaloneRequest })
-      await waitForInventoryChange(botState, beforeInventory)
+    let openedCraftingContainer = null
+
+    try {
+      for (const step of plan.recipesToDo) {
+        const craft = resolveCraftStep(botState, step)
+        if (!craft) throw unresolvedCraftStepError(botState, step)
+        const useStandaloneRequest = isTableRecipe(craft.entry)
+        if (useStandaloneRequest) openedCraftingContainer = await openCraftingTable(botState, craftingTableBlock)
+        const beforeInventory = inventorySignature(botState)
+        await sendRequest(botState, buildActions(botState, craft), { standalone: useStandaloneRequest })
+        await waitForInventoryChange(botState, beforeInventory)
+      }
+    } finally {
+      openedCraftingContainer?.close?.()
     }
 
     return plan

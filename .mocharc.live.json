@@ -1,0 +1,7 @@
+{
+  "timeout": 60000,
+  "exit": true,
+  "require": [
+    "./test/helpers/test-lock.js"
+  ]
+}

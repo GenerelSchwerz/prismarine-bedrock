@@ -278,6 +278,10 @@ function inject (botState, options) {
     botState.emit('inventory_response_applied', response, [...serverSlots.keys()])
   }
 
+  function itemStackResponseOk (response) {
+    return response?.status === 0 || response?.status === 'ok' || response?.status === 'success'
+  }
+
   Object.defineProperty(botState, 'heldItem', {
     get () {
       const slot = botState.heldItemSlot
@@ -313,6 +317,12 @@ function inject (botState, options) {
   }
 
   botState.applyItemStackResponseToInventory = applyItemStackResponseToInventory
+
+  botState.client.on('item_stack_response', (packet) => {
+    for (const response of packet.responses || []) {
+      if (itemStackResponseOk(response)) applyItemStackResponseToInventory(response)
+    }
+  })
 
   botState.client.on('inventory_content', (packet) => {
     const windowId = normalizeWindowId(packet.window_id)

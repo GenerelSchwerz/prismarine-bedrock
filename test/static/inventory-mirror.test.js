@@ -3,7 +3,7 @@
 const assert = require('assert')
 const { EventEmitter } = require('events')
 
-const injectInventory = require('../src/builtins/inventory')
+const injectInventory = require('../../src/builtins/inventory')
 
 function createBotState () {
   const registry = require('prismarine-registry')('bedrock_1.21.130')

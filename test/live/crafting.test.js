@@ -1,15 +1,16 @@
 'use strict'
 
 const assert = require('assert')
-const BotState = require('../src/state')
+const BotState = require('../../src/state')
 const { Vec3 } = require('vec3')
 const {
   clearPlayer,
   givePlayer,
   sendCommand,
+  setBlockIfNeeded,
   setPlayerGamemode,
   teleportPlayer
-} = require('./helpers/commands')
+} = require('../helpers/commands')
 const {
   HOST,
   PORT,
@@ -17,7 +18,7 @@ const {
   OFFLINE,
   VERSION,
   SETUP_DELAY_MS
-} = require('./helpers/test-env')
+} = require('../helpers/test-env')
 
 const CRAFT_POS = {
   x: Number(process.env.CRAFT_TEST_X || 16),
@@ -27,13 +28,6 @@ const CRAFT_POS = {
 
 function sleep (ms) {
   return new Promise(resolve => setTimeout(resolve, ms))
-}
-
-async function sendCommandsSequentially (botState, commands, delayMs = 150) {
-  for (const command of commands) {
-    sendCommand(botState, command)
-    await sleep(delayMs)
-  }
 }
 
 function waitForSpawn (botState, timeoutMs = 10000) {
@@ -109,14 +103,12 @@ async function setupCraftingWorld (botState) {
   clearPlayer(botState, USERNAME)
   await sleep(SETUP_DELAY_MS)
 
-  await sendCommandsSequentially(botState, [
-    `setblock ${x} ${y - 1} ${z} minecraft:stone`,
-    `setblock ${x} ${y} ${z} minecraft:crafting_table`,
-    `setblock ${x} ${y + 1} ${z} minecraft:air`,
-    `setblock ${x + 1} ${y - 1} ${z} minecraft:stone`,
-    `setblock ${x + 1} ${y} ${z} minecraft:air`,
-    `setblock ${x + 1} ${y + 1} ${z} minecraft:air`
-  ])
+  await setBlockIfNeeded(botState, new Vec3(x, y - 1, z), 'minecraft:stone')
+  await setBlockIfNeeded(botState, new Vec3(x, y, z), 'minecraft:crafting_table')
+  await setBlockIfNeeded(botState, new Vec3(x, y + 1, z), 'minecraft:air')
+  await setBlockIfNeeded(botState, new Vec3(x + 1, y - 1, z), 'minecraft:stone')
+  await setBlockIfNeeded(botState, new Vec3(x + 1, y, z), 'minecraft:air')
+  await setBlockIfNeeded(botState, new Vec3(x + 1, y + 1, z), 'minecraft:air')
 
   teleportPlayer(botState, USERNAME, x + 1.5, y, z + 0.5)
   await sleep(SETUP_DELAY_MS)

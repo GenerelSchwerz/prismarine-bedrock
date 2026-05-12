@@ -2,11 +2,11 @@
 
 const assert = require("assert");
 const { Vec3 } = require("vec3");
-const BotState = require("../src/state");
-const { clearPlayer, givePlayer, sendCommand, setPlayerGamemode, teleportPlayer } = require("./helpers/commands");
-const { HOST, PORT, USERNAME, OFFLINE, VERSION, SETUP_DELAY_MS } = require("./helpers/test-env");
+const BotState = require("../../src/state");
+const { clearPlayer, givePlayer, sendCommand, setBlockIfNeeded, setPlayerGamemode, teleportPlayer } = require("../helpers/commands");
+const { HOST, PORT, USERNAME, OFFLINE, VERSION, SETUP_DELAY_MS } = require("../helpers/test-env");
 
-const { assertSlot } = require("./helpers/shared");
+const { assertSlot } = require("../helpers/shared");
 
 const CHEST_POS = new Vec3(2, 65, 0);
 const DOUBLE_CHEST_POS = new Vec3(4, 65, 0);
@@ -54,25 +54,23 @@ async function setupContainerArea(botState, blocks, items = []) {
   await sleep(SETUP_DELAY_MS);
 
   for (const { pos } of blocks) {
-    sendCommand(botState, `setblock ${pos.x} ${pos.y - 1} ${pos.z} minecraft:stone`);
-    sendCommand(botState, `setblock ${pos.x} ${pos.y} ${pos.z} minecraft:air`);
-    sendCommand(botState, `setblock ${pos.x} ${pos.y + 1} ${pos.z} minecraft:air`);
+    await setBlockIfNeeded(botState, pos.offset(0, -1, 0), "minecraft:stone");
+    await setBlockIfNeeded(botState, pos, "minecraft:air");
+    await setBlockIfNeeded(botState, pos.offset(0, 1, 0), "minecraft:air");
   }
 
   const first = blocks[0].pos;
   const teleportFloor = first.offset(0, 0, 3);
-  sendCommand(botState, `setblock ${teleportFloor.x} ${teleportFloor.y} ${teleportFloor.z} minecraft:stone`);
-  sendCommand(botState, `setblock ${teleportFloor.x} ${teleportFloor.y + 1} ${teleportFloor.z} minecraft:air`);
-  sendCommand(botState, `setblock ${teleportFloor.x} ${teleportFloor.y + 2} ${teleportFloor.z} minecraft:air`);
-  await sleep(SETUP_DELAY_MS);
+  await setBlockIfNeeded(botState, teleportFloor, "minecraft:stone");
+  await setBlockIfNeeded(botState, teleportFloor.offset(0, 1, 0), "minecraft:air");
+  await setBlockIfNeeded(botState, teleportFloor.offset(0, 2, 0), "minecraft:air");
   await waitForBlockName(botState, teleportFloor, "stone");
 
   teleportPlayer(botState, USERNAME, first.x + 0.5, first.y + 1, first.z + 3.5);
   await sleep(SETUP_DELAY_MS);
 
   for (const { pos, block } of blocks) {
-    sendCommand(botState, `setblock ${pos.x} ${pos.y} ${pos.z} ${block}`);
-    await sleep(150);
+    await setBlockIfNeeded(botState, pos, block);
     await markLocalBlock(botState, pos, block);
   }
 
@@ -106,16 +104,15 @@ async function setupDoubleChestArea(botState) {
 
   const rightChestPos = DOUBLE_CHEST_POS.offset(1, 0, 0);
   for (const pos of [DOUBLE_CHEST_POS, rightChestPos]) {
-    sendCommand(botState, `setblock ${pos.x} ${pos.y - 1} ${pos.z} minecraft:stone`);
-    sendCommand(botState, `setblock ${pos.x} ${pos.y} ${pos.z} minecraft:air`);
-    sendCommand(botState, `setblock ${pos.x} ${pos.y + 1} ${pos.z} minecraft:air`);
+    await setBlockIfNeeded(botState, pos.offset(0, -1, 0), "minecraft:stone");
+    await setBlockIfNeeded(botState, pos, "minecraft:air");
+    await setBlockIfNeeded(botState, pos.offset(0, 1, 0), "minecraft:air");
   }
 
   const teleportFloor = DOUBLE_CHEST_POS.offset(0, 0, 3);
-  sendCommand(botState, `setblock ${teleportFloor.x} ${teleportFloor.y} ${teleportFloor.z} minecraft:stone`);
-  sendCommand(botState, `setblock ${teleportFloor.x} ${teleportFloor.y + 1} ${teleportFloor.z} minecraft:air`);
-  sendCommand(botState, `setblock ${teleportFloor.x} ${teleportFloor.y + 2} ${teleportFloor.z} minecraft:air`);
-  await sleep(SETUP_DELAY_MS);
+  await setBlockIfNeeded(botState, teleportFloor, "minecraft:stone");
+  await setBlockIfNeeded(botState, teleportFloor.offset(0, 1, 0), "minecraft:air");
+  await setBlockIfNeeded(botState, teleportFloor.offset(0, 2, 0), "minecraft:air");
   await waitForBlockName(botState, teleportFloor, "stone");
 
   teleportPlayer(botState, USERNAME, DOUBLE_CHEST_POS.x + 0.5, DOUBLE_CHEST_POS.y + 1, DOUBLE_CHEST_POS.z + 3.5);
@@ -321,12 +318,11 @@ describe("real chest containers", function () {
     if (!botState?.client) return;
 
     try {
-      sendCommand(botState, "setblock 2 65 0 minecraft:air");
-      sendCommand(botState, "setblock 4 65 0 minecraft:air");
-      sendCommand(botState, "setblock 5 65 0 minecraft:air");
-      sendCommand(botState, "setblock 6 65 0 minecraft:air");
-      sendCommand(botState, "setblock 8 65 0 minecraft:air");
-      await sleep(250);
+      await setBlockIfNeeded(botState, CHEST_POS, "minecraft:air", 250);
+      await setBlockIfNeeded(botState, DOUBLE_CHEST_POS, "minecraft:air", 250);
+      await setBlockIfNeeded(botState, DOUBLE_CHEST_POS.offset(1, 0, 0), "minecraft:air", 250);
+      await setBlockIfNeeded(botState, FURNACE_POS, "minecraft:air", 250);
+      await setBlockIfNeeded(botState, BREWING_POS, "minecraft:air", 250);
     } catch {}
 
     botState.disconnect("Chest container mocha test complete");

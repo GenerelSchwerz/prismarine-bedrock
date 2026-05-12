@@ -1,7 +1,7 @@
 'use strict'
 
 const assert = require('assert')
-const specializeContainer = require('../src/builtins/containers/specialize')
+const specializeContainer = require('../../src/builtins/containers/specialize')
 
 function fakeContainer (type) {
   const calls = []
@@ -63,7 +63,7 @@ describe('container specializations', function () {
       brewing_stand: ['putBottle', 'putInput', 'putIngredient', 'putFuel', 'takeBottle', 'takeIngredient', 'takeFuel', 'takeResult'],
       anvil: ['putInput', 'putMaterial', 'takeResult'],
       smithing_table: ['putTemplate', 'putInput', 'putMaterial', 'takeResult'],
-      enchantment: ['putInput', 'putLapis'],
+      enchantment: ['putInput', 'putLapis', 'getEnchantOptions', 'getEnchantOption', 'findEnchantOption', 'waitForEnchantOptions', 'selectEnchantOption'],
       beacon: ['putPayment'],
       trading: ['putIngredient1', 'putIngredient2', 'takeResult'],
       loom: ['putBanner', 'putDye', 'putPattern', 'takeResult'],

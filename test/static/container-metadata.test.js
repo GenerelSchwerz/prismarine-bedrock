@@ -10,7 +10,7 @@ const {
   containerSlotTypeFor,
   normalizeWindowId,
   windowInfoFor
-} = require('../src/container-metadata')
+} = require('../../src/container-metadata')
 
 const TYPES_YML = path.join(
   __dirname,

@@ -255,6 +255,12 @@ module.exports = function tradingPlugin (botState, options = {}) {
     return packet ? recipesFromPacket(packet) : []
   }
 
+  function currentTradeContainer () {
+    const windowId = botState.currentTradeWindow?.window_id ?? lastTradeWindow?.window_id
+    if (windowId == null || !botState.getContainer) return null
+    return botState.getContainer(windowId)
+  }
+
   function summarizeRecipe (recipe, index = null) {
     const inputA = recipeInputA(recipe)
     const inputB = recipeInputB(recipe)
@@ -613,6 +619,10 @@ module.exports = function tradingPlugin (botState, options = {}) {
   }
 
   function tradeOutputItem () {
+    const tradeContainer = currentTradeContainer()
+    const containerOutput = tradeContainer?.getItem(2)
+    if (containerOutput) return containerOutput
+
     const uiOutput = botState.getUiSlot(50)
     if (uiOutput) return uiOutput
 
@@ -653,6 +663,29 @@ module.exports = function tradingPlugin (botState, options = {}) {
     }
 
     return responsePromise
+  }
+
+  async function containerTransferIngredients (tradeContainer, recipe, count, sourceSlots) {
+    const inputs = [recipeInputA(recipe), recipeInputB(recipe)]
+    const responses = []
+
+    for (const [index, input] of inputs.entries()) {
+      const requiredCount = itemCount(input) * count
+      if (!input || !itemId(input) || requiredCount <= 0) continue
+
+      const sourceSlot = sourceSlots[index]
+      const response = index === 0
+        ? await tradeContainer.putIngredient1(sourceSlot, requiredCount)
+        : await tradeContainer.putIngredient2(sourceSlot, requiredCount)
+
+      responses.push(response)
+    }
+
+    return responses
+  }
+
+  async function containerTakeTradeResult (tradeContainer, destinationSlot, count) {
+    return tradeContainer.takeResult(destinationSlot, count)
   }
 
   async function restoreExcessTradeInputs (recipe, count, sourceSlots, opts = {}) {
@@ -784,25 +817,36 @@ module.exports = function tradingPlugin (botState, options = {}) {
           ingredientASourceStackId: opts.transferSourceStackId ?? opts.ingredientASourceStackId ?? 1,
           ingredientBSourceStackId: opts.transferSourceStackId ?? opts.ingredientBSourceStackId ?? 1
         })
+        const tradeContainer = currentTradeContainer()
 
-        logAction('[trading]', 'execute_trade ingredient fallback request full', {
-          request_id: ingredientFallback.request.request_id,
-          actions: ingredientFallback.request.actions
-        })
+        const ingredientFallbackResponse = tradeContainer
+          ? await containerTransferIngredients(tradeContainer, recipe, tradeCount, sourceSlots)
+          : await (async () => {
+              logAction('[trading]', 'execute_trade ingredient fallback request full', {
+                request_id: ingredientFallback.request.request_id,
+                actions: ingredientFallback.request.actions
+              })
 
-        const ingredientFallbackResponse = await sendRawTradeRequest(
-          ingredientFallback.request,
-          opts.transferTimeoutMs ?? opts.timeoutMs ?? opts.responseTimeoutMs ?? tradeTimeoutMs
-        )
+              const response = await sendRawTradeRequest(
+                ingredientFallback.request,
+                opts.transferTimeoutMs ?? opts.timeoutMs ?? opts.responseTimeoutMs ?? tradeTimeoutMs
+              )
 
-        logAction('[trading]', 'execute_trade ingredient fallback response', {
-          request_id: ingredientFallback.request.request_id,
-          status: ingredientFallbackResponse.status,
-          destinationSlot,
-          containers: Array.isArray(ingredientFallbackResponse.containers) ? ingredientFallbackResponse.containers.length : undefined
-        })
+              logAction('[trading]', 'execute_trade ingredient fallback response', {
+                request_id: ingredientFallback.request.request_id,
+                status: response.status,
+                destinationSlot,
+                containers: Array.isArray(response.containers) ? response.containers.length : undefined
+              })
 
-        if (responseStatusOk(ingredientFallbackResponse)) {
+              return response
+            })()
+
+        const ingredientFallbackOk = Array.isArray(ingredientFallbackResponse)
+          ? ingredientFallbackResponse.every(responseStatusOk)
+          : responseStatusOk(ingredientFallbackResponse)
+
+        if (ingredientFallbackOk) {
           const selectionFallback = buildTradeSelectionRequest(recipe, tradeCount, opts)
 
           logAction('[trading]', 'execute_trade selection fallback request full', {
@@ -831,22 +875,28 @@ module.exports = function tradingPlugin (botState, options = {}) {
             resultStackId: opts.transferResultStackId ?? (itemStackId(outputItem) || 1)
           })
 
-          logAction('[trading]', 'execute_trade result fallback request full', {
-            request_id: resultFallback.request.request_id,
-            actions: resultFallback.request.actions
-          })
+          const resultFallbackResponse = tradeContainer
+            ? await containerTakeTradeResult(tradeContainer, destinationSlot, itemCount(recipeOutput(recipe)) * tradeCount)
+            : await (async () => {
+                logAction('[trading]', 'execute_trade result fallback request full', {
+                  request_id: resultFallback.request.request_id,
+                  actions: resultFallback.request.actions
+                })
 
-          const resultFallbackResponse = await sendRawTradeRequest(
-            resultFallback.request,
-            opts.resultTimeoutMs ?? opts.transferTimeoutMs ?? opts.timeoutMs ?? opts.responseTimeoutMs ?? tradeTimeoutMs
-          )
+                const response = await sendRawTradeRequest(
+                  resultFallback.request,
+                  opts.resultTimeoutMs ?? opts.transferTimeoutMs ?? opts.timeoutMs ?? opts.responseTimeoutMs ?? tradeTimeoutMs
+                )
 
-          logAction('[trading]', 'execute_trade result fallback response', {
-            request_id: resultFallback.request.request_id,
-            status: resultFallbackResponse.status,
-            destinationSlot,
-            containers: Array.isArray(resultFallbackResponse.containers) ? resultFallbackResponse.containers.length : undefined
-          })
+                logAction('[trading]', 'execute_trade result fallback response', {
+                  request_id: resultFallback.request.request_id,
+                  status: response.status,
+                  destinationSlot,
+                  containers: Array.isArray(response.containers) ? response.containers.length : undefined
+                })
+
+                return response
+              })()
 
           if (responseStatusOk(resultFallbackResponse)) {
             await sleep(opts.restoreTradeInputsDelayMs ?? 150)
@@ -931,7 +981,7 @@ module.exports = function tradingPlugin (botState, options = {}) {
     tradeTimeoutMs = ms
   }
 
-  client.on('update_trade', packet => {
+  botState.on('inventory_trade_window_updated', (_windowId, _win, packet) => {
     setCurrentTradeWindow(packet)
   })
 

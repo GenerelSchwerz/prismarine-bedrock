@@ -136,6 +136,22 @@ module.exports = function containersPlugin (botState, options = {}) {
     const window = botState.windows?.get(windowId)
     if (!window) throw new Error(`Container window ${windowId} was not created`)
 
+    const existing = openContainers.get(windowId)
+    if (existing) {
+      existing.type = packet.window_type
+      existing.containerSlotType = containerSlotTypeFor({
+        windowType: packet.window_type,
+        blockName: blockNameAt(packet.coordinates)
+      })
+      existing.position = packet.coordinates
+      existing.window = window
+      existing.lastOpenPacket = packet
+      activeContainer = existing
+      botState.currentContainer = existing
+      replayPendingContainerData(windowId)
+      return existing
+    }
+
     const container = createContainerWindow(packet, window)
     activeContainer = container
     openContainers.set(windowId, container)
@@ -183,6 +199,7 @@ module.exports = function containersPlugin (botState, options = {}) {
       properties: {},
       data: {},
       lastDataPacket: null,
+      lastOpenPacket: packet,
 
       get containerSlotCount () {
         return window.inventoryStart
@@ -526,6 +543,10 @@ module.exports = function containersPlugin (botState, options = {}) {
   botState.getCurrentContainer = () => activeContainer
   botState.getContainer = windowId => getContainerForWindowId(windowId)
   botState.openContainers = openContainers
+
+  botState.on('inventory_trade_window_updated', (_windowId, _win, packet) => {
+    wrapContainerWindow(packet)
+  })
 
   client.on('container_set_data', handleContainerSetData)
 

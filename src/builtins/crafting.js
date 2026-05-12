@@ -280,18 +280,7 @@ function inventorySignature (botState) {
   return JSON.stringify(inventoryDebugSummary(botState))
 }
 
-function craftFallbackCounts (botState, craft) {
-  const fallbackCounts = new Map()
-
-  for (const [slot, count] of craft.used) {
-    const item = botState.inventory.slots[slot]
-    fallbackCounts.set(slot, (item?.count || 0) - count)
-  }
-
-  return fallbackCounts
-}
-
-function waitForInventoryChange (botState, before, timeoutMs = 2500, quietMs = 150) {
+function waitForInventoryChange (botState, before, timeoutMs = 12000, quietMs = 750) {
   return new Promise(resolve => {
     let changed = inventorySignature(botState) !== before
     let quietTimer = null
@@ -421,6 +410,7 @@ function sendRequest (botState, actions, options = {}) {
     requestId,
     actions: actions.map(action => action.type_id),
   })
+  botState.emit('craft_item_stack_request', request)
 
   return new Promise((resolve, reject) => {
     const done = (err, value) => {
@@ -547,15 +537,8 @@ module.exports = async (botState, options = {}) => {
       const useStandaloneRequest = isTableRecipe(craft.entry)
       if (useStandaloneRequest) await openCraftingTable(botState, craftingTableBlock)
       const beforeInventory = inventorySignature(botState)
-      const fallbackCounts = useStandaloneRequest ? craftFallbackCounts(botState, craft) : null
-      const response = await sendRequest(botState, buildActions(botState, craft), { standalone: useStandaloneRequest })
+      await sendRequest(botState, buildActions(botState, craft), { standalone: useStandaloneRequest })
       await waitForInventoryChange(botState, beforeInventory)
-      if (useStandaloneRequest) {
-        botState.applyItemStackResponseToInventory?.(response, {
-          changedSlots: [...craft.used.keys(), craft.outSlot],
-          fallbackCounts
-        })
-      }
     }
 
     return plan

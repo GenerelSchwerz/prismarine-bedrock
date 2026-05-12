@@ -26,9 +26,9 @@ By default, `crafting.js` creates a fresh static `prismarine-registry` for `bedr
 
 This keeps packet construction tied to live Bedrock `crafting_data`, including `recipe_network_id`, `RecipeIngredient`, and `results_deprecated` shapes.
 
-Crafting does not locally predict inventory after sending a craft request. The passive inventory mirror should stay server-authoritative because Geyser can send delayed `inventory_content`/`inventory_slot` updates after accepted craft responses.
+Crafting does not locally predict inventory after sending a craft request. The passive inventory mirror must stay server-authoritative; after accepted craft requests, wait for real `inventory_content`/`inventory_slot`/UI updates to settle before resolving the next craft step.
 
-For standalone workbench requests, Geyser may accept the craft and send the output slot update without separate source-slot decrements. `crafting.js` should pass the accepted `item_stack_response` and affected slots to the inventory builtin; response-slot reconciliation belongs in `inventory.js`, not in the crafting adapter.
+Do not synthesize crafted outputs or consumed inputs in `crafting.js`. If a server or proxy delays inventory updates, increase the wait/settle window or improve authoritative packet handling in `inventory.js` rather than adding local craft prediction.
 
 ## Runtime IDs vs Planning IDs
 

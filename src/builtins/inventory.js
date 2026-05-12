@@ -255,22 +255,10 @@ function inject (botState, options) {
     return slots
   }
 
-  function normalizeFallbackCounts (fallbackCounts) {
-    if (!fallbackCounts) return new Map()
-    if (fallbackCounts instanceof Map) return fallbackCounts
-    return new Map(Object.entries(fallbackCounts).map(([slot, count]) => [Number(slot), count]))
-  }
-
-  function applyItemStackResponseToInventory (response, options = {}) {
+  function applyItemStackResponseToInventory (response) {
     const serverSlots = responseInventorySlots(response)
-    const fallbackCounts = normalizeFallbackCounts(options.fallbackCounts)
-    const changedSlots = new Set([
-      ...serverSlots.keys(),
-      ...(options.changedSlots || []),
-      ...fallbackCounts.keys()
-    ])
 
-    for (const slot of changedSlots) {
+    for (const slot of serverSlots.keys()) {
       const item = inv.slots[slot]
       const serverSlot = serverSlots.get(slot)
 
@@ -284,15 +272,10 @@ function inject (botState, options) {
         updated.stackId = serverSlot.item_stack_id
         updated.stack_id = serverSlot.item_stack_id
         inv.updateSlot(slot, updated)
-        continue
-      }
-
-      if (fallbackCounts.has(slot)) {
-        inv.updateSlot(slot, cloneItem(item, fallbackCounts.get(slot)))
       }
     }
 
-    botState.emit('inventory_response_applied', response, [...changedSlots])
+    botState.emit('inventory_response_applied', response, [...serverSlots.keys()])
   }
 
   Object.defineProperty(botState, 'heldItem', {

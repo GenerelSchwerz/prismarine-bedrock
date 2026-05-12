@@ -247,4 +247,68 @@ describe('live crafting integration', function () {
     assert.strictEqual(countInventoryItem(botState, 'stick'), sticksBefore + 2)
     assert.strictEqual(countInventoryItem(botState, 'oak_planks'), planksBefore + 3)
   })
+
+  it('crafts ten wooden pickaxes with batched recipe applications', async function () {
+    await setupCraftingWorld(botState)
+
+    const woodenPickaxe = requireRegistryItem(botState, 'wooden_pickaxe')
+
+    givePlayer(botState, USERNAME, 'oak_log', 10)
+    await waitForInventoryCount(botState, 'oak_log', 10)
+
+    const plan = await botState.planCraftInventory({ id: woodenPickaxe.id, count: 10 })
+    assert.strictEqual(plan.success, true, `Expected wooden pickaxe plan success, got ${plan.error || 'unknown error'}`)
+
+    const pickaxeStep = plan.recipesToDo.find(step => step?._craftingUtilRecipe?.result?.name === 'wooden_pickaxe')
+    assert(pickaxeStep, [
+      'Expected a wooden_pickaxe recipe step',
+      'Plan:',
+      JSON.stringify(plan, null, 2)
+    ].join('\n'))
+    assert.strictEqual(pickaxeStep.recipeApplications, 10, [
+      'Expected the final workbench craft to batch 10 recipe applications',
+      'Plan:',
+      JSON.stringify(plan, null, 2)
+    ].join('\n'))
+
+    const requests = []
+    const onCraftRequest = request => requests.push(request)
+    botState.on('craft_item_stack_request', onCraftRequest)
+
+    try {
+      await botState.craftItem(woodenPickaxe.id, 10, craftingTableRef())
+    } finally {
+      botState.off('craft_item_stack_request', onCraftRequest)
+    }
+
+    const batchedPickaxeRequests = requests.filter(request => {
+      const autoAction = request.actions.find(action => action.type_id === 'craft_recipe_auto')
+      const resultAction = request.actions.find(action => action.type_id === 'results_deprecated')
+      return autoAction?.times_crafted === 10 && resultAction?.times_crafted === 10
+    })
+    assert.strictEqual(batchedPickaxeRequests.length, 1, [
+      'Expected exactly one batched workbench request for 10 pickaxes',
+      'Requests:',
+      JSON.stringify(requests, null, 2)
+    ].join('\n'))
+    assert(batchedPickaxeRequests[0].actions.some(action => {
+      return action.type_id === 'take' && action.count === 10
+    }), [
+      'Expected batched request to take all 10 created outputs in one action',
+      'Request:',
+      JSON.stringify(batchedPickaxeRequests[0], null, 2)
+    ].join('\n'))
+
+    await waitForInventoryCounts(botState, {
+      oak_log: 0,
+      wooden_pickaxe: 10,
+      stick: 0,
+      oak_planks: 0
+    }, 8000)
+
+    assert.strictEqual(countInventoryItem(botState, 'oak_log'), 0)
+    assert.strictEqual(countInventoryItem(botState, 'wooden_pickaxe'), 10)
+    assert.strictEqual(countInventoryItem(botState, 'stick'), 0)
+    assert.strictEqual(countInventoryItem(botState, 'oak_planks'), 0)
+  })
 })

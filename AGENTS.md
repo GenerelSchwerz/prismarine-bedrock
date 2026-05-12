@@ -2,7 +2,7 @@
 
 ## Crafting
 
-- For crafting changes, read `docs/crafting-util-implementation-notes.md` before editing `src/builtins/crafting.js`. It explains how `mineflayer-crafting-util` is bridged into the Bedrock packet sender.
+- For crafting changes, read `docs/in-dev/crafting-util-implementation-notes.md` before editing `src/builtins/crafting.js`. It explains how `mineflayer-crafting-util` is bridged into the Bedrock packet sender.
 
 ## Bedrock Protocol Sources
 

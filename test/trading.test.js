@@ -139,13 +139,9 @@ function villagerSetupCommands () {
 async function setupTradingWorld (botState) {
   const { x, y, z } = TRADE_POS
 
-  // Ground under villager.
   sendCommand(botState, `setblock ${x} ${y - 1} ${z} minecraft:stone`)
-
-  // Ground under bot teleport position.
   sendCommand(botState, `setblock ${x + 1} ${y - 1} ${z} minecraft:stone`)
 
-  // Clear space above both blocks.
   sendCommand(botState, `setblock ${x} ${y} ${z} minecraft:air`)
   sendCommand(botState, `setblock ${x} ${y + 1} ${z} minecraft:air`)
   sendCommand(botState, `setblock ${x + 1} ${y} ${z} minecraft:air`)
@@ -262,7 +258,6 @@ function nbtValue (value) {
 
   if (typeof value !== 'object') return value
 
-  // prismarine-nbt style: { type: 'compound', value: {...} }
   if (Object.prototype.hasOwnProperty.call(value, 'type') &&
       Object.prototype.hasOwnProperty.call(value, 'value')) {
     return nbtValue(value.value)
@@ -600,6 +595,22 @@ function responseStatusOk (response) {
   return response?.status === 'ok' || response?.status === 'success'
 }
 
+function responseStatusTradeAcceptable (response) {
+  // Normal Bedrock inventory actions should require ok/success.
+  //
+  // Villager trading through Geyser is different: MerchantInventoryTranslator
+  // can send ServerboundSelectTradePacket(tradeChoice), then intentionally
+  // return rejectRequest(request) while delayed merchant handling is scheduled.
+  //
+  // Relevant Geyser source:
+  // https://github.com/GeyserMC/Geyser/blob/master/core/src/main/java/org/geysermc/geyser/translator/inventory/MerchantInventoryTranslator.java
+  //
+  // Therefore this test accepts status "error" here, but only because the real
+  // assertion below is the inventory effect: emeralds decrease and output items
+  // increase.
+  return responseStatusOk(response) || response?.status === 'error'
+}
+
 async function waitForInventoryPredicate (botState, predicate, label, timeoutMs = 10000) {
   const start = Date.now()
   let lastSummary = inventorySummary(botState)
@@ -652,6 +663,12 @@ function assertHasExecuteTrade (botState) {
     typeof botState.executeTrade,
     'function',
     'botState.executeTrade is not available; implement executeTrade in src/builtins/trading.js'
+  )
+
+  assert.strictEqual(
+    typeof botState.waitForRawItemStackResponse,
+    'function',
+    'botState.waitForRawItemStackResponse is not available; patch src/builtins/inventory-actions.js for Geyser merchant trade responses'
   )
 }
 
@@ -783,14 +800,15 @@ describe('real villager trading', function () {
     }, jsonDebugReplacer, 2))
 
     const response = await botState.executeTrade(breadTrade, 1, {
-      timeoutMs: 10000
+      timeoutMs: 10000,
+      geyserTradeDelayMs: 250
     })
 
     console.log('[trading.test] executeTrade response', JSON.stringify(itemStackResponseSummary(response), jsonDebugReplacer, 2))
     console.log('[trading.test] inventory after executeTrade immediate', JSON.stringify(inventorySummary(botState), jsonDebugReplacer, 2))
 
-    assert(responseStatusOk(response), [
-      `Expected successful item_stack_response, got ${response?.status}`,
+    assert(responseStatusTradeAcceptable(response), [
+      `Expected ok/success or Geyser delayed merchant error response, got ${response?.status}`,
       'Response:',
       JSON.stringify(itemStackResponseSummary(response), jsonDebugReplacer, 2),
       'Inventory:',
@@ -862,14 +880,15 @@ describe('real villager trading', function () {
       outputId: 'minecraft:apple',
       outputCount: 1
     }, 1, {
-      timeoutMs: 10000
+      timeoutMs: 10000,
+      geyserTradeDelayMs: 250
     })
 
     console.log('[trading.test] executeTrade apple response', JSON.stringify(itemStackResponseSummary(response), jsonDebugReplacer, 2))
     console.log('[trading.test] inventory after apple executeTrade immediate', JSON.stringify(inventorySummary(botState), jsonDebugReplacer, 2))
 
-    assert(responseStatusOk(response), [
-      `Expected successful item_stack_response, got ${response?.status}`,
+    assert(responseStatusTradeAcceptable(response), [
+      `Expected ok/success or Geyser delayed merchant error response, got ${response?.status}`,
       'Response:',
       JSON.stringify(itemStackResponseSummary(response), jsonDebugReplacer, 2),
       'Inventory:',

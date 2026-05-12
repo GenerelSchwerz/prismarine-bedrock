@@ -60,4 +60,4 @@ Some integration scripts expect a local Bedrock/Geyser test server. See the in-d
 
 ## License
 
-ISC
+All rights reserved. No permission is granted to use, copy, modify, or distribute this software without prior written permission from the copyright holder.

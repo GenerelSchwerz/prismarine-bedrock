@@ -12,13 +12,20 @@
  *   botState.waitForTradeWindow(opts?) -> Promise<update_trade packet>
  *   botState.closeTradeWindow() -> void
  *   botState.currentTradeRecipes() -> array
+ *   botState.findTrade(filterOrExpected, opts?) -> recipe | null
+ *   botState.executeTrade(tradeOrIndex, count?, opts?) -> Promise<item_stack_response>
  *
  * This plugin does not build entity interaction packets directly.
  * Entity interaction is owned by src/builtins/entity-interact.js:
  *   botState.interactEntity(entity, opts)
+ *
+ * Trade execution uses Bedrock's server-authoritative item stack request flow.
+ * The main trade selection action is craft_recipe_optional, using the recipe
+ * network ID from update_trade offers. The result is then taken from the
+ * Bedrock/Geyser trade result container into a real inventory slot.
  */
 
-const { logAction, sameRuntimeId, toPlainId } = require('../utils')
+const { logAction, sameRuntimeId, toPlainId, cloneItem } = require('../utils')
 
 module.exports = function tradingPlugin (botState, options = {}) {
   const client = botState.client
@@ -189,6 +196,97 @@ module.exports = function tradingPlugin (botState, options = {}) {
     botState.emit('trade_window_close')
   }
 
+  function nbtValue (value) {
+    if (value == null) return value
+
+    if (Array.isArray(value)) {
+      return value.map(nbtValue)
+    }
+
+    if (Buffer.isBuffer(value)) return value
+
+    if (typeof value !== 'object') return value
+
+    if (Object.prototype.hasOwnProperty.call(value, 'type') &&
+        Object.prototype.hasOwnProperty.call(value, 'value')) {
+      return nbtValue(value.value)
+    }
+
+    const out = {}
+    for (const [key, child] of Object.entries(value)) {
+      out[key] = nbtValue(child)
+    }
+    return out
+  }
+
+  function normalizeItemId (id) {
+    if (id == null) return null
+    const str = String(id)
+    return str.startsWith('minecraft:') ? str : `minecraft:${str}`
+  }
+
+  function itemId (item) {
+    item = nbtValue(item)
+    return normalizeItemId(
+      item?.id ??
+      item?.name ??
+      item?.Name ??
+      item?.identifier ??
+      item?.network_id ??
+      item?.networkId
+    )
+  }
+
+  function itemCount (item) {
+    item = nbtValue(item)
+    const count = item?.count ?? item?.Count ?? item?.amount ?? item?.Amount
+    return Number(count ?? 0)
+  }
+
+  function recipeInputA (recipe) {
+    recipe = nbtValue(recipe)
+    return recipe?.buy ?? recipe?.buyA ?? recipe?.input ?? recipe?.inputA ?? recipe?.input_1
+  }
+
+  function recipeInputB (recipe) {
+    recipe = nbtValue(recipe)
+    return recipe?.buyB ?? recipe?.inputB ?? recipe?.input_2 ?? null
+  }
+
+  function recipeOutput (recipe) {
+    recipe = nbtValue(recipe)
+    return recipe?.sell ?? recipe?.output ?? recipe?.result
+  }
+
+  function recipeNetId (recipe) {
+    recipe = nbtValue(recipe)
+
+    const value =
+      recipe?.netId ??
+      recipe?.net_id ??
+      recipe?.networkId ??
+      recipe?.network_id ??
+      recipe?.recipeNetId ??
+      recipe?.recipe_net_id ??
+      recipe?.recipeNetworkId ??
+      recipe?.recipe_network_id
+
+    if (value == null) return null
+
+    const number = Number(value)
+    return Number.isFinite(number) ? number : value
+  }
+
+  function isRecipeLike (value) {
+    value = nbtValue(value)
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+
+    const inputA = recipeInputA(value)
+    const output = recipeOutput(value)
+
+    return !!inputA && !!output && !!itemId(inputA) && !!itemId(output)
+  }
+
   function currentTradeRecipes () {
     const packet = botState.currentTradeWindow ?? lastTradeWindow
     if (!packet) return []
@@ -198,19 +296,33 @@ module.exports = function tradingPlugin (botState, options = {}) {
     if (Array.isArray(packet.trade_offers)) return packet.trade_offers
     if (Array.isArray(packet.tradeOffers)) return packet.tradeOffers
 
-    const recipes =
-      packet.offers?.Recipes ??
-      packet.offers?.recipes ??
-      packet.trades?.Recipes ??
-      packet.trades?.recipes ??
-      packet.serialized_offers?.Recipes ??
-      packet.serialized_offers?.recipes ??
-      packet.serializedOffers?.Recipes ??
-      packet.serializedOffers?.recipes ??
-      packet.Recipes ??
-      packet.recipes
+    const normalized = nbtValue(packet)
 
-    return Array.isArray(recipes) ? recipes : []
+    const candidates = [
+      normalized?.offers?.Recipes,
+      normalized?.offers?.recipes,
+      normalized?.trades?.Recipes,
+      normalized?.trades?.recipes,
+      normalized?.serialized_offers?.Recipes,
+      normalized?.serialized_offers?.recipes,
+      normalized?.serializedOffers?.Recipes,
+      normalized?.serializedOffers?.recipes,
+      normalized?.Recipes,
+      normalized?.recipes,
+      normalized?.offers,
+      normalized?.trades,
+      normalized?.trade_offers,
+      normalized?.tradeOffers
+    ]
+
+    for (const candidate of candidates) {
+      if (!Array.isArray(candidate)) continue
+
+      const recipes = candidate.map(nbtValue).filter(isRecipeLike)
+      if (recipes.length > 0) return recipes
+    }
+
+    return []
   }
 
   function setCurrentTradeWindow (packet, entity = botState.currentTradingEntity) {
@@ -224,11 +336,397 @@ module.exports = function tradingPlugin (botState, options = {}) {
     botState.emit('trade_window_update', packet, entity)
   }
 
+  function summarizeRecipe (recipe, index = null) {
+    const inputA = recipeInputA(recipe)
+    const inputB = recipeInputB(recipe)
+    const output = recipeOutput(recipe)
+
+    return {
+      index,
+      netId: recipeNetId(recipe),
+      inputA: inputA
+        ? {
+            id: itemId(inputA),
+            count: itemCount(inputA)
+          }
+        : null,
+      inputB: inputB
+        ? {
+            id: itemId(inputB),
+            count: itemCount(inputB)
+          }
+        : null,
+      output: output
+        ? {
+            id: itemId(output),
+            count: itemCount(output)
+          }
+        : null,
+      rawKeys: Object.keys(nbtValue(recipe) || {})
+    }
+  }
+
+  function summarizeRecipes (recipes) {
+    return recipes.map((recipe, index) => summarizeRecipe(recipe, index))
+  }
+
+  function normalizeExpectedTrade (expected) {
+    if (!expected || typeof expected !== 'object') return expected
+
+    return {
+      inputId: expected.inputId ?? expected.buyId ?? expected.buyAId,
+      inputCount: expected.inputCount ?? expected.buyCount ?? expected.buyACount,
+      inputBId: expected.inputBId ?? expected.buyBId,
+      inputBCount: expected.inputBCount ?? expected.buyBCount,
+      outputId: expected.outputId ?? expected.sellId ?? expected.resultId,
+      outputCount: expected.outputCount ?? expected.sellCount ?? expected.resultCount
+    }
+  }
+
+  function recipeMatchesExpected (recipe, expected) {
+    expected = normalizeExpectedTrade(expected)
+
+    const inputA = recipeInputA(recipe)
+    const inputB = recipeInputB(recipe)
+    const output = recipeOutput(recipe)
+
+    if (expected.inputId != null && itemId(inputA) !== normalizeItemId(expected.inputId)) return false
+    if (expected.inputCount != null && itemCount(inputA) !== Number(expected.inputCount)) return false
+
+    if (expected.inputBId != null && itemId(inputB) !== normalizeItemId(expected.inputBId)) return false
+    if (expected.inputBCount != null && itemCount(inputB) !== Number(expected.inputBCount)) return false
+
+    if (expected.outputId != null && itemId(output) !== normalizeItemId(expected.outputId)) return false
+    if (expected.outputCount != null && itemCount(output) !== Number(expected.outputCount)) return false
+
+    return true
+  }
+
+  function findTrade (filterOrExpected, opts = {}) {
+    const recipes = opts.recipes ?? currentTradeRecipes()
+
+    if (typeof filterOrExpected === 'function') {
+      return recipes.find((recipe, index) => filterOrExpected(recipe, index)) ?? null
+    }
+
+    if (Number.isInteger(filterOrExpected)) {
+      return recipes[filterOrExpected] ?? null
+    }
+
+    if (filterOrExpected && typeof filterOrExpected === 'object') {
+      return recipes.find(recipe => recipeMatchesExpected(recipe, filterOrExpected)) ?? null
+    }
+
+    return null
+  }
+
+  function firstEmptyInventorySlot () {
+    const slots = botState.inventory?.slots ?? []
+
+    for (let slot = 0; slot < slots.length; slot++) {
+      if (!slots[slot]) return slot
+    }
+
+    return -1
+  }
+
+  function findMergeableInventorySlot (output) {
+    const slots = botState.inventory?.slots ?? []
+    const expectedId = itemId(output)
+    const expectedCount = itemCount(output)
+
+    if (!expectedId || expectedCount <= 0) return -1
+
+    const shortName = expectedId.startsWith('minecraft:')
+      ? expectedId.slice('minecraft:'.length)
+      : expectedId
+
+    for (let slot = 0; slot < slots.length; slot++) {
+      const item = slots[slot]
+      if (!item) continue
+
+      const maxStackSize = item.stackSize || item.maxStackSize || 64
+      if (item.name === shortName && item.count + expectedCount <= maxStackSize) {
+        return slot
+      }
+    }
+
+    return -1
+  }
+
+  function inventoryDestinationSlot (recipe, opts = {}) {
+    if (Number.isInteger(opts.destinationSlot)) return opts.destinationSlot
+
+    const output = recipeOutput(recipe)
+
+    const mergeSlot = findMergeableInventorySlot(output)
+    if (mergeSlot !== -1) return mergeSlot
+
+    const emptySlot = firstEmptyInventorySlot()
+    if (emptySlot !== -1) return emptySlot
+
+    throw new Error('Cannot execute trade: no inventory slot available for trade output')
+  }
+
+  function itemStackId (item) {
+    item = nbtValue(item)
+
+    const value =
+      item?.stackId ??
+      item?.stack_id ??
+      item?.stack_network_id ??
+      item?.network_stack_id ??
+      item?.StackNetworkId ??
+      item?.StackNetworkID
+
+    if (value == null) return 0
+
+    const number = Number(value)
+    return Number.isFinite(number) ? number : value
+  }
+
+  function fullContainerName (containerId, dynamicContainerId = 0) {
+    return {
+      container_id: containerId,
+      dynamic_container_id: dynamicContainerId
+    }
+  }
+
+  function requestSlotInfo (containerId, slot, stackId = 0, dynamicContainerId = 0) {
+    return {
+      slot_type: fullContainerName(containerId, dynamicContainerId),
+      slot,
+      stack_id: stackId || 0
+    }
+  }
+
+  function stackSlotInfoForInventorySlot (slot, item = botState.inventory?.slots?.[slot]) {
+    // Keep this aligned with the rest of this repo's item_stack_request behavior.
+    // inventory-actions.js currently uses protocol-visible inventory slots directly.
+    return requestSlotInfo('inventory', slot, itemStackId(item))
+  }
+
+  function tradeResultSourceSlot (recipe, opts = {}) {
+    const output = recipeOutput(recipe)
+
+    return requestSlotInfo(
+      opts.resultContainerId ?? 'trade2_result',
+      opts.resultSlot ?? 2,
+      opts.resultStackId ?? itemStackId(output),
+      opts.resultDynamicContainerId ?? 0
+    )
+  }
+
+  function craftRecipeOptionalAction (recipe, opts = {}) {
+    const netId = opts.recipeNetId ?? recipeNetId(recipe)
+
+    if (netId == null) {
+      throw new Error([
+        'Cannot execute trade: recipe is missing netId / network_id.',
+        'Recipe summary:',
+        JSON.stringify(summarizeRecipe(recipe))
+      ].join('\n'))
+    }
+
+    return {
+      type_id: 'craft_recipe_optional',
+      recipe_network_id: netId,
+      filtered_string_index: opts.filteredStringIndex ?? 0
+    }
+  }
+
+  function takeTradeResultAction (recipe, count, destinationSlot, opts = {}) {
+    const output = recipeOutput(recipe)
+    const outputCount = itemCount(output)
+
+    if (outputCount <= 0) {
+      throw new Error([
+        'Cannot execute trade: recipe output has no positive count.',
+        'Recipe summary:',
+        JSON.stringify(summarizeRecipe(recipe))
+      ].join('\n'))
+    }
+
+    const tradeCount = Number(count ?? 1)
+    if (!Number.isInteger(tradeCount) || tradeCount <= 0) {
+      throw new RangeError(`Trade count must be a positive integer, got ${count}`)
+    }
+
+    const resultCount = opts.takeCount ?? outputCount * tradeCount
+    const destinationItem = botState.inventory?.slots?.[destinationSlot] ?? null
+
+    return {
+      type_id: 'take',
+      count: resultCount,
+      source: tradeResultSourceSlot(recipe, opts),
+      destination: stackSlotInfoForInventorySlot(destinationSlot, destinationItem)
+    }
+  }
+
+  function buildTradeRequest (recipe, count = 1, opts = {}) {
+    if (!botState.inventoryActionHelpers?.makeRequest) {
+      throw new Error('Cannot execute trade: inventory action helpers are not available')
+    }
+
+    const destinationSlot = inventoryDestinationSlot(recipe, opts)
+
+    const actions = [
+      craftRecipeOptionalAction(recipe, opts),
+      takeTradeResultAction(recipe, count, destinationSlot, opts)
+    ]
+
+    const request = botState.inventoryActionHelpers.makeRequest(actions)
+
+    return {
+      request,
+      destinationSlot,
+      actions
+    }
+  }
+
+  function responseStatusOk (response) {
+    if (botState.inventoryActionHelpers?.responseStatusOk) {
+      return botState.inventoryActionHelpers.responseStatusOk(response)
+    }
+
+    return response?.status === 'ok' || response?.status === 'success'
+  }
+
+  function updateLocalInventoryAfterTrade (recipe, count, destinationSlot, response) {
+    if (!responseStatusOk(response)) return
+
+    const output = recipeOutput(recipe)
+    const outputCount = itemCount(output) * Number(count ?? 1)
+    if (outputCount <= 0) return
+
+    const outputId = itemId(output)
+    if (!outputId) return
+
+    const shortName = outputId.startsWith('minecraft:')
+      ? outputId.slice('minecraft:'.length)
+      : outputId
+
+    const current = botState.inventory?.slots?.[destinationSlot] ?? null
+
+    // Prefer server inventory packets. This is only a local optimistic mirror update
+    // for cases where the item_stack_response contains the authoritative stack id
+    // before inventory_slot/inventory_content arrives.
+    if (current && current.name === shortName) {
+      const updated = cloneItem(current, current.count + outputCount)
+      botState.inventory.updateSlot(destinationSlot, updated)
+    }
+  }
+
+  function resolveTradeArgument (tradeOrIndex) {
+    const recipes = currentTradeRecipes()
+
+    if (Number.isInteger(tradeOrIndex)) {
+      const recipe = recipes[tradeOrIndex]
+      if (!recipe) {
+        throw new RangeError(`Trade index ${tradeOrIndex} is out of range; recipes=${recipes.length}`)
+      }
+      return recipe
+    }
+
+    if (tradeOrIndex && typeof tradeOrIndex === 'object') {
+      // If it already looks like a recipe, use it directly.
+      if (isRecipeLike(tradeOrIndex)) return tradeOrIndex
+
+      const found = findTrade(tradeOrIndex, { recipes })
+      if (found) return found
+
+      throw new Error([
+        'Cannot execute trade: no matching current trade found.',
+        'Expected:',
+        JSON.stringify(tradeOrIndex),
+        'Current recipes:',
+        JSON.stringify(summarizeRecipes(recipes))
+      ].join('\n'))
+    }
+
+    throw new TypeError('executeTrade expects a recipe object, recipe index, or expected trade object')
+  }
+
+  async function executeTrade (tradeOrIndex, count = 1, opts = {}) {
+    if (typeof botState.sendItemStackRequest !== 'function') {
+      throw new Error('Cannot execute trade: botState.sendItemStackRequest is not available')
+    }
+
+    if (typeof botState.waitForItemStackResponse !== 'function') {
+      throw new Error('Cannot execute trade: botState.waitForItemStackResponse is not available')
+    }
+
+    const recipe = resolveTradeArgument(tradeOrIndex)
+    const tradeCount = Number(count ?? 1)
+
+    if (!Number.isInteger(tradeCount) || tradeCount <= 0) {
+      throw new RangeError(`Trade count must be a positive integer, got ${count}`)
+    }
+
+    const { request, destinationSlot } = buildTradeRequest(recipe, tradeCount, opts)
+
+    const responsePromise = botState.waitForItemStackResponse(
+      request.request_id,
+      opts.timeoutMs ?? opts.responseTimeoutMs ?? tradeTimeoutMs
+    )
+
+    botState.sendItemStackRequest(request)
+
+    logAction('[trading]', 'execute_trade request', {
+      request_id: request.request_id,
+      recipe: summarizeRecipe(recipe),
+      count: tradeCount,
+      destinationSlot,
+      actions: request.actions.map(action => action.type_id)
+    })
+
+    const response = await responsePromise
+
+    logAction('[trading]', 'execute_trade response', {
+      request_id: request.request_id,
+      status: response.status,
+      destinationSlot,
+      containers: Array.isArray(response.containers) ? response.containers.length : undefined
+    })
+
+    updateLocalInventoryAfterTrade(recipe, tradeCount, destinationSlot, response)
+
+    botState.emit('trade_executed', {
+      recipe,
+      count: tradeCount,
+      request,
+      response,
+      destinationSlot
+    })
+
+    return response
+  }
+
   botState.openTrade = openTrade
   botState.tradeWith = openTrade
   botState.waitForTradeWindow = waitForTradeWindow
   botState.closeTradeWindow = closeTradeWindow
   botState.currentTradeRecipes = currentTradeRecipes
+  botState.findTrade = findTrade
+  botState.executeTrade = executeTrade
+
+  botState.tradeHelpers = {
+    nbtValue,
+    normalizeItemId,
+    itemId,
+    itemCount,
+    recipeInputA,
+    recipeInputB,
+    recipeOutput,
+    recipeNetId,
+    isRecipeLike,
+    summarizeRecipe,
+    summarizeRecipes,
+    findTrade,
+    buildTradeRequest,
+    craftRecipeOptionalAction,
+    takeTradeResultAction
+  }
 
   botState.setTradeTimeout = ms => {
     tradeTimeoutMs = ms

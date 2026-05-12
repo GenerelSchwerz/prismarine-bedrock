@@ -253,6 +253,25 @@ function recipeOutput (recipe) {
   return recipe?.sell ?? recipe?.output ?? recipe?.result
 }
 
+function recipeNetId (recipe) {
+  recipe = nbtValue(recipe)
+
+  const value =
+    recipe?.netId ??
+    recipe?.net_id ??
+    recipe?.networkId ??
+    recipe?.network_id ??
+    recipe?.recipeNetId ??
+    recipe?.recipe_net_id ??
+    recipe?.recipeNetworkId ??
+    recipe?.recipe_network_id
+
+  if (value == null) return null
+
+  const number = Number(value)
+  return Number.isFinite(number) ? number : value
+}
+
 function isRecipeLike (value) {
   value = nbtValue(value)
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
@@ -294,7 +313,9 @@ function extractRecipesFromTradePacket (packet) {
 }
 
 function summarizeRecipes (recipes) {
-  return recipes.map(recipe => ({
+  return recipes.map((recipe, index) => ({
+    index,
+    netId: recipeNetId(recipe),
     inputA: {
       id: itemId(recipeInputA(recipe)),
       count: itemCount(recipeInputA(recipe))
@@ -396,15 +417,7 @@ function printTradeParseDebug (tradePacket, recipes, label = 'trade parse debug'
 }
 
 function assertTradeRecipe (recipes, expected) {
-  const match = recipes.find(recipe => {
-    const inputA = recipeInputA(recipe)
-    const output = recipeOutput(recipe)
-
-    return itemId(inputA) === expected.inputId &&
-      itemCount(inputA) === expected.inputCount &&
-      itemId(output) === expected.outputId &&
-      itemCount(output) === expected.outputCount
-  })
+  const match = findMatchingRecipe(recipes, expected)
 
   assert(
     match,
@@ -416,6 +429,8 @@ function assertTradeRecipe (recipes, expected) {
       JSON.stringify(recipes.map(nbtValue), jsonDebugReplacer, 2)
     ].join('\n')
   )
+
+  return match
 }
 
 function assertParsedTrades (tradePacket) {
@@ -469,6 +484,137 @@ function assertParsedTrades (tradePacket) {
   }
 }
 
+function findMatchingRecipe (recipes, expected) {
+  return recipes.find(recipe => {
+    const inputA = recipeInputA(recipe)
+    const output = recipeOutput(recipe)
+
+    return itemId(inputA) === expected.inputId &&
+      itemCount(inputA) === expected.inputCount &&
+      itemId(output) === expected.outputId &&
+      itemCount(output) === expected.outputCount
+  })
+}
+
+function inventorySummary (botState) {
+  return botState.inventory.slots
+    .map((item, slot) => item && {
+      slot,
+      name: item.name,
+      count: item.count,
+      type: item.type,
+      metadata: item.metadata,
+      stackId: item.stackId ?? item.stack_id,
+      rawStackId: item.raw?.stack_id ?? item.raw?.stackId
+    })
+    .filter(Boolean)
+}
+
+function countInventoryItem (botState, name) {
+  return botState.inventory.slots.reduce((total, item) => {
+    if (!item || item.name !== name) return total
+    return total + item.count
+  }, 0)
+}
+
+function itemStackResponseSummary (response) {
+  return {
+    status: response?.status,
+    request_id: response?.request_id,
+    containers: (response?.containers || []).map(container => ({
+      slot_type: container.slot_type,
+      slots: (container.slots || []).map(slot => ({
+        slot: slot.slot,
+        hotbar_slot: slot.hotbar_slot,
+        count: slot.count,
+        item_stack_id: slot.item_stack_id,
+        custom_name: slot.custom_name,
+        durability_correction: slot.durability_correction
+      }))
+    }))
+  }
+}
+
+function responseStatusOk (response) {
+  return response?.status === 'ok' || response?.status === 'success'
+}
+
+async function waitForInventoryPredicate (botState, predicate, label, timeoutMs = 10000) {
+  const start = Date.now()
+  let lastSummary = inventorySummary(botState)
+
+  while (Date.now() - start < timeoutMs) {
+    if (predicate()) return
+
+    lastSummary = inventorySummary(botState)
+    await sleep(100)
+  }
+
+  assert.fail([
+    `Timed out waiting for inventory condition: ${label}`,
+    'Inventory:',
+    JSON.stringify(lastSummary, jsonDebugReplacer, 2)
+  ].join('\n'))
+}
+
+async function waitForInventoryCounts (botState, expected, timeoutMs = 10000) {
+  await waitForInventoryPredicate(
+    botState,
+    () => {
+      for (const [name, count] of Object.entries(expected)) {
+        if (countInventoryItem(botState, name) !== count) return false
+      }
+
+      return true
+    },
+    JSON.stringify(expected),
+    timeoutMs
+  )
+}
+
+function assertHasMethods (botState) {
+  assert.strictEqual(
+    typeof botState.openTrade,
+    'function',
+    'botState.openTrade is not available; src/builtins/trading.js must be loaded'
+  )
+
+  assert.strictEqual(
+    typeof botState.currentTradeRecipes,
+    'function',
+    'botState.currentTradeRecipes is not available; src/builtins/trading.js must be loaded'
+  )
+}
+
+function assertHasExecuteTrade (botState) {
+  assert.strictEqual(
+    typeof botState.executeTrade,
+    'function',
+    'botState.executeTrade is not available; implement executeTrade in src/builtins/trading.js'
+  )
+}
+
+async function openDeterministicTradeWindow (botState) {
+  assertHasMethods(botState)
+
+  const villager = await waitForEntity(botState, isTradeTestVillager)
+
+  const tradePacket = await botState.openTrade(villager, {
+    timeoutMs: 15000
+  })
+
+  console.log('[trading.test] update_trade summary', JSON.stringify(summarizeTradePacket(tradePacket), jsonDebugReplacer, 2))
+
+  assert(tradePacket, 'Expected server to send update_trade after opening villager trade')
+  assertParsedTrades(tradePacket)
+
+  return {
+    villager,
+    tradePacket,
+    recipes: extractRecipesFromTradePacket(tradePacket)
+  }
+}
+
 describe('real villager trading', function () {
   this.timeout(180000)
 
@@ -502,29 +648,183 @@ describe('real villager trading', function () {
   })
 
   it('summons a deterministic villager, opens the trading UI, and parses trades', async function () {
-    assert.strictEqual(
-      typeof botState.openTrade,
-      'function',
-      'botState.openTrade is not available; src/builtins/trader.js must be loaded'
-    )
-
-    const villager = await waitForEntity(botState, isTradeTestVillager)
-
-    const tradePacket = await botState.openTrade(villager, {
-      timeoutMs: 15000
-    })
-
-    console.log('[trading.test] update_trade summary', JSON.stringify(summarizeTradePacket(tradePacket), jsonDebugReplacer, 2))
-
-    assert(tradePacket, 'Expected server to send update_trade after opening villager trade')
-    assertParsedTrades(tradePacket)
+    await openDeterministicTradeWindow(botState)
   })
 
   it('has emeralds available for the deterministic trades', async function () {
     const emeraldSlot = botState.inventory.slots.findIndex(item => item?.name === 'emerald')
-    assert.notStrictEqual(emeraldSlot, -1, 'Expected emeralds in inventory for villager trade tests')
+    assert.notStrictEqual(emeraldSlot, -1, [
+      'Expected emeralds in inventory for villager trade tests.',
+      'Inventory:',
+      JSON.stringify(inventorySummary(botState), jsonDebugReplacer, 2)
+    ].join('\n'))
 
     const emeralds = botState.inventory.slots[emeraldSlot]
-    assert(emeralds.count >= 2, `Expected at least 2 emeralds, got ${emeralds.count}`)
+    assert(emeralds.count >= 2, [
+      `Expected at least 2 emeralds, got ${emeralds.count}`,
+      'Inventory:',
+      JSON.stringify(inventorySummary(botState), jsonDebugReplacer, 2)
+    ].join('\n'))
+  })
+
+  it('executes the deterministic bread trade with a real item_stack_request', async function () {
+    assertHasMethods(botState)
+    assertHasExecuteTrade(botState)
+
+    const emeraldsBefore = countInventoryItem(botState, 'emerald')
+    const breadBefore = countInventoryItem(botState, 'bread')
+
+    assert(emeraldsBefore >= 1, [
+      `Expected at least 1 emerald before trading, got ${emeraldsBefore}`,
+      'Inventory:',
+      JSON.stringify(inventorySummary(botState), jsonDebugReplacer, 2)
+    ].join('\n'))
+
+    const { tradePacket, recipes } = await openDeterministicTradeWindow(botState)
+
+    const breadTrade = assertTradeRecipe(recipes, {
+      inputId: 'minecraft:emerald',
+      inputCount: 1,
+      outputId: 'minecraft:bread',
+      outputCount: 6
+    })
+
+    const breadTradeNetId = recipeNetId(breadTrade)
+    assert.notStrictEqual(breadTradeNetId, null, [
+      'Expected bread trade to expose a recipe netId/network_id for item_stack_request execution.',
+      'Bread trade:',
+      JSON.stringify(nbtValue(breadTrade), jsonDebugReplacer, 2),
+      'Parsed trades:',
+      JSON.stringify(summarizeRecipes(recipes), jsonDebugReplacer, 2),
+      'Trade packet:',
+      JSON.stringify(summarizeTradePacket(tradePacket), jsonDebugReplacer, 2)
+    ].join('\n'))
+
+    console.log('[trading.test] inventory before executeTrade', JSON.stringify(inventorySummary(botState), jsonDebugReplacer, 2))
+    console.log('[trading.test] executing bread trade', JSON.stringify({
+      recipe: summarizeRecipes([breadTrade])[0],
+      emeraldsBefore,
+      breadBefore
+    }, jsonDebugReplacer, 2))
+
+    const response = await botState.executeTrade(breadTrade, 1, {
+      timeoutMs: 10000
+    })
+
+    console.log('[trading.test] executeTrade response', JSON.stringify(itemStackResponseSummary(response), jsonDebugReplacer, 2))
+    console.log('[trading.test] inventory after executeTrade immediate', JSON.stringify(inventorySummary(botState), jsonDebugReplacer, 2))
+
+    assert(responseStatusOk(response), [
+      `Expected successful item_stack_response, got ${response?.status}`,
+      'Response:',
+      JSON.stringify(itemStackResponseSummary(response), jsonDebugReplacer, 2),
+      'Inventory:',
+      JSON.stringify(inventorySummary(botState), jsonDebugReplacer, 2),
+      'Trade packet:',
+      JSON.stringify(summarizeTradePacket(tradePacket), jsonDebugReplacer, 2)
+    ].join('\n'))
+
+    await waitForInventoryCounts(botState, {
+      emerald: emeraldsBefore - 1,
+      bread: breadBefore + 6
+    }, 10000)
+
+    const emeraldsAfter = countInventoryItem(botState, 'emerald')
+    const breadAfter = countInventoryItem(botState, 'bread')
+
+    assert.strictEqual(emeraldsAfter, emeraldsBefore - 1, [
+      `Expected emerald count to decrease by 1: before=${emeraldsBefore}, after=${emeraldsAfter}`,
+      'Inventory:',
+      JSON.stringify(inventorySummary(botState), jsonDebugReplacer, 2),
+      'Response:',
+      JSON.stringify(itemStackResponseSummary(response), jsonDebugReplacer, 2)
+    ].join('\n'))
+
+    assert.strictEqual(breadAfter, breadBefore + 6, [
+      `Expected bread count to increase by 6: before=${breadBefore}, after=${breadAfter}`,
+      'Inventory:',
+      JSON.stringify(inventorySummary(botState), jsonDebugReplacer, 2),
+      'Response:',
+      JSON.stringify(itemStackResponseSummary(response), jsonDebugReplacer, 2)
+    ].join('\n'))
+  })
+
+  it('executes the deterministic apple trade by expected trade object', async function () {
+    assertHasMethods(botState)
+    assertHasExecuteTrade(botState)
+
+    const emeraldsBefore = countInventoryItem(botState, 'emerald')
+    const applesBefore = countInventoryItem(botState, 'apple')
+
+    assert(emeraldsBefore >= 2, [
+      `Expected at least 2 emeralds before apple trade, got ${emeraldsBefore}`,
+      'Inventory:',
+      JSON.stringify(inventorySummary(botState), jsonDebugReplacer, 2)
+    ].join('\n'))
+
+    const { tradePacket, recipes } = await openDeterministicTradeWindow(botState)
+
+    const appleTrade = assertTradeRecipe(recipes, {
+      inputId: 'minecraft:emerald',
+      inputCount: 2,
+      outputId: 'minecraft:apple',
+      outputCount: 1
+    })
+
+    assert.notStrictEqual(recipeNetId(appleTrade), null, [
+      'Expected apple trade to expose a recipe netId/network_id for item_stack_request execution.',
+      'Apple trade:',
+      JSON.stringify(nbtValue(appleTrade), jsonDebugReplacer, 2),
+      'Parsed trades:',
+      JSON.stringify(summarizeRecipes(recipes), jsonDebugReplacer, 2),
+      'Trade packet:',
+      JSON.stringify(summarizeTradePacket(tradePacket), jsonDebugReplacer, 2)
+    ].join('\n'))
+
+    const response = await botState.executeTrade({
+      inputId: 'minecraft:emerald',
+      inputCount: 2,
+      outputId: 'minecraft:apple',
+      outputCount: 1
+    }, 1, {
+      timeoutMs: 10000
+    })
+
+    console.log('[trading.test] executeTrade apple response', JSON.stringify(itemStackResponseSummary(response), jsonDebugReplacer, 2))
+    console.log('[trading.test] inventory after apple executeTrade immediate', JSON.stringify(inventorySummary(botState), jsonDebugReplacer, 2))
+
+    assert(responseStatusOk(response), [
+      `Expected successful item_stack_response, got ${response?.status}`,
+      'Response:',
+      JSON.stringify(itemStackResponseSummary(response), jsonDebugReplacer, 2),
+      'Inventory:',
+      JSON.stringify(inventorySummary(botState), jsonDebugReplacer, 2),
+      'Trade packet:',
+      JSON.stringify(summarizeTradePacket(tradePacket), jsonDebugReplacer, 2)
+    ].join('\n'))
+
+    await waitForInventoryCounts(botState, {
+      emerald: emeraldsBefore - 2,
+      apple: applesBefore + 1
+    }, 10000)
+
+    const emeraldsAfter = countInventoryItem(botState, 'emerald')
+    const applesAfter = countInventoryItem(botState, 'apple')
+
+    assert.strictEqual(emeraldsAfter, emeraldsBefore - 2, [
+      `Expected emerald count to decrease by 2: before=${emeraldsBefore}, after=${emeraldsAfter}`,
+      'Inventory:',
+      JSON.stringify(inventorySummary(botState), jsonDebugReplacer, 2),
+      'Response:',
+      JSON.stringify(itemStackResponseSummary(response), jsonDebugReplacer, 2)
+    ].join('\n'))
+
+    assert.strictEqual(applesAfter, applesBefore + 1, [
+      `Expected apple count to increase by 1: before=${applesBefore}, after=${applesAfter}`,
+      'Inventory:',
+      JSON.stringify(inventorySummary(botState), jsonDebugReplacer, 2),
+      'Response:',
+      JSON.stringify(itemStackResponseSummary(response), jsonDebugReplacer, 2)
+    ].join('\n'))
   })
 })

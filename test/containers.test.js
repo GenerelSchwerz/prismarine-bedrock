@@ -544,7 +544,11 @@ describe("real chest containers", function () {
         return brewing.putBottle(potionSlot, bottle, 1);
       });
 
-      assertSlot(brewing.window, bottle, "potion", 1);
+      const placedBottle = brewing.getBottle(bottle);
+      assert(
+        placedBottle?.name === "potion" && placedBottle.count === 1,
+        `expected bottle ${bottle} to contain potion x1, got ${JSON.stringify(itemSummary(placedBottle), safeJsonReplacer, 2)}`,
+      );
     }
 
     const beforeBottleSignatures = [0, 1, 2].map((i) => itemSignature(brewing.getBottle(i)));
@@ -555,8 +559,11 @@ describe("real chest containers", function () {
       return brewing.putIngredient(wartSlot, 1);
     });
 
-    assertSlot(brewing.window, 3, "nether_wart", 1);
-
+     const netherWart = brewing.getIngredient();
+      assert(
+        netherWart?.name === "nether_wart" && netherWart.count === 1,
+        `expected slot 0 to contain nether wart x1, got ${JSON.stringify(itemSummary(netherWart), safeJsonReplacer, 2)}`,
+      );
     await waitUntil(
       "brewing stand to start brewing",
       () => {
@@ -594,7 +601,7 @@ describe("real chest containers", function () {
       assert.strictEqual(brewing.getBottle(i)?.name, "potion");
       assert.strictEqual(brewing.getBottle(i)?.count, 1);
     }
-    
+
     const afterBottleSummaries = [0, 1, 2].map((i) => itemSummary(brewing.getBottle(i)));
     const afterBottleSignatures = [0, 1, 2].map((i) => itemSignature(brewing.getBottle(i)));
     assert(

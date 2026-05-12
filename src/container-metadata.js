@@ -93,13 +93,13 @@ const EXACT_SLOT_MAPPINGS = {
     1: slot('furnace_fuel', 1),
     2: slot('furnace_output', 2)
   },
-  brewing_stand: {
-    0: slot('brewing_result', 1),
-    1: slot('brewing_result', 2),
-    2: slot('brewing_result', 3),
-    3: slot('brewing_input', 0),
-    4: slot('brewing_fuel', 4)
-  },
+ brewing_stand: {
+  0: slot('brewing_input', 0),
+  1: slot('brewing_result', 1),
+  2: slot('brewing_result', 2),
+  3: slot('brewing_result', 3),
+  4: slot('brewing_fuel', 4)
+},
   workbench: {
     0: slot('crafting_output', 0),
     1: slot('crafting_input', 32),

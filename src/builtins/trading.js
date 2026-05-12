@@ -18,11 +18,7 @@
  *   botState.interactEntity(entity, opts)
  */
 
-const {
-  logAction,
-  sameRuntimeId,
-  toPlainId
-} = require('../utils')
+const { logAction, sameRuntimeId, toPlainId } = require('../utils')
 
 module.exports = function tradingPlugin (botState, options = {}) {
   const client = botState.client
@@ -100,6 +96,7 @@ module.exports = function tradingPlugin (botState, options = {}) {
 
       function onPacket (packet) {
         if (!predicate(packet)) return
+
         cleanup()
         resolve(packet)
       }
@@ -116,9 +113,11 @@ module.exports = function tradingPlugin (botState, options = {}) {
   function waitForTradeWindow (opts = {}) {
     const target = opts.entity
     const timeoutMs = opts.timeoutMs ?? tradeTimeoutMs
+    const strictEntityMatch = opts.strictEntityMatch === true
 
     return waitForPacket('update_trade', timeoutMs, packet => {
-      return target ? packetMatchesEntity(packet, target) : true
+      if (!target || !strictEntityMatch) return true
+      return packetMatchesEntity(packet, target)
     })
   }
 
@@ -134,7 +133,8 @@ module.exports = function tradingPlugin (botState, options = {}) {
     // Start waiting before interacting so fast servers cannot race the listener.
     const tradeWindowPromise = waitForTradeWindow({
       entity,
-      timeoutMs
+      timeoutMs,
+      strictEntityMatch: opts.strictEntityMatch
     })
 
     await botState.interactEntity(entity, {

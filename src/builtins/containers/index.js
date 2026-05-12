@@ -39,6 +39,7 @@ module.exports = function containersPlugin (botState, options = {}) {
   const contentTimeoutMs = options.containerContentTimeoutMs ?? 1500
 
   let activeContainer = null
+  const openContainers = new Map()
 
   function helpers () {
     if (!botState.inventoryActionHelpers) {
@@ -136,6 +137,7 @@ module.exports = function containersPlugin (botState, options = {}) {
 
     const container = createContainerWindow(packet, window)
     activeContainer = container
+    openContainers.set(windowId, container)
     botState.currentContainer = container
     return container
   }
@@ -166,6 +168,7 @@ module.exports = function containersPlugin (botState, options = {}) {
       windowType,
       blockName: blockNameAt(packet.coordinates)
     })
+
     const api = {
       id: windowId,
       windowId,
@@ -173,29 +176,40 @@ module.exports = function containersPlugin (botState, options = {}) {
       containerSlotType,
       position: packet.coordinates,
       window,
+      properties: {},
+      data: {},
+      lastDataPacket: null,
+
       get containerSlotCount () {
         return window.inventoryStart
       },
+
       get slots () {
         return window.slots
       },
+
       getItem (slot) {
         assertContainerSlot(api, slot)
         return window.slots[slot] ?? null
       },
+
       getInventoryItem (slot) {
         assertInventorySlot(slot)
         return botState.inventory.slots[slot] ?? null
       },
+
       firstEmptyContainerSlot () {
         return firstEmpty(window, 0, window.inventoryStart)
       },
+
       firstEmptyInventorySlot () {
         return firstEmpty(botState.inventory, 0, botState.inventory.slots.length)
       },
+
       findContainerItem (name) {
         return findByName(window, 0, window.inventoryStart, name)
       },
+
       putInventorySlot (inventorySlot, containerSlot = api.firstEmptyContainerSlot(), count) {
         return transfer({
           source: inventoryRef(inventorySlot),
@@ -203,9 +217,11 @@ module.exports = function containersPlugin (botState, options = {}) {
           count
         })
       },
+
       depositInventorySlot (inventorySlot, containerSlot, count) {
         return api.putInventorySlot(inventorySlot, containerSlot, count)
       },
+
       takeContainerSlot (containerSlot, inventorySlot = api.firstEmptyInventorySlot(), count) {
         return transfer({
           source: containerRef(api, containerSlot),
@@ -213,9 +229,11 @@ module.exports = function containersPlugin (botState, options = {}) {
           count
         })
       },
+
       withdrawContainerSlot (containerSlot, inventorySlot, count) {
         return api.takeContainerSlot(containerSlot, inventorySlot, count)
       },
+
       moveContainerSlot (fromSlot, toSlot, count) {
         return transfer({
           source: containerRef(api, fromSlot),
@@ -223,12 +241,15 @@ module.exports = function containersPlugin (botState, options = {}) {
           count
         })
       },
+
       swapContainerSlots (slotA, slotB) {
         return swap(containerRef(api, slotA), containerRef(api, slotB))
       },
+
       waitForContent (timeoutMs) {
         return waitForInventoryContent(windowId, timeoutMs)
       },
+
       close () {
         client.queue('container_close', {
           window_id: windowId,
@@ -394,14 +415,100 @@ module.exports = function containersPlugin (botState, options = {}) {
     }
   }
 
+  function packetProperty (packet) {
+    return packet.property ??
+      packet.property_id ??
+      packet.propertyId ??
+      packet.data_id ??
+      packet.dataId
+  }
+
+  function packetValue (packet) {
+    return packet.value ??
+      packet.data ??
+      packet.data_value ??
+      packet.dataValue
+  }
+
+  function getContainerForWindowId (windowId) {
+    const id = normalizeWindowId(windowId)
+
+    if (activeContainer?.id === id) return activeContainer
+    if (botState.currentContainer?.id === id) return botState.currentContainer
+
+    return openContainers.get(id) ?? null
+  }
+
+  function handleContainerSetData (packet) {
+    const windowId = normalizeWindowId(packet.window_id)
+    const container = getContainerForWindowId(windowId)
+
+    if (!container) {
+      logAction('[containers]', 'container_set_data for unknown container', {
+        windowId,
+        keys: Object.keys(packet)
+      })
+      return
+    }
+
+    const property = packetProperty(packet)
+    const value = packetValue(packet)
+
+    if (property == null || value == null) {
+      logAction('[containers]', 'container_set_data missing property/value', {
+        windowId,
+        type: container.type,
+        keys: Object.keys(packet)
+      })
+      return
+    }
+
+    container.properties ??= {}
+    container.data ??= {}
+    container.properties[property] = value
+    container.lastDataPacket = packet
+
+    const handled = container.handleContainerData?.(property, value, packet) === true
+
+    botState.emit('container_data', {
+      windowId,
+      container,
+      property,
+      value,
+      packet,
+      handled
+    })
+
+    if (!handled) {
+      logAction('[containers]', 'container_set_data', {
+        windowId,
+        type: container.type,
+        property,
+        value
+      })
+    }
+  }
+
   botState.waitForContainerOpen = waitForContainerOpen
   botState.openContainer = openContainer
   botState.openBlockContainer = openContainer
   botState.wrapContainerWindow = wrapContainerWindow
   botState.getCurrentContainer = () => activeContainer
+  botState.getContainer = windowId => getContainerForWindowId(windowId)
+  botState.openContainers = openContainers
+
+  client.on('container_set_data', handleContainerSetData)
 
   client.on('container_close', packet => {
     const windowId = normalizeWindowId(packet.window_id)
+    const container = getContainerForWindowId(windowId)
+
+    if (container?.handleContainerClose) {
+      container.handleContainerClose(packet)
+    }
+
+    openContainers.delete(windowId)
+
     if (activeContainer?.id === windowId) {
       activeContainer = null
       botState.currentContainer = null

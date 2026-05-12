@@ -19,6 +19,10 @@ const {
   SETUP_DELAY_MS
 } = require('./helpers/test-env')
 
+const {
+  assertSlot
+} = require('./helpers/shared')
+
 const CHEST_POS = new Vec3(2, 65, 0)
 const DOUBLE_CHEST_POS = new Vec3(4, 65, 0)
 const FURNACE_POS = new Vec3(6, 65, 0)
@@ -52,6 +56,7 @@ async function setupContainerArea (botState, blocks, items = []) {
     sendCommand(botState, `setblock ${pos.x} ${pos.y} ${pos.z} minecraft:air`)
     sendCommand(botState, `setblock ${pos.x} ${pos.y + 1} ${pos.z} minecraft:air`)
   }
+
   const first = blocks[0].pos
   const teleportFloor = first.offset(0, 0, 3)
   sendCommand(botState, `setblock ${teleportFloor.x} ${teleportFloor.y} ${teleportFloor.z} minecraft:stone`)
@@ -68,6 +73,7 @@ async function setupContainerArea (botState, blocks, items = []) {
     await sleep(150)
     await markLocalBlock(botState, pos, block)
   }
+
   for (const { pos, expectedName } of blocks) {
     await waitForBlockName(botState, pos, expectedName)
   }
@@ -75,6 +81,7 @@ async function setupContainerArea (botState, blocks, items = []) {
   for (const { name, count } of items) {
     givePlayer(botState, USERNAME, name, count)
   }
+
   await sleep(SETUP_DELAY_MS)
 
   setPlayerGamemode(botState, USERNAME, 'survival')
@@ -164,18 +171,6 @@ function findSlotByName (botState, name) {
   return slot
 }
 
-function assertSlot (window, slot, expectedName, expectedCount) {
-  const item = window.slots[slot]
-
-  if (expectedName === null) {
-    assert.strictEqual(item, null, `slot ${slot} expected empty, got ${item?.name} x${item?.count}`)
-    return
-  }
-
-  assert(item, `slot ${slot} expected ${expectedName} x${expectedCount}, got empty`)
-  assert.strictEqual(item.name, expectedName)
-  assert.strictEqual(item.count, expectedCount)
-}
 
 async function assertContainerActionProducesPackets (botState, actionName, fn) {
   const seen = {
@@ -212,8 +207,96 @@ async function assertContainerActionProducesPackets (botState, actionName, fn) {
   }
 }
 
+function safeJsonReplacer (_, value) {
+  if (typeof value === 'bigint') return value.toString()
+  if (Buffer.isBuffer(value)) {
+    return {
+      type: 'Buffer',
+      length: value.length,
+      hex: value.toString('hex')
+    }
+  }
+  return value
+}
+
+function itemSignature (item) {
+  if (!item) return null
+
+  return JSON.stringify({
+    type: item.type,
+    name: item.name,
+    count: item.count,
+    metadata: item.metadata,
+    nbt: item.nbt,
+    raw: item.raw
+      ? {
+          network_id: item.raw.network_id,
+          metadata: item.raw.metadata,
+          block_runtime_id: item.raw.block_runtime_id,
+          extra: item.raw.extra
+        }
+      : null
+  }, safeJsonReplacer)
+}
+
+function itemSummary (item) {
+  if (!item) return null
+
+  return {
+    type: item.type,
+    name: item.name,
+    count: item.count,
+    metadata: item.metadata,
+    nbt: item.nbt,
+    raw: item.raw
+      ? {
+          network_id: item.raw.network_id,
+          metadata: item.raw.metadata,
+          block_runtime_id: item.raw.block_runtime_id,
+          extra: item.raw.extra
+        }
+      : null
+  }
+}
+
+async function waitUntil (label, predicate, timeoutMs = 30000, intervalMs = 250) {
+  const start = Date.now()
+  let lastValue
+
+  while (Date.now() - start < timeoutMs) {
+    lastValue = await predicate()
+    if (lastValue) return lastValue
+    await sleep(intervalMs)
+  }
+
+  throw new Error(`Timed out waiting for ${label}; last=${JSON.stringify(lastValue, safeJsonReplacer)}`)
+}
+
+async function waitForContainerSlotName (container, slot, expectedName, timeoutMs = 30000) {
+  return waitUntil(
+    `${container.type} slot ${slot} to become ${expectedName}`,
+    () => {
+      const item = container.window.slots[slot]
+      return item?.name === expectedName ? item : false
+    },
+    timeoutMs
+  )
+}
+
+function requireProgressApi (container, methodName) {
+  assert.strictEqual(
+    typeof container[methodName],
+    'function',
+    `${container.type} is missing ${methodName}; update the specialized container file`
+  )
+
+  const progress = container[methodName]()
+  assert(progress, `${methodName} returned no progress object`)
+  return progress
+}
+
 describe('real chest containers', function () {
-  this.timeout(120000)
+  this.timeout(180000)
 
   let botState
 
@@ -327,12 +410,12 @@ describe('real chest containers', function () {
     chest.close()
   })
 
-  it('opens a furnace, puts an ingredient in, and takes it out', async function () {
+  it('opens a furnace, smelts raw iron, tracks progress, and takes the output', async function () {
     await setupContainerArea(botState, [furnaceBlock(FURNACE_POS)], [
-      { name: 'raw_iron', count: 2 }
+      { name: 'raw_iron', count: 1 },
+      { name: 'coal', count: 1 }
     ])
 
-    const rawIronSlot = findSlotByName(botState, 'raw_iron')
     const furnace = await botState.openContainer(FURNACE_POS, {
       type: 'furnace',
       face: 3,
@@ -343,32 +426,67 @@ describe('real chest containers', function () {
     assert.strictEqual(furnace.containerSlotCount, 3)
     assert.strictEqual(typeof furnace.putFuel, 'function')
     assert.strictEqual(typeof furnace.putInput, 'function')
-    assert.strictEqual(typeof furnace.takeInput, 'function')
     assert.strictEqual(typeof furnace.takeOutput, 'function')
 
-    await assertContainerActionProducesPackets(botState, 'furnace putInput', () => {
+    const initialProgress = requireProgressApi(furnace, 'getFurnaceProgress')
+    assert.strictEqual(initialProgress.isBurning, false)
+    assert.strictEqual(initialProgress.isCooking, false)
+
+    const rawIronSlot = findSlotByName(botState, 'raw_iron')
+    await assertContainerActionProducesPackets(botState, 'furnace putInput raw_iron', () => {
       return furnace.putInput(rawIronSlot, 1)
     })
 
-    assertSlot(botState.inventory, rawIronSlot, 'raw_iron', 1)
     assertSlot(furnace.window, 0, 'raw_iron', 1)
 
-    await assertContainerActionProducesPackets(botState, 'furnace takeInput', () => {
-      return furnace.takeInput(rawIronSlot, 1)
+    const coalSlot = findSlotByName(botState, 'coal')
+    await assertContainerActionProducesPackets(botState, 'furnace putFuel coal', () => {
+      return furnace.putFuel(coalSlot, 1)
     })
 
-    assertSlot(furnace.window, 0, null, 0)
-    assertSlot(botState.inventory, rawIronSlot, 'raw_iron', 2)
+    await waitUntil('furnace to start burning/cooking', () => {
+      const progress = furnace.getFurnaceProgress()
+      return progress.isBurning || progress.isCooking || progress.litTime > 0 || progress.tickCount > 0
+        ? progress
+        : false
+    }, 15000)
+
+    const startedProgress = furnace.getFurnaceProgress()
+    assert(
+      startedProgress.litTime > 0 || startedProgress.tickCount > 0,
+      `Expected furnace progress to update, got ${JSON.stringify(startedProgress, safeJsonReplacer, 2)}`
+    )
+
+    const output = await waitForContainerSlotName(furnace, 2, 'iron_ingot', 45000)
+    assert.strictEqual(output.count, 1)
+
+    const finalProgress = furnace.getFurnaceProgress()
+    assert(
+      typeof finalProgress.cookProgress === 'number' &&
+        typeof finalProgress.burnProgress === 'number',
+      `Expected readable final furnace progress, got ${JSON.stringify(finalProgress, safeJsonReplacer, 2)}`
+    )
+
+    const emptySlot = furnace.firstEmptyInventorySlot()
+    assert.notStrictEqual(emptySlot, -1, 'Expected an empty inventory slot for iron ingot output')
+
+    await assertContainerActionProducesPackets(botState, 'furnace takeOutput iron_ingot', () => {
+      return furnace.takeOutput(emptySlot, 1)
+    })
+
+    assertSlot(furnace.window, 2, null, 0)
+    assertSlot(botState.inventory, emptySlot, 'iron_ingot', 1)
 
     furnace.close()
   })
 
-  it('opens a brewing stand, puts an ingredient in, and takes it out', async function () {
+  it('opens a brewing stand, brews water bottles with nether wart, tracks progress, and keeps brewed bottles', async function () {
     await setupContainerArea(botState, [brewingBlock(BREWING_POS)], [
-      { name: 'nether_wart', count: 2 }
+      { name: 'potion', count: 3 },
+      { name: 'nether_wart', count: 1 },
+      { name: 'blaze_powder', count: 1 }
     ])
 
-    const wartSlot = findSlotByName(botState, 'nether_wart')
     const brewing = await botState.openContainer(BREWING_POS, {
       type: 'brewing_stand',
       face: 3,
@@ -380,21 +498,89 @@ describe('real chest containers', function () {
     assert.strictEqual(typeof brewing.putFuel, 'function')
     assert.strictEqual(typeof brewing.putIngredient, 'function')
     assert.strictEqual(typeof brewing.putBottle, 'function')
-    assert.strictEqual(typeof brewing.takeIngredient, 'function')
+    assert.strictEqual(typeof brewing.takeBottle, 'function')
 
-    await assertContainerActionProducesPackets(botState, 'brewing putIngredient', () => {
+    const initialProgress = requireProgressApi(brewing, 'getBrewingProgress')
+    assert.strictEqual(initialProgress.isBrewing, false)
+
+    const blazeSlot = findSlotByName(botState, 'blaze_powder')
+    await assertContainerActionProducesPackets(botState, 'brewing putFuel blaze_powder', () => {
+      return brewing.putFuel(blazeSlot, 1)
+    })
+
+    assertSlot(brewing.window, 2, 'blaze_powder', 1)
+
+    for (let bottle = 0; bottle < 3; bottle++) {
+      const potionSlot = findSlotByName(botState, 'potion')
+      await assertContainerActionProducesPackets(botState, `brewing putBottle ${bottle}`, () => {
+        return brewing.putBottle(potionSlot, bottle, 1)
+      })
+
+      assertSlot(brewing.window, bottle, 'potion', 1)
+    }
+
+    const beforeBottleSignatures = [0, 1, 2].map(slot => itemSignature(brewing.window.slots[slot]))
+    const beforeBottleSummaries = [0, 1, 2].map(slot => itemSummary(brewing.window.slots[slot]))
+
+    const wartSlot = findSlotByName(botState, 'nether_wart')
+    await assertContainerActionProducesPackets(botState, 'brewing putIngredient nether_wart', () => {
       return brewing.putIngredient(wartSlot, 1)
     })
 
-    assertSlot(botState.inventory, wartSlot, 'nether_wart', 1)
     assertSlot(brewing.window, 3, 'nether_wart', 1)
 
-    await assertContainerActionProducesPackets(botState, 'brewing takeIngredient', () => {
-      return brewing.takeIngredient(wartSlot, 1)
+    await waitUntil('brewing stand to start brewing', () => {
+      const progress = brewing.getBrewingProgress()
+      return progress.isBrewing || progress.brewTime > 0 ? progress : false
+    }, 15000)
+
+    const startedProgress = brewing.getBrewingProgress()
+    assert(
+      startedProgress.brewTime > 0,
+      `Expected brewing progress to update, got ${JSON.stringify(startedProgress, safeJsonReplacer, 2)}`
+    )
+
+    await waitUntil('brewing stand to finish and update bottle data', () => {
+      const progress = brewing.getBrewingProgress()
+      const currentSignatures = [0, 1, 2].map(slot => itemSignature(brewing.window.slots[slot]))
+
+      const bottlesStillPresent = [0, 1, 2].every(slot => brewing.window.slots[slot]?.name === 'potion')
+      const bottleDataChanged = currentSignatures.some((signature, index) => {
+        return signature && beforeBottleSignatures[index] && signature !== beforeBottleSignatures[index]
+      })
+
+      return bottlesStillPresent && !progress.isBrewing && progress.brewTime === 0 && bottleDataChanged
+        ? { progress, currentSignatures }
+        : false
+    }, 60000)
+
+    for (let slot = 0; slot < 3; slot++) {
+      assertSlot(brewing.window, slot, 'potion', 1)
+    }
+
+    const afterBottleSummaries = [0, 1, 2].map(slot => itemSummary(brewing.window.slots[slot]))
+    const afterBottleSignatures = [0, 1, 2].map(slot => itemSignature(brewing.window.slots[slot]))
+
+    assert(
+      afterBottleSignatures.some((signature, index) => signature !== beforeBottleSignatures[index]),
+      [
+        'Expected brewed potion bottle data to differ from water bottle data.',
+        'Before:',
+        JSON.stringify(beforeBottleSummaries, safeJsonReplacer, 2),
+        'After:',
+        JSON.stringify(afterBottleSummaries, safeJsonReplacer, 2)
+      ].join('\n')
+    )
+
+    const emptySlot = brewing.firstEmptyInventorySlot()
+    assert.notStrictEqual(emptySlot, -1, 'Expected an empty inventory slot for brewed potion output')
+
+    await assertContainerActionProducesPackets(botState, 'brewing takeBottle 0', () => {
+      return brewing.takeBottle(0, emptySlot, 1)
     })
 
-    assertSlot(brewing.window, 3, null, 0)
-    assertSlot(botState.inventory, wartSlot, 'nether_wart', 2)
+    assertSlot(brewing.window, 0, null, 0)
+    assertSlot(botState.inventory, emptySlot, 'potion', 1)
 
     brewing.close()
   })

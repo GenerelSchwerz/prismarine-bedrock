@@ -9,6 +9,10 @@ const {
   VERSION,
   SETUP_DELAY_MS
 } = require("./helpers/test-env");
+const {
+  assertSlot
+} = require('./helpers/shared')
+
 
 const AFTER_ACTION_DELAY_MS = Number(process.env.AFTER_ACTION_DELAY_MS || 1000);
 
@@ -65,19 +69,6 @@ function firstEmptySlot(botState) {
   const slot = emptySlots(botState)[0];
   assert.notStrictEqual(slot, undefined, "Could not find empty inventory slot");
   return slot;
-}
-
-function assertSlot(botState, slot, expectedName, expectedCount) {
-  const item = itemAt(botState, slot);
-
-  if (expectedName === null) {
-    assert.strictEqual(item, null, `slot ${slot} expected empty, got ${item?.name} x${item?.count}`);
-    return;
-  }
-
-  assert(item, `slot ${slot} expected ${expectedName} x${expectedCount}, got empty`);
-  assert.strictEqual(item.name, expectedName, `slot ${slot} wrong item`);
-  assert.strictEqual(item.count, expectedCount, `slot ${slot} wrong count`);
 }
 
 function snapshotNonEmpty(botState) {

@@ -169,6 +169,177 @@ const EXACT_SLOT_MAPPINGS = {
   }
 }
 
+
+const FURNACE_TYPES = new Set([
+  'furnace',
+  'blast_furnace',
+  'smoker'
+])
+
+const BREWING_TYPES = new Set([
+  'brewing_stand'
+])
+
+function normalizeContainerDataProperty (property) {
+  if (typeof property === 'string') {
+    return property
+      .replace(/^ContainerSetDataPacket\./, '')
+      .replace(/^minecraft:/, '')
+      .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+      .replace(/[\s-]+/g, '_')
+      .toLowerCase()
+  }
+
+  return Number(property)
+}
+
+function makeFurnaceData () {
+  return {
+    type: 'furnace',
+    raw: {},
+
+    litTime: 0,
+    litDuration: 0,
+    tickCount: 0,
+
+    // Bedrock/Geyser does not send the Java total cook time here.
+    // Vanilla furnace recipes normally use 200 ticks, but keep this separate
+    // so callers can override if needed.
+    cookDuration: 200,
+
+    burnProgress: 0,
+    cookProgress: 0,
+    isBurning: false,
+    isCooking: false
+  }
+}
+
+function updateFurnaceData (state, property, value) {
+  const key = normalizeContainerDataProperty(property)
+  const numberValue = Number(value) || 0
+
+  state.raw[key] = numberValue
+
+  switch (key) {
+    case 0:
+    case 'furnace_lit_time':
+    case 'lit_time':
+      state.litTime = numberValue
+      break
+
+    case 1:
+    case 'furnace_lit_duration':
+    case 'lit_duration':
+      state.litDuration = numberValue
+      break
+
+    case 2:
+    case 'furnace_tick_count':
+    case 'tick_count':
+    case 'cook_time':
+      state.tickCount = numberValue
+      break
+
+    default:
+      state[`property_${String(key)}`] = numberValue
+      break
+  }
+
+  state.burnProgress = state.litDuration > 0
+    ? Math.max(0, Math.min(1, state.litTime / state.litDuration))
+    : 0
+
+  state.cookProgress = state.cookDuration > 0
+    ? Math.max(0, Math.min(1, state.tickCount / state.cookDuration))
+    : 0
+
+  state.isBurning = state.litTime > 0
+  state.isCooking = state.tickCount > 0
+
+  return state
+}
+
+function makeBrewingData () {
+  return {
+    type: 'brewing_stand',
+    raw: {},
+
+    brewTime: 0,
+    fuelAmount: 0,
+    fuelTotal: 20,
+
+    brewDuration: 400,
+
+    brewProgress: 0,
+    fuelProgress: 0,
+    isBrewing: false,
+    hasFuel: false
+  }
+}
+
+function updateBrewingData (state, property, value) {
+  const key = normalizeContainerDataProperty(property)
+  const numberValue = Number(value) || 0
+
+  state.raw[key] = numberValue
+
+  switch (key) {
+    case 0:
+    case 'brewing_stand_brew_time':
+    case 'brew_time':
+      state.brewTime = numberValue
+      break
+
+    case 1:
+    case 'brewing_stand_fuel_amount':
+    case 'fuel_amount':
+      state.fuelAmount = numberValue
+      break
+
+    case 2:
+    case 'brewing_stand_fuel_total':
+    case 'fuel_total':
+      state.fuelTotal = numberValue
+      break
+
+    default:
+      state[`property_${String(key)}`] = numberValue
+      break
+  }
+
+  // Java/Geyser brewTime counts down. 0 means idle/finished.
+  state.brewProgress = state.brewDuration > 0 && state.brewTime > 0
+    ? Math.max(0, Math.min(1, 1 - (state.brewTime / state.brewDuration)))
+    : 0
+
+  state.fuelProgress = state.fuelTotal > 0
+    ? Math.max(0, Math.min(1, state.fuelAmount / state.fuelTotal))
+    : 0
+
+  state.isBrewing = state.brewTime > 0
+  state.hasFuel = state.fuelAmount > 0
+
+  return state
+}
+
+function createContainerDataState (windowType) {
+  if (FURNACE_TYPES.has(windowType)) return makeFurnaceData()
+  if (BREWING_TYPES.has(windowType)) return makeBrewingData()
+  return null
+}
+
+function updateContainerDataState (windowType, state, property, value) {
+  if (FURNACE_TYPES.has(windowType)) {
+    return updateFurnaceData(state || makeFurnaceData(), property, value)
+  }
+
+  if (BREWING_TYPES.has(windowType)) {
+    return updateBrewingData(state || makeBrewingData(), property, value)
+  }
+
+  return state
+}
+
 function slot (containerId, protocolSlot) {
   return { containerId, protocolSlot }
 }
@@ -245,5 +416,8 @@ module.exports = {
   normalizeWindowId,
   windowInfoFor,
   containerSlotTypeFor,
-  containerSlotInfoFor
+  containerSlotInfoFor,
+  createContainerDataState,
+  updateContainerDataState,
+  normalizeContainerDataProperty
 }

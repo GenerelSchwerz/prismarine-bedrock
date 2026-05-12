@@ -17,88 +17,8 @@
 //   botState.findItem(itemType, metadata, notFull, nbt, [windowId])
 //   botState.count(itemType, metadata, [windowId])
 
-const Item = require('prismarine-item')
-const createWindow = require('prismarine-windows')
 const { logAction, rawStackId, sameRuntimeId, selfRuntimeEntityId } = require('../utils')
-
-// Map of Bedrock WindowType enum name -> prismarine-windows window type key
-// and the expected total slot count for that container.
-const WINDOW_TYPE_INFO = {
-  // Generic containers: N=1..6 rows
-  container:       { key: 'minecraft:generic_9x3', slots: 27 + 36 }, // 9x3
-  workbench:       { key: 'minecraft:crafting_table', slots: 46 },
-  furnace:         { key: 'minecraft:furnace', slots: 39 },
-  enchantment:     { key: 'minecraft:enchantment', slots: 38 },
-  brewing_stand:   { key: 'minecraft:brewing_stand', slots: 41 },
-  anvil:           { key: 'minecraft:anvil', slots: 39 },
-  dispenser:       { key: 'minecraft:dispenser', slots: 45 },
-  dropper:         { key: 'minecraft:dropper', slots: 45 },
-  hopper:          { key: 'minecraft:hopper', slots: 41 },
-  cauldron:        { key: 'minecraft:generic_9x1', slots: 9 + 36 },
-  minecart_chest:  { key: 'minecraft:generic_9x3', slots: 27 + 36 },
-  minecart_hopper: { key: 'minecraft:hopper', slots: 41 },
-  horse:           { key: 'EntityHorse', slots: 54 + 36 }, // fallback
-  beacon:          { key: 'minecraft:beacon', slots: 37 },
-  structure_editor: { key: 'minecraft:generic_9x1', slots: 9 + 36 },
-  trading:         { key: 'minecraft:merchant', slots: 39 },
-  command_block:   { key: 'minecraft:generic_9x1', slots: 9 + 36 },
-  jukebox:         { key: 'minecraft:generic_9x1', slots: 9 + 36 },
-  armor:           { key: 'minecraft:generic_9x1', slots: 9 + 36 },
-  hand:            { key: 'minecraft:generic_9x1', slots: 9 + 36 },
-  compound_creator: { key: 'minecraft:generic_9x1', slots: 9 + 36 },
-  element_constructor: { key: 'minecraft:generic_9x1', slots: 9 + 36 },
-  material_reducer: { key: 'minecraft:generic_9x1', slots: 9 + 36 },
-  lab_table:       { key: 'minecraft:generic_9x1', slots: 9 + 36 },
-  loom:            { key: 'minecraft:loom', slots: 40 },
-  lectern:         { key: 'minecraft:lectern', slots: 37 },
-  grindstone:      { key: 'minecraft:grindstone', slots: 39 },
-  blast_furnace:   { key: 'minecraft:blast_furnace', slots: 39 },
-  smoker:          { key: 'minecraft:smoker', slots: 39 },
-  stonecutter:     { key: 'minecraft:stonecutter', slots: 38 },
-  cartography:     { key: 'minecraft:cartography', slots: 39 },
-  hud:             { key: 'minecraft:generic_9x1', slots: 9 + 36 },
-  jigsaw_editor:   { key: 'minecraft:generic_9x1', slots: 9 + 36 },
-  smithing_table:  { key: 'minecraft:smithing', slots: 39 },
-  chest_boat:      { key: 'minecraft:generic_9x3', slots: 27 + 36 },
-  decorated_pot:   { key: 'minecraft:generic_9x1', slots: 9 + 36 },
-  crafter:         { key: 'minecraft:crafter_3x3', slots: 46 },
-}
-
-// Map of Bedrock window enum name -> numeric id (reverse of WindowID_)
-const WINDOW_ID_TO_NUM = {
-  drop_contents: -100,
-  beacon: -24,
-  trading_output: -23,
-  trading_use_inputs: -22,
-  trading_input_2: -21,
-  trading_input_1: -20,
-  enchant_output: -17,
-  enchant_material: -16,
-  enchant_input: -15,
-  anvil_output: -13,
-  anvil_result: -12,
-  anvil_material: -11,
-  container_input: -10,
-  crafting_use_ingredient: -5,
-  crafting_result: -4,
-  crafting_remove_ingredient: -3,
-  crafting_add_ingredient: -2,
-  none: -1,
-  inventory: 0,
-  first: 1,
-  last: 100,
-  offhand: 119,
-  armor: 120,
-  creative: 121,
-  hotbar: 122,
-  fixed_inventory: 123,
-  ui: 124,
-}
-
-function normalizeWindowId (id) {
-  if (typeof id === 'string') return WINDOW_ID_TO_NUM[id] ?? id
-  return id
-}
+const { normalizeWindowId, windowInfoFor } = require('../container-metadata')
 
 /**
  * @param {import('../state')} botState
@@ -215,12 +135,28 @@ function inject (botState, options) {
       logAction('[inventory]', 'inventory_content without array', { keys: Object.keys(packet) })
       return
     }
+    if (windowId !== 0 && slots.length > win.inventoryStart) {
+      win.inventoryStart = slots.length
+      win.inventoryEnd = slots.length + 36
+      win.hotbarStart = win.inventoryEnd - 9
+      win.slots.length = win.inventoryEnd
+      for (let i = 0; i < win.slots.length; i++) {
+        if (win.slots[i] === undefined) win.slots[i] = null
+      }
+      logAction('[inventory]', 'resized container window from content', {
+        windowId,
+        containerSlots: slots.length,
+        totalSlots: win.slots.length
+      })
+    }
     logAction('[inventory]', `inventory_content: window=${windowId}, ${slots.length} slots`)
     // Resize window if needed (prismarine-windows doesn't support resize; assume correct size)
     for (let i = 0; i < Math.min(slots.length, win.slots.length); i++) {
       const item = toItem(slots[i])
       win.updateSlot(i, item)
     }
+    win.lastContentAt = Date.now()
+    botState.emit('inventory_content_updated', windowId, win)
   })
 
   // ---------- inventory_slot ----------
@@ -259,16 +195,10 @@ function inject (botState, options) {
   botState.client.on('container_open', (packet) => {
     const windowId = normalizeWindowId(packet.window_id)
     const windowTypeName = packet.window_type  // enum string like 'container'
-    const info = WINDOW_TYPE_INFO[windowTypeName]
-    let win
-    if (!info) {
-      // Fallback: create generic 9x6 window (54 + 36 slots)
-      win = Window.createWindow(windowId, 'minecraft:generic_9x6', `Container ${windowId}`, 54 + 36)
-      windows.set(windowId, win)
-    } else {
-      win = Window.createWindow(windowId, info.key, info.key, info.slots)
-      windows.set(windowId, win)
-    }
+    const info = windowInfoFor(windowTypeName)
+    const title = info.fallback ? `Container ${windowId}` : info.key
+    const win = Window.createWindow(windowId, info.key, title, info.containerSlots)
+    windows.set(windowId, win)
     win.on('updateSlot', (slot, oldItem, newItem) => {
       if (oldItem && !newItem) {
         logAction('[inventory]', `window ${windowId} slot ${slot} cleared (was ${oldItem.name} x${oldItem.count})`)

@@ -130,6 +130,7 @@ rg -n "bedrockSlotToJava|javaSlotToBedrock|ContainerSlotType" temp-geyser-inspec
 
 ## Testing
 
+- Before creating or changing tests, read `test/rules.md` for repository-specific test rules.
 - When testing, the Bedrock server keeps the player connected for about 10-15 seconds after disconnect. If doing quick test successions, wait 3-5 seconds before trying after the first run.
 - Avoid running with unfiltered `DEBUG=minecraft-protocol` during normal test iteration because the 20 TPS `player_auth_input` spam consumes too much context. If packet debug is needed, filter out `player_auth_input`, for example:
 

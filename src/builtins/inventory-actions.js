@@ -112,6 +112,20 @@ module.exports = function inventoryActionsPlugin (botState, options = {}) {
     return request.request_id
   }
 
+  function sendStandaloneItemStackRequest (request) {
+    client.queue('item_stack_request', {
+      requests: [request]
+    })
+    botState.emit('inventory_action_request', request)
+
+    logAction('[inventory-actions]', 'standalone item_stack_request', {
+      requestId: request.request_id,
+      actions: request.actions.map(action => action.type_id)
+    })
+
+    return request.request_id
+  }
+
   function selectHotbarSlot (slot) {
     assertHotbarSlot(slot)
 
@@ -491,6 +505,7 @@ module.exports = function inventoryActionsPlugin (botState, options = {}) {
   }
 
   botState.sendItemStackRequest = sendItemStackRequest
+  botState.sendStandaloneItemStackRequest = sendStandaloneItemStackRequest
   botState.waitForItemStackResponse = waitForItemStackResponse
   botState.setHeldItemSlot = selectHotbarSlot
   botState.selectHotbarSlot = selectHotbarSlot
@@ -508,6 +523,22 @@ module.exports = function inventoryActionsPlugin (botState, options = {}) {
 
   botState.destroyInventorySlot = destroyInventorySlot
   botState.destroyOneInventoryItem = destroyOneInventoryItem
+
+  botState.inventoryActionHelpers = {
+    makeRequest,
+    takeAction,
+    placeAction,
+    swapAction,
+    dropAction,
+    destroyAction,
+    stackSlotInfo: stackRequestSlotInfo,
+    cloneItem,
+    setStackId,
+    maxStackSize,
+    sameItem,
+    responseStatusOk,
+    parseItemStackResponsePacket
+  }
 
   botState.setInventoryActionResponseTimeout = ms => {
     responseTimeoutMs = ms

@@ -1,14 +1,15 @@
 const assert = require("assert");
 const BotState = require("../src/state");
 const { clearPlayer, givePlayer } = require("./helpers/commands");
+const {
+  HOST,
+  PORT,
+  USERNAME,
+  OFFLINE,
+  VERSION,
+  SETUP_DELAY_MS
+} = require("./helpers/test-env");
 
-const HOST = process.env.HOST || "localhost";
-const PORT = parseInt(process.env.PORT, 10) || 19132;
-const USERNAME = "OpBot";
-const OFFLINE = process.env.OFFLINE !== "false";
-const VERSION = process.env.MC_VERSION || "1.21.130";
-
-const SETUP_DELAY_MS = Number(process.env.SETUP_DELAY_MS || 500);
 const AFTER_ACTION_DELAY_MS = Number(process.env.AFTER_ACTION_DELAY_MS || 1000);
 
 function sleep(ms) {

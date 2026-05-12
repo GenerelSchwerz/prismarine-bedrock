@@ -1,8 +1,8 @@
-// src/builtins/trader.js
+// src/builtins/trading.js
 'use strict'
 
 /**
- * builtins/trader.js
+ * builtins/trading.js
  *
  * Dedicated Bedrock villager trading helpers.
  *
@@ -11,97 +11,91 @@
  *   botState.tradeWith(entity, opts?) -> Promise<update_trade packet>
  *   botState.waitForTradeWindow(opts?) -> Promise<update_trade packet>
  *   botState.closeTradeWindow() -> void
+ *   botState.currentTradeRecipes() -> array
  *
- * Important:
- * - This deliberately does NOT call botState.attackEntity().
- * - This deliberately does NOT send animate/swing_arm.
- * - The inventory_transaction is ITEM_USE_ON_ENTITY with action_type = 0 / interact.
- *
- * minecraft-data 1.21.130:
- * Transaction.transaction_type:
- *   3: item_use_on_entity
- *
- * TransactionUseItemOnEntity.action_type:
- *   0: interact
- *   1: attack
- *
- * Geyser:
- *   ITEM_USE_ON_ENTITY + actionType 0 -> processEntityInteraction(...)
- *   ITEM_USE_ON_ENTITY + actionType 1 -> ServerboundAttackPacket
+ * This plugin does not build entity interaction packets directly.
+ * Entity interaction is owned by src/builtins/entity-interact.js:
+ *   botState.interactEntity(entity, opts)
  */
 
 const {
-  itemToRaw,
   logAction,
-  selfRuntimeEntityId,
-  toPlainId,
-  toVec3f
+  sameRuntimeId,
+  toPlainId
 } = require('../utils')
 
-module.exports = function traderPlugin (botState, options = {}) {
+module.exports = function tradingPlugin (botState, options = {}) {
   const client = botState.client
 
   let tradeTimeoutMs = options.tradeTimeoutMs ?? 10000
   let lastTradeWindow = null
 
-  function sleep (ms) {
-    return new Promise(resolve => setTimeout(resolve, ms))
-  }
-
   function runtimeIdOf (entity) {
     return entity?.runtimeId ?? entity?.runtime_id ?? entity?.runtimeEntityId
   }
 
-  function assertEntity (entity) {
+  function assertTradingEntity (entity) {
     const runtimeId = runtimeIdOf(entity)
+
     if (runtimeId == null) {
-      throw new Error('Cannot trade: target entity has no runtimeId')
+      throw new Error('Cannot open trade: target entity has no runtimeId')
     }
 
     return runtimeId
   }
 
-  function heldHotbarSlot () {
-    const slot = botState.heldItemSlot
-    if (Number.isInteger(slot) && slot >= 0 && slot <= 8) return slot
-    return 0
+  function entityIdCandidates (entity) {
+    return [
+      entity?.runtimeId,
+      entity?.runtime_id,
+      entity?.runtimeEntityId,
+      entity?.id,
+      entity?.entityId,
+      entity?.uniqueId,
+      entity?.unique_id
+    ].filter(value => value != null)
   }
 
-  function heldItemRaw () {
-    const slot = heldHotbarSlot()
-    const item = botState.heldItem ?? botState.inventory?.slots?.[slot] ?? null
-    return itemToRaw(item, botState.itemClass)
+  function tradeEntityIdsFromPacket (packet) {
+    return [
+      packet.trader_runtime_entity_id,
+      packet.traderRuntimeEntityId,
+      packet.villager_runtime_entity_id,
+      packet.villagerRuntimeEntityId,
+      packet.trader_unique_entity_id,
+      packet.traderUniqueEntityId,
+      packet.villager_unique_entity_id,
+      packet.villagerUniqueEntityId,
+      packet.villager_unique_id,
+      packet.villagerUniqueId,
+      packet.entity_unique_id,
+      packet.entityUniqueId
+    ].filter(value => value != null)
   }
 
-  function playerPosition () {
-    if (botState.self?.position) return toVec3f(botState.self.position)
-    return { x: 0, y: 0, z: 0 }
-  }
+  function packetMatchesEntity (packet, entity) {
+    const packetIds = tradeEntityIdsFromPacket(packet)
 
-  function entityClickPosition (entity, opts = {}) {
-    if (opts.clickPos) return toVec3f(opts.clickPos)
+    // Geyser/servers may only expose unique IDs, or may omit a usable ID.
+    // If update_trade has no usable entity id, accept it.
+    if (packetIds.length === 0) return true
 
-    const pos = entity?.position
-    if (!pos) return { x: 0, y: 1, z: 0 }
+    const targetIds = entityIdCandidates(entity)
+    if (targetIds.length === 0) return true
 
-    // Geyser subtracts entity.bedrockPosition() from this value before sending
-    // Java InteractAt. So send an absolute-ish point near the villager's upper body,
-    // not {0,0,0}. A relative zero vector can become a huge negative interaction
-    // point after Geyser's subtraction.
-    const height = Number(entity.height || opts.height || 1.95)
-
-    return {
-      x: Number(pos.x),
-      y: Number(pos.y) + Math.min(height * 0.75, 1.5),
-      z: Number(pos.z)
-    }
+    return packetIds.some(packetId => {
+      return targetIds.some(targetId => {
+        if (sameRuntimeId(packetId, targetId)) return true
+        return String(packetId) === String(targetId)
+      })
+    })
   }
 
   function waitForPacket (packetName, timeoutMs, predicate = () => true) {
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         cleanup()
-        reject(new Error(`Timed out waiting for ${JSON.stringify(packetName)}`))
+        reject(new Error(`Timed out waiting for ${String(packetName)}`))
       }, timeoutMs)
 
       function onPacket (packet) {
@@ -119,35 +113,6 @@ module.exports = function traderPlugin (botState, options = {}) {
     })
   }
 
-  function tradeEntityIdsFromPacket (packet) {
-    return [
-      packet.trader_runtime_entity_id,
-      packet.traderRuntimeEntityId,
-      packet.villager_runtime_entity_id,
-      packet.villagerRuntimeEntityId,
-      packet.trader_unique_entity_id,
-      packet.traderUniqueEntityId,
-      packet.villager_unique_entity_id,
-      packet.villagerUniqueEntityId
-    ].filter(value => value != null)
-  }
-
-  function packetMatchesEntity (packet, entity) {
-    const targetRuntimeId = runtimeIdOf(entity)
-    if (targetRuntimeId == null) return true
-
-    const ids = tradeEntityIdsFromPacket(packet)
-    if (ids.length === 0) return true
-
-    return ids.some(id => {
-      try {
-        return BigInt(id) === BigInt(targetRuntimeId)
-      } catch {
-        return String(id) === String(targetRuntimeId)
-      }
-    })
-  }
-
   function waitForTradeWindow (opts = {}) {
     const target = opts.entity
     const timeoutMs = opts.timeoutMs ?? tradeTimeoutMs
@@ -157,100 +122,54 @@ module.exports = function traderPlugin (botState, options = {}) {
     })
   }
 
-  function queueMouseOverEntity (entity) {
-    const runtimeId = assertEntity(entity)
-
-    client.queue('interact', {
-      action_id: 'mouse_over_entity',
-      target_entity_id: runtimeId,
-      has_position: false
-    })
-
-    logAction('[trader]', 'interact mouse_over_entity', {
-      target: toPlainId(runtimeId)
-    })
-  }
-
-  function queueTradeInteractTransaction (entity, opts = {}) {
-    const runtimeId = assertEntity(entity)
-    const hotbarSlot = opts.hotbarSlot ?? heldHotbarSlot()
-
-    // Use numeric 0 instead of the string enum name on purpose.
-    // minecraft-data maps 0 -> interact and 1 -> attack; Geyser checks numeric action type.
-    // This avoids any accidental enum-name/string mismatch in fast-moving protocol defs.
-    const actionTypeInteract = 0
-
-    const transaction = {
-      legacy: {
-        legacy_request_id: 0,
-        legacy_transactions: []
-      },
-      transaction_type: 'item_use_on_entity',
-      actions: [],
-      transaction_data: {
-        entity_runtime_id: runtimeId,
-        action_type: actionTypeInteract,
-        hotbar_slot: hotbarSlot,
-        held_item: opts.heldItemRaw ?? heldItemRaw(),
-        player_pos: opts.playerPos ? toVec3f(opts.playerPos) : playerPosition(),
-        click_pos: entityClickPosition(entity, opts)
-      }
-    }
-
-    client.queue('inventory_transaction', { transaction })
-
-    botState.emit('trade_interact_request', {
-      entity,
-      runtimeId,
-      transaction
-    })
-
-    logAction('[trader]', 'inventory_transaction item_use_on_entity interact', {
-      target: toPlainId(runtimeId),
-      action_type: actionTypeInteract,
-      hotbar_slot: hotbarSlot,
-      click_pos: transaction.transaction_data.click_pos
-    })
-  }
-
   async function openTrade (entity, opts = {}) {
-    assertEntity(entity)
+    const runtimeId = assertTradingEntity(entity)
+
+    if (typeof botState.interactEntity !== 'function') {
+      throw new Error('Cannot open trade: botState.interactEntity is not available')
+    }
 
     const timeoutMs = opts.timeoutMs ?? tradeTimeoutMs
-    const tradeWindowPromise = waitForTradeWindow({ entity, timeoutMs })
 
-    if (opts.mouseOver !== false) {
-      queueMouseOverEntity(entity)
+    // Start waiting before interacting so fast servers cannot race the listener.
+    const tradeWindowPromise = waitForTradeWindow({
+      entity,
+      timeoutMs
+    })
 
-      // Vanilla usually has a tiny ordering gap between hover and interact.
-      // This also makes packet logs easier to read.
-      if (opts.mouseOverDelayMs !== 0) {
-        await sleep(opts.mouseOverDelayMs ?? 50)
-      }
-    }
-
-    queueTradeInteractTransaction(entity, opts)
+    await botState.interactEntity(entity, {
+      ...opts,
+      mouseOver: opts.mouseOver ?? true,
+      mouseOverDelayMs: opts.mouseOverDelayMs ?? 50
+    })
 
     const packet = await tradeWindowPromise
+
     lastTradeWindow = packet
     botState.currentTradeWindow = packet
     botState.currentTradingEntity = entity
+
     botState.emit('trade_window_open', packet, entity)
 
-    logAction('[trader]', 'update_trade received', {
-      target: toPlainId(runtimeIdOf(entity)),
+    logAction('[trading]', 'update_trade received', {
+      target: toPlainId(runtimeId),
       keys: Object.keys(packet),
       window_id: packet.window_id,
+      window_type: packet.window_type,
+      size: packet.size,
       display_name: packet.display_name,
+      trade_tier: packet.trade_tier,
       new_trading_ui: packet.new_trading_ui,
-      using_economy_trade: packet.using_economy_trade
+      economic_trades: packet.economic_trades,
+      offers_len: Array.isArray(packet.offers) ? packet.offers.length : undefined
     })
 
     return packet
   }
 
   function closeTradeWindow () {
-    const windowId = lastTradeWindow?.window_id ?? botState.currentTradeWindow?.window_id
+    const packet = lastTradeWindow ?? botState.currentTradeWindow
+    const windowId = packet?.window_id
 
     if (windowId != null) {
       client.queue('container_close', {
@@ -258,38 +177,75 @@ module.exports = function traderPlugin (botState, options = {}) {
         server: false
       })
 
-      logAction('[trader]', 'container_close trade', { window_id: windowId })
+      logAction('[trading]', 'container_close trade', {
+        window_id: windowId
+      })
     }
 
     lastTradeWindow = null
     botState.currentTradeWindow = null
     botState.currentTradingEntity = null
+
     botState.emit('trade_window_close')
+  }
+
+  function currentTradeRecipes () {
+    const packet = botState.currentTradeWindow ?? lastTradeWindow
+    if (!packet) return []
+
+    if (Array.isArray(packet.offers)) return packet.offers
+    if (Array.isArray(packet.trades)) return packet.trades
+    if (Array.isArray(packet.trade_offers)) return packet.trade_offers
+    if (Array.isArray(packet.tradeOffers)) return packet.tradeOffers
+
+    const recipes =
+      packet.offers?.Recipes ??
+      packet.offers?.recipes ??
+      packet.trades?.Recipes ??
+      packet.trades?.recipes ??
+      packet.serialized_offers?.Recipes ??
+      packet.serialized_offers?.recipes ??
+      packet.serializedOffers?.Recipes ??
+      packet.serializedOffers?.recipes ??
+      packet.Recipes ??
+      packet.recipes
+
+    return Array.isArray(recipes) ? recipes : []
+  }
+
+  function setCurrentTradeWindow (packet, entity = botState.currentTradingEntity) {
+    lastTradeWindow = packet
+    botState.currentTradeWindow = packet
+
+    if (entity) {
+      botState.currentTradingEntity = entity
+    }
+
+    botState.emit('trade_window_update', packet, entity)
   }
 
   botState.openTrade = openTrade
   botState.tradeWith = openTrade
   botState.waitForTradeWindow = waitForTradeWindow
   botState.closeTradeWindow = closeTradeWindow
+  botState.currentTradeRecipes = currentTradeRecipes
 
   botState.setTradeTimeout = ms => {
     tradeTimeoutMs = ms
   }
 
   client.on('update_trade', packet => {
-    lastTradeWindow = packet
-    botState.currentTradeWindow = packet
-    botState.emit('trade_window_update', packet)
+    setCurrentTradeWindow(packet)
   })
 
   client.on('container_close', packet => {
-    const windowId = packet.window_id
     const currentWindowId = botState.currentTradeWindow?.window_id
 
-    if (currentWindowId != null && windowId === currentWindowId) {
+    if (currentWindowId != null && packet.window_id === currentWindowId) {
       lastTradeWindow = null
       botState.currentTradeWindow = null
       botState.currentTradingEntity = null
+
       botState.emit('trade_window_close', packet)
     }
   })

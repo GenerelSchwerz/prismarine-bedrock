@@ -13,33 +13,37 @@
  *   botState.closeTradeWindow() -> void
  *   botState.currentTradeRecipes() -> array
  *   botState.findTrade(filterOrExpected, opts?) -> recipe | null
- *   botState.executeTrade(tradeOrIndex, count?, opts?) -> Promise<item_stack_response>
+ *   botState.executeTrade(tradeOrIndex, count?, opts?) -> Promise<object>
  *
- * This plugin does not build entity interaction packets directly.
  * Entity interaction is owned by src/builtins/entity-interact.js:
  *   botState.interactEntity(entity, opts)
  *
- * Trade execution uses Bedrock's server-authoritative item_stack_request flow.
+ * Geyser merchant trading notes:
  *
- * Important Geyser behavior:
- * - Geyser merchant trading expects trade selection through:
- *     craft_recipe_auto
- *     or craft_recipe
- * - Geyser maps those to MerchantInventoryTranslator.translateAutoCraftingRequest()
- *   / translateCraftingRequest(), then sends ServerboundSelectTradePacket(tradeChoice).
- * - In the non-emulatePost1_13Logic branch, Geyser intentionally returns
- *   rejectRequest(request), then schedules:
- *     merchantInventory.onTradeSelected(...)
- *     translateRequest(session, container, request)
- *     updateInventory(...)
+ * 1. The merchant recipe request must start with craft_recipe_auto or
+ *    craft_recipe. Geyser dispatches by request.actions[0].
  *
- * That means the original Bedrock request must contain the complete trade:
- *   1. move ingredient(s) into TRADE2_INGREDIENT slot(s)
- *   2. select recipe with craft_recipe_auto / craft_recipe
- *   3. take result from TRADE2_RESULT
+ * 2. The trade inputs must already be in the merchant input slots before
+ *    the recipe/result-take request. Sending one request shaped as:
  *
- * Splitting selection and take into two separate requests does not work because
- * Geyser's delayed replay only replays the original request.
+ *      [craft_recipe_auto, take trade2_result]
+ *
+ *    selects the trade but does not provide the emeralds.
+ *
+ * 3. Sending one request shaped as:
+ *
+ *      [take emerald -> trade2_ingredient1, craft_recipe_auto, take result]
+ *
+ *    does not hit the merchant recipe path because the first action is take.
+ *
+ * Therefore executeTrade() uses two requests:
+ *
+ *   Request 1:
+ *     take ingredient(s) from player inventory into trade2_ingredient slot(s)
+ *
+ *   Request 2:
+ *     craft_recipe_auto / craft_recipe first
+ *     then take trade2_result into player inventory
  *
  * Important Bedrock/Geyser merchant slot mapping:
  *   Java slot 0 -> TRADE2_INGREDIENT_1, Bedrock slot 4
@@ -255,6 +259,7 @@ module.exports = function tradingPlugin(botState, options = {}) {
 
   function itemId(item) {
     item = nbtValue(item);
+
     return normalizeItemId(
       item?.id ??
         item?.name ??
@@ -448,6 +453,54 @@ module.exports = function tradingPlugin(botState, options = {}) {
     return null;
   }
 
+  function firstEmptyInventorySlot() {
+    const slots = botState.inventory?.slots ?? [];
+
+    for (let slot = 0; slot < slots.length; slot++) {
+      if (!slots[slot]) return slot;
+    }
+
+    return -1;
+  }
+
+  function findMergeableInventorySlot(output) {
+    const slots = botState.inventory?.slots ?? [];
+    const expectedId = itemId(output);
+    const expectedCount = itemCount(output);
+
+    if (!expectedId || expectedCount <= 0) return -1;
+
+    const shortName = expectedId.startsWith("minecraft:")
+      ? expectedId.slice("minecraft:".length)
+      : expectedId;
+
+    for (let slot = 0; slot < slots.length; slot++) {
+      const item = slots[slot];
+      if (!item) continue;
+
+      const maxStackSize = item.stackSize || item.maxStackSize || 64;
+      if (item.name === shortName && item.count + expectedCount <= maxStackSize) {
+        return slot;
+      }
+    }
+
+    return -1;
+  }
+
+  function inventoryDestinationSlot(recipe, opts = {}) {
+    if (Number.isInteger(opts.destinationSlot)) return opts.destinationSlot;
+
+    const output = recipeOutput(recipe);
+
+    const mergeSlot = findMergeableInventorySlot(output);
+    if (mergeSlot !== -1) return mergeSlot;
+
+    const emptySlot = firstEmptyInventorySlot();
+    if (emptySlot !== -1) return emptySlot;
+
+    throw new Error("Cannot execute trade: no inventory slot available for trade output");
+  }
+
   function itemStackId(item) {
     item = nbtValue(item);
 
@@ -481,9 +534,6 @@ module.exports = function tradingPlugin(botState, options = {}) {
   }
 
   function playerInventorySlotInfo(slot, item = botState.inventory?.slots?.[slot]) {
-    // Geyser BaseInventoryTranslator maps HOTBAR slot 0..8 to Java hotbar
-    // and INVENTORY slot 9..35 to Java main inventory for open containers.
-    // Sending hotbar item 0 as HOTBAR/0 is clearer than generic INVENTORY/0.
     if (slot >= 0 && slot <= 8) {
       return requestSlotInfo("hotbar", slot, itemStackId(item));
     }
@@ -514,12 +564,10 @@ module.exports = function tradingPlugin(botState, options = {}) {
   }
 
   function tradeResultSourceSlot(recipe, opts = {}) {
-    const output = recipeOutput(recipe);
-
     return requestSlotInfo(
       opts.resultContainerId ?? "trade2_result",
       opts.resultSlot ?? 50,
-      opts.resultStackId ?? itemStackId(output),
+      opts.resultStackId ?? 0,
       opts.resultDynamicContainerId ?? 0
     );
   }
@@ -571,7 +619,14 @@ module.exports = function tradingPlugin(botState, options = {}) {
           "Inventory:",
           JSON.stringify(
             (botState.inventory?.slots ?? [])
-              .map((item, slot) => item && { slot, name: item.name, count: item.count, stackId: item.stackId ?? item.stack_id })
+              .map((item, slot) =>
+                item && {
+                  slot,
+                  name: item.name,
+                  count: item.count,
+                  stackId: item.stackId ?? item.stack_id,
+                }
+              )
               .filter(Boolean)
           ),
         ].join("\n")
@@ -581,54 +636,6 @@ module.exports = function tradingPlugin(botState, options = {}) {
     return slot;
   }
 
-  function firstEmptyInventorySlot() {
-    const slots = botState.inventory?.slots ?? [];
-
-    for (let slot = 0; slot < slots.length; slot++) {
-      if (!slots[slot]) return slot;
-    }
-
-    return -1;
-  }
-
-  function findMergeableInventorySlot(output) {
-    const slots = botState.inventory?.slots ?? [];
-    const expectedId = itemId(output);
-    const expectedCount = itemCount(output);
-
-    if (!expectedId || expectedCount <= 0) return -1;
-
-    const shortName = expectedId.startsWith("minecraft:")
-      ? expectedId.slice("minecraft:".length)
-      : expectedId;
-
-    for (let slot = 0; slot < slots.length; slot++) {
-      const item = slots[slot];
-      if (!item) continue;
-
-      const maxStackSize = item.stackSize || item.maxStackSize || 64;
-      if (item.name === shortName && item.count + expectedCount <= maxStackSize) {
-        return slot;
-      }
-    }
-
-    return -1;
-  }
-
-  function inventoryDestinationSlot(recipe, opts = {}) {
-    if (Number.isInteger(opts.destinationSlot)) return opts.destinationSlot;
-
-    const output = recipeOutput(recipe);
-
-    const mergeSlot = findMergeableInventorySlot(output);
-    if (mergeSlot !== -1) return mergeSlot;
-
-    const emptySlot = firstEmptyInventorySlot();
-    if (emptySlot !== -1) return emptySlot;
-
-    throw new Error("Cannot execute trade: no inventory slot available for trade output");
-  }
-
   function takeAction(count, source, destination) {
     return {
       type_id: "take",
@@ -636,41 +643,6 @@ module.exports = function tradingPlugin(botState, options = {}) {
       source,
       destination,
     };
-  }
-
-  function tradeSelectionAction(recipe, count = 1, opts = {}) {
-    const netId = opts.recipeNetId ?? recipeNetId(recipe);
-
-    if (netId == null) {
-      throw new Error(
-        [
-          "Cannot execute trade: recipe is missing netId / network_id.",
-          "Recipe summary:",
-          JSON.stringify(summarizeRecipe(recipe)),
-        ].join("\n")
-      );
-    }
-
-    const type = opts.selectionActionType ?? opts.tradeSelectionActionType ?? "craft_recipe_auto";
-
-    if (type === "craft_recipe_auto") {
-      return {
-        type_id: "craft_recipe_auto",
-        recipe_network_id: netId,
-        times_crafted: opts.timesCrafted ?? count ?? 1,
-        ingredients: opts.ingredients ?? [],
-      };
-    }
-
-    if (type === "craft_recipe") {
-      return {
-        type_id: "craft_recipe",
-        recipe_network_id: netId,
-        ingredients: opts.ingredients ?? [],
-      };
-    }
-
-    throw new Error(`Unsupported villager trade selection action: ${type}`);
   }
 
   function ingredientActions(recipe, count = 1, opts = {}) {
@@ -711,6 +683,41 @@ module.exports = function tradingPlugin(botState, options = {}) {
     return actions;
   }
 
+  function tradeSelectionAction(recipe, count = 1, opts = {}) {
+    const netId = opts.recipeNetId ?? recipeNetId(recipe);
+
+    if (netId == null) {
+      throw new Error(
+        [
+          "Cannot execute trade: recipe is missing netId / network_id.",
+          "Recipe summary:",
+          JSON.stringify(summarizeRecipe(recipe)),
+        ].join("\n")
+      );
+    }
+
+    const type = opts.selectionActionType ?? opts.tradeSelectionActionType ?? "craft_recipe_auto";
+
+    if (type === "craft_recipe_auto") {
+      return {
+        type_id: "craft_recipe_auto",
+        recipe_network_id: netId,
+        times_crafted: opts.timesCrafted ?? count ?? 1,
+        ingredients: opts.ingredients ?? [],
+      };
+    }
+
+    if (type === "craft_recipe") {
+      return {
+        type_id: "craft_recipe",
+        recipe_network_id: netId,
+        ingredients: opts.ingredients ?? [],
+      };
+    }
+
+    throw new Error(`Unsupported villager trade selection action: ${type}`);
+  }
+
   function takeTradeResultAction(recipe, count, destinationSlot, opts = {}) {
     const output = recipeOutput(recipe);
     const outputCount = itemCount(output);
@@ -749,29 +756,55 @@ module.exports = function tradingPlugin(botState, options = {}) {
     return botState.inventoryActionHelpers.makeRequest(actions);
   }
 
- function buildTradeRequest(recipe, count = 1, opts = {}) {
-  const destinationSlot = inventoryDestinationSlot(recipe, opts)
+  function buildTradeIngredientRequest(recipe, count = 1, opts = {}) {
+    const actions = ingredientActions(recipe, count, opts);
 
-  const actions = [
-    // Must be first. Geyser dispatches the request based on request.actions[0].
-    // If this is not first, MerchantInventoryTranslator.translateAutoCraftingRequest()
-    // is never called.
-    tradeSelectionAction(recipe, count, opts),
+    if (actions.length === 0) {
+      throw new Error(
+        [
+          "Cannot execute trade: no ingredient actions were built.",
+          "Recipe summary:",
+          JSON.stringify(summarizeRecipe(recipe)),
+        ].join("\n")
+      );
+    }
 
-    // These are replayed by Geyser's delayed merchant handling through
-    // translateRequest(session, container, request).
-    ...ingredientActions(recipe, count, opts),
-    takeTradeResultAction(recipe, count, destinationSlot, opts)
-  ]
+    const request = makeRequest(actions);
 
-  const request = makeRequest(actions)
-
-  return {
-    request,
-    destinationSlot,
-    actions
+    return {
+      request,
+      actions,
+    };
   }
-}
+
+  function buildTradeResultRequest(recipe, count = 1, destinationSlot = inventoryDestinationSlot(recipe), opts = {}) {
+    const actions = [
+      tradeSelectionAction(recipe, count, opts),
+      takeTradeResultAction(recipe, count, destinationSlot, opts),
+    ];
+
+    const request = makeRequest(actions);
+
+    return {
+      request,
+      destinationSlot,
+      actions,
+    };
+  }
+
+  function buildTradeRequest(recipe, count = 1, opts = {}) {
+    const destinationSlot = inventoryDestinationSlot(recipe, opts);
+    const ingredient = buildTradeIngredientRequest(recipe, count, opts);
+    const result = buildTradeResultRequest(recipe, count, destinationSlot, opts);
+
+    return {
+      request: null,
+      ingredientRequest: ingredient.request,
+      resultRequest: result.request,
+      destinationSlot,
+      actions: [...ingredient.actions, ...result.actions],
+    };
+  }
 
   function responseStatusOk(response) {
     if (botState.inventoryActionHelpers?.responseStatusOk) {
@@ -839,11 +872,95 @@ module.exports = function tradingPlugin(botState, options = {}) {
       throw new Error("Cannot execute trade: botState.sendItemStackRequest is not available");
     }
 
+    if (typeof botState.waitForItemStackResponse !== "function") {
+      throw new Error("Cannot execute trade: botState.waitForItemStackResponse is not available");
+    }
+
     if (typeof botState.waitForRawItemStackResponse !== "function") {
       throw new Error(
-        "Cannot execute trade: botState.waitForRawItemStackResponse is required for Geyser merchant trade handling"
+        "Cannot execute trade: botState.waitForRawItemStackResponse is required for Geyser merchant result handling"
       );
     }
+  }
+
+  async function sendIngredientRequest(recipe, count, opts = {}) {
+    const { request } = buildTradeIngredientRequest(recipe, count, opts);
+
+    const responsePromise = botState.waitForItemStackResponse(
+      request.request_id,
+      opts.ingredientTimeoutMs ?? opts.timeoutMs ?? opts.responseTimeoutMs ?? tradeTimeoutMs
+    );
+
+    botState.sendItemStackRequest(request);
+
+    logAction("[trading]", "execute_trade ingredient request", {
+      request_id: request.request_id,
+      recipe: summarizeRecipe(recipe),
+      count,
+      actions: request.actions.map((action) => action.type_id),
+      request,
+    });
+
+    const response = await responsePromise;
+
+    logAction("[trading]", "execute_trade ingredient response", {
+      request_id: request.request_id,
+      status: response.status,
+      containers: Array.isArray(response.containers) ? response.containers.length : undefined,
+    });
+
+    return {
+      request,
+      response,
+    };
+  }
+
+  async function sendResultRequest(recipe, count, destinationSlot, opts = {}) {
+    const { request } = buildTradeResultRequest(recipe, count, destinationSlot, opts);
+
+    const responsePromise = botState.waitForRawItemStackResponse(
+      request.request_id,
+      opts.resultTimeoutMs ?? opts.timeoutMs ?? opts.responseTimeoutMs ?? tradeTimeoutMs
+    );
+
+    botState.sendItemStackRequest(request);
+
+    logAction("[trading]", "execute_trade result request", {
+      request_id: request.request_id,
+      recipe: summarizeRecipe(recipe),
+      count,
+      destinationSlot,
+      actions: request.actions.map((action) => action.type_id),
+      request,
+    });
+
+    const response = await responsePromise;
+
+    if (!responseStatusOk(response)) {
+      logAction("[trading]", "execute_trade result response rejected; waiting for Geyser delayed merchant handling", {
+        request_id: request.request_id,
+        status: response.status,
+        destinationSlot,
+      });
+
+      if (opts.rejectOnErrorResponse === true || opts.rejectOnResultErrorResponse === true) {
+        throw new Error(`item_stack_response rejected trade result request ${request.request_id}: ${response.status}`);
+      }
+
+      await sleep(opts.geyserTradeDelayMs ?? 250);
+    }
+
+    logAction("[trading]", "execute_trade result response", {
+      request_id: request.request_id,
+      status: response.status,
+      destinationSlot,
+      containers: Array.isArray(response.containers) ? response.containers.length : undefined,
+    });
+
+    return {
+      request,
+      response,
+    };
   }
 
   async function executeTrade(tradeOrIndex, count = 1, opts = {}) {
@@ -856,58 +973,34 @@ module.exports = function tradingPlugin(botState, options = {}) {
       throw new RangeError(`Trade count must be a positive integer, got ${count}`);
     }
 
-    const { request, destinationSlot } = buildTradeRequest(recipe, tradeCount, opts);
+    const destinationSlot = inventoryDestinationSlot(recipe, opts);
 
-    const responsePromise = botState.waitForRawItemStackResponse(
-      request.request_id,
-      opts.timeoutMs ?? opts.responseTimeoutMs ?? tradeTimeoutMs
-    );
+    const ingredient = await sendIngredientRequest(recipe, tradeCount, opts);
 
-    botState.sendItemStackRequest(request);
+    await sleep(opts.tradeIngredientSettleMs ?? 150);
 
-    logAction("[trading]", "execute_trade request", {
-      request_id: request.request_id,
-      recipe: summarizeRecipe(recipe),
-      count: tradeCount,
+    const result = await sendResultRequest(recipe, tradeCount, destinationSlot, opts);
+
+    updateLocalInventoryAfterTrade(recipe, tradeCount, destinationSlot, result.response);
+
+    const tradeResult = {
+      status: result.response?.status,
+      request_id: result.response?.request_id,
+      ingredientRequest: ingredient.request,
+      ingredientResponse: ingredient.response,
+      resultRequest: result.request,
+      resultResponse: result.response,
       destinationSlot,
-      actions: request.actions.map((action) => action.type_id),
-      request,
-    });
-
-    const response = await responsePromise;
-
-    if (!responseStatusOk(response)) {
-      logAction("[trading]", "execute_trade response rejected; waiting for Geyser delayed merchant replay", {
-        request_id: request.request_id,
-        status: response.status,
-        destinationSlot,
-      });
-
-      if (opts.rejectOnErrorResponse === true) {
-        throw new Error(`item_stack_response rejected trade request ${request.request_id}: ${response.status}`);
-      }
-
-      await sleep(opts.geyserTradeDelayMs ?? 250);
-    }
-
-    logAction("[trading]", "execute_trade response", {
-      request_id: request.request_id,
-      status: response.status,
-      destinationSlot,
-      containers: Array.isArray(response.containers) ? response.containers.length : undefined,
-    });
-
-    updateLocalInventoryAfterTrade(recipe, tradeCount, destinationSlot, response);
+    };
 
     botState.emit("trade_executed", {
       recipe,
       count: tradeCount,
-      request,
-      response,
       destinationSlot,
+      ...tradeResult,
     });
 
-    return response;
+    return tradeResult;
   }
 
   botState.openTrade = openTrade;
@@ -932,6 +1025,8 @@ module.exports = function tradingPlugin(botState, options = {}) {
     summarizeRecipes,
     findTrade,
     buildTradeRequest,
+    buildTradeIngredientRequest,
+    buildTradeResultRequest,
     ingredientActions,
     tradeSelectionAction,
     takeTradeResultAction,

@@ -169,6 +169,24 @@ const EXACT_SLOT_MAPPINGS = {
   }
 }
 
+// container-metadata.js
+
+const UI_SLOT_MAPPINGS = {
+  trading: {
+    4: 0,   // UI slot 4  -> logical merchant slot 0 / ingredient A
+    5: 1,   // UI slot 5  -> logical merchant slot 1 / ingredient B
+    50: 2   // UI slot 50 -> logical merchant slot 2 / result
+  }
+}
+
+function uiSlotToWindowSlotFor (windowType, uiSlot) {
+  const mapping = UI_SLOT_MAPPINGS[windowType]
+  if (!mapping) return null
+
+  const slot = mapping[uiSlot]
+  return Number.isInteger(slot) ? slot : null
+}
+
 
 const FURNACE_TYPES = new Set([
   'furnace',
@@ -419,5 +437,6 @@ module.exports = {
   containerSlotInfoFor,
   createContainerDataState,
   updateContainerDataState,
-  normalizeContainerDataProperty
+  normalizeContainerDataProperty,
+  uiSlotToWindowSlotFor
 }

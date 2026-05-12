@@ -1,21 +1,17 @@
 // builtins/inventory.js
 // Auto-loaded by BotState._loadBuiltins().
-// Maintains a prismarine-windows Window for each open window.
 //
-// Handles:
-//   - inventory_content: full sync for any window
-//   - inventory_slot:    single slot update for any window
-//   - mob_equipment:     syncs the bot's own held item
-//   - container_open:    creates a new Window for the container
-//   - container_close:   removes the container Window
+// Passive Bedrock/Geyser inventory mirror.
 //
-// Provides:
-//   botState.inventory          – main inventory Window (windowId 0)
-//   botState.windows            – Map<number, Window> for all open windows
-//   botState.heldItem           – getter: currently held item
-//   botState.getItem(slot, [windowId])
-//   botState.findItem(itemType, metadata, notFull, nbt, [windowId])
-//   botState.count(itemType, metadata, [windowId])
+// Normal logical windows live in botState.windows:
+//   - inventory window 0
+//   - container_open windows
+//   - update_trade merchant windows
+//
+// Bedrock ContainerId.UI / 124 is not a normal open/close window.
+// It is a shared active-screen UI slot namespace. Geyser uses it for merchant
+// slot sync through UIInventoryUpdater, so inventory.js keeps it as uiSlots and
+// projects known UI slots into the active logical window using container metadata.
 
 const { logAction, rawStackId, sameRuntimeId, selfRuntimeEntityId } = require('../utils')
 const {
@@ -23,8 +19,11 @@ const {
   windowInfoFor,
   createContainerDataState,
   updateContainerDataState,
-  normalizeContainerDataProperty
+  normalizeContainerDataProperty,
+  uiSlotToWindowSlotFor
 } = require('../container-metadata')
+
+const UI_WINDOW_ID = normalizeWindowId('ui')
 
 /**
  * @param {import('../state')} botState
@@ -34,28 +33,26 @@ function inject (botState, options) {
   const ItemClass = botState.itemClass
   const Window = botState.windowFactory
 
-  // ------------------------------------------------------------------
-  // Window storage
-  // ------------------------------------------------------------------
   const windows = new Map()
-  botState.windows = windows
+  const uiSlots = new Map()
 
-  // Main inventory window (windowId = 0)
+  botState.windows = windows
+  botState.uiSlots = uiSlots
+
   const inv = Window.createWindow(0, 'minecraft:inventory', 'Inventory', 36)
   windows.set(0, inv)
   botState.inventory = inv
 
-  // Held item slot index (0‑8, updated by mob_equipment)
+  let activeWindowId = 0
   let heldItemSlot = 0
-  botState.heldItemSlot = heldItemSlot  // keep in sync
-
-  // ------------------------------------------------------------------
-  // Helpers
-  // ------------------------------------------------------------------
   let loggedRawItemIdentity = false
+
+  botState.activeWindowId = activeWindowId
+  botState.heldItemSlot = heldItemSlot
 
   function toItem (raw) {
     if (!raw || raw.network_id === 0) return null
+
     try {
       const stackId = rawStackId(raw)
       const item = ItemClass.fromNotch(raw, stackId)
@@ -83,19 +80,146 @@ function inject (botState, options) {
 
       return item
     } catch (e) {
-      logAction('[inventory]', 'deserialize error', { networkId: raw.network_id, error: e.message })
+      logAction('[inventory]', 'deserialize error', {
+        networkId: raw.network_id,
+        error: e.message
+      })
       return null
     }
   }
 
-  function getWindow (windowId) {
-    const id = normalizeWindowId(windowId)
-    return windows.get(id)
+  function itemDesc (item) {
+    return item ? `${item.name} x${item.count}` : 'empty'
   }
 
-  // ------------------------------------------------------------------
-  // Utility methods on botState
-  // ------------------------------------------------------------------
+  function getWindow (windowId) {
+    return windows.get(normalizeWindowId(windowId))
+  }
+
+  function setActiveWindow (windowId) {
+    activeWindowId = normalizeWindowId(windowId)
+    botState.activeWindowId = activeWindowId
+  }
+
+  function activeWindow () {
+    return windows.get(activeWindowId) ?? null
+  }
+
+  function attachLogger (win, windowId, label = 'window') {
+    if (!win || win.__inventoryLoggerAttached) return
+    win.__inventoryLoggerAttached = true
+
+    win.on('updateSlot', (slot, oldItem, newItem) => {
+      if (oldItem && !newItem) {
+        logAction('[inventory]', `${label} ${windowId} slot ${slot} cleared (was ${oldItem.name} x${oldItem.count})`)
+      } else if (!oldItem && newItem) {
+        logAction('[inventory]', `${label} ${windowId} slot ${slot} gained ${newItem.name} x${newItem.count}`)
+      } else if (oldItem && newItem && oldItem.type !== newItem.type) {
+        logAction('[inventory]', `${label} ${windowId} slot ${slot} replaced: ${oldItem.name} x${oldItem.count} → ${newItem.name} x${newItem.count}`)
+      } else if (oldItem && newItem && oldItem.count !== newItem.count) {
+        logAction('[inventory]', `${label} ${windowId} slot ${slot} count changed: ${oldItem.count} → ${newItem.count}`)
+      }
+    })
+  }
+
+  function ensureWindow (windowId, windowType, title) {
+    const id = normalizeWindowId(windowId)
+    let win = windows.get(id)
+
+    if (!win) {
+      const info = windowInfoFor(windowType)
+      win = Window.createWindow(id, info.key, title || (info.fallback ? `Container ${id}` : info.key), info.containerSlots)
+      windows.set(id, win)
+      attachLogger(win, id)
+    }
+
+    win.windowType = windowType
+    win.containerData ??= createContainerDataState(windowType)
+    return win
+  }
+
+  function resizeFromContentIfNeeded (win, windowId, slots) {
+    if (windowId === 0 || slots.length <= win.inventoryStart) return
+
+    win.inventoryStart = slots.length
+    win.inventoryEnd = slots.length + 36
+    win.hotbarStart = win.inventoryEnd - 9
+    win.slots.length = win.inventoryEnd
+
+    for (let i = 0; i < win.slots.length; i++) {
+      if (win.slots[i] === undefined) win.slots[i] = null
+    }
+
+    logAction('[inventory]', 'resized container window from content', {
+      windowId,
+      containerSlots: slots.length,
+      totalSlots: win.slots.length
+    })
+  }
+
+  function projectUiSlotToActiveWindow (uiSlot, item, packet) {
+    const win = activeWindow()
+    if (!win || !win.windowType) return false
+
+    const windowSlot = uiSlotToWindowSlotFor(win.windowType, uiSlot)
+    if (windowSlot == null) return false
+
+    win.updateSlot(windowSlot, item)
+
+    botState.emit('ui_slot_projected', {
+      windowId: activeWindowId,
+      windowType: win.windowType,
+      uiSlot,
+      windowSlot,
+      item,
+      packet
+    })
+
+    return true
+  }
+
+  function projectKnownUiSlotsToActiveWindow () {
+    for (const [uiSlot, item] of uiSlots) {
+      projectUiSlotToActiveWindow(uiSlot, item, null)
+    }
+  }
+
+  function handleUiSlot (packet) {
+    if (packet.slot == null) return
+
+    const item = toItem(packet.item)
+    uiSlots.set(packet.slot, item)
+
+    const projected = projectUiSlotToActiveWindow(packet.slot, item, packet)
+
+    logAction('[inventory]', 'ui_slot', {
+      slot: packet.slot,
+      item: itemDesc(item),
+      projected
+    })
+
+    botState.emit('ui_slot_updated', packet.slot, item, packet)
+  }
+
+  function handleUiContent (packet) {
+    const slots = packet.input
+    if (!Array.isArray(slots)) {
+      logAction('[inventory]', 'ui inventory_content without array', {
+        keys: Object.keys(packet)
+      })
+      return
+    }
+
+    for (let i = 0; i < slots.length; i++) {
+      const item = toItem(slots[i])
+      uiSlots.set(i, item)
+      projectUiSlotToActiveWindow(i, item, packet)
+    }
+
+    logAction('[inventory]', 'ui_content', { slots: slots.length })
+    botState.emit('ui_content_updated', uiSlots, packet)
+  }
+
   Object.defineProperty(botState, 'heldItem', {
     get () {
       const slot = botState.heldItemSlot
@@ -103,13 +227,20 @@ function inject (botState, options) {
       return botState.inventory?.slots[slot] ?? null
     },
     enumerable: true,
-    configurable: true,
+    configurable: true
   })
+
+  botState.getWindow = function (windowId = 0) {
+    return getWindow(windowId) ?? null
+  }
+
+  botState.getUiSlot = function (slot) {
+    return uiSlots.get(slot) ?? null
+  }
 
   botState.getItem = function (slot, windowId = 0) {
     const win = getWindow(windowId)
-    if (!win) return null
-    return win.slots[slot] ?? null
+    return win?.slots[slot] ?? null
   }
 
   botState.findItem = function (itemType, metadata, notFull, nbt, windowId = 0) {
@@ -120,127 +251,146 @@ function inject (botState, options) {
 
   botState.count = function (itemType, metadata, windowId = 0) {
     const win = getWindow(windowId)
-    if (!win) return 0
-    return win.count(itemType, metadata)
+    return win ? win.count(itemType, metadata) : 0
   }
 
-  // ------------------------------------------------------------------
-  // Packet handlers
-  // ------------------------------------------------------------------
-
-  // ---------- inventory_content ----------
   botState.client.on('inventory_content', (packet) => {
     const windowId = normalizeWindowId(packet.window_id)
+
+    if (windowId === UI_WINDOW_ID) {
+      handleUiContent(packet)
+      return
+    }
+
     const win = getWindow(windowId)
     if (!win) {
       logAction('[inventory]', 'inventory_content for unknown window', { windowId })
       return
     }
+
     const slots = packet.input
     if (!Array.isArray(slots)) {
-      logAction('[inventory]', 'inventory_content without array', { keys: Object.keys(packet) })
+      logAction('[inventory]', 'inventory_content without array', {
+        keys: Object.keys(packet)
+      })
       return
     }
-    if (windowId !== 0 && slots.length > win.inventoryStart) {
-      win.inventoryStart = slots.length
-      win.inventoryEnd = slots.length + 36
-      win.hotbarStart = win.inventoryEnd - 9
-      win.slots.length = win.inventoryEnd
-      for (let i = 0; i < win.slots.length; i++) {
-        if (win.slots[i] === undefined) win.slots[i] = null
-      }
-      logAction('[inventory]', 'resized container window from content', {
-        windowId,
-        containerSlots: slots.length,
-        totalSlots: win.slots.length
-      })
-    }
+
+    resizeFromContentIfNeeded(win, windowId, slots)
+
     logAction('[inventory]', `inventory_content: window=${windowId}, ${slots.length} slots`)
-    // Resize window if needed (prismarine-windows doesn't support resize; assume correct size)
+
     for (let i = 0; i < Math.min(slots.length, win.slots.length); i++) {
-      const item = toItem(slots[i])
-      win.updateSlot(i, item)
+      win.updateSlot(i, toItem(slots[i]))
     }
+
     win.lastContentAt = Date.now()
     botState.emit('inventory_content_updated', windowId, win)
   })
 
-  // ---------- inventory_slot ----------
   botState.client.on('inventory_slot', (packet) => {
     const windowId = normalizeWindowId(packet.window_id)
+
+    if (windowId === UI_WINDOW_ID) {
+      handleUiSlot(packet)
+      return
+    }
+
     const win = getWindow(windowId)
     if (!win) {
       logAction('[inventory]', 'inventory_slot for unknown window', { windowId })
       return
     }
+
     if (packet.slot == null) return
+
     const item = toItem(packet.item)
-    const itemDesc = item ? `${item.name} x${item.count}` : 'empty'
-    logAction('[inventory]', `inventory_slot: window=${windowId}, slot=${packet.slot}, item=${itemDesc}`)
+    logAction('[inventory]', `inventory_slot: window=${windowId}, slot=${packet.slot}, item=${itemDesc(item)}`)
     win.updateSlot(packet.slot, item)
   })
 
-  // ---------- mob_equipment ----------
   botState.client.on('mob_equipment', (packet) => {
     if (!sameRuntimeId(packet.runtime_entity_id, selfRuntimeEntityId(botState))) return
     if (typeof packet.slot !== 'number') return
+
     const item = toItem(packet.item)
-    const itemDesc = item ? `${item.name} x${item.count}` : 'empty'
-    logAction('[inventory]', `mob_equipment: slot=${packet.slot}, selected=${packet.selected_slot}, item=${itemDesc}`)
-    // Update the stored window (window 0)
-    const win = windows.get(0)
-    if (win) win.updateSlot(packet.slot, item)
+    logAction('[inventory]', `mob_equipment: slot=${packet.slot}, selected=${packet.selected_slot}, item=${itemDesc(item)}`)
+
+    windows.get(0)?.updateSlot(packet.slot, item)
+
     if (typeof packet.selected_slot === 'number') {
       heldItemSlot = packet.selected_slot
       botState.heldItemSlot = heldItemSlot
     }
   })
 
-  // ---------- container_open ----------
-  // We'll attach the updateSlot logger after creation.
   botState.client.on('container_open', (packet) => {
     const windowId = normalizeWindowId(packet.window_id)
-    const windowTypeName = packet.window_type  // enum string like 'container'
-    const info = windowInfoFor(windowTypeName)
-    const title = info.fallback ? `Container ${windowId}` : info.key
-    const win = Window.createWindow(windowId, info.key, title, info.containerSlots)
-    windows.set(windowId, win)
-    win.on('updateSlot', (slot, oldItem, newItem) => {
-      if (oldItem && !newItem) {
-        logAction('[inventory]', `window ${windowId} slot ${slot} cleared (was ${oldItem.name} x${oldItem.count})`)
-      } else if (!oldItem && newItem) {
-        logAction('[inventory]', `window ${windowId} slot ${slot} gained ${newItem.name} x${newItem.count}`)
-      } else if (oldItem && newItem && oldItem.type !== newItem.type) {
-        logAction('[inventory]', `window ${windowId} slot ${slot} replaced: ${oldItem.name} x${oldItem.count} → ${newItem.name} x${newItem.count}`)
-      } else if (oldItem && newItem && newItem.count !== oldItem.count) {
-        logAction('[inventory]', `window ${windowId} slot ${slot} count changed: ${oldItem.count} → ${newItem.count}`)
-      }
-    })
-    logAction('[inventory]', `container_open: id=${windowId}, type=${windowTypeName}, slots=${win.slots.length}`)
+    const windowType = packet.window_type
+    const win = ensureWindow(windowId, windowType)
+
+    setActiveWindow(windowId)
+
+    logAction('[inventory]', `container_open: id=${windowId}, type=${windowType}, slots=${win.slots.length}`)
   })
 
-  // ---------- container_close ----------
+  botState.client.on('update_trade', (packet) => {
+    const windowId = normalizeWindowId(packet.window_id)
+    const win = ensureWindow(windowId, packet.window_type || 'trading', packet.display_name || 'Trading')
+
+    win.lastUpdateTrade = packet
+    win.displayName = packet.display_name
+    win.tradeTier = packet.trade_tier
+    win.newTradingUi = packet.new_trading_ui
+    win.economicTrades = packet.economic_trades
+
+    setActiveWindow(windowId)
+    projectKnownUiSlotsToActiveWindow()
+
+    logAction('[inventory]', 'trade_window_open', {
+      windowId,
+      type: win.windowType,
+      slots: win.slots.length,
+      displayName: packet.display_name
+    })
+
+    botState.emit('inventory_trade_window_updated', windowId, win, packet)
+  })
+
+  botState.client.on('container_set_data', (packet) => {
+    const windowId = normalizeWindowId(packet.window_id)
+    const win = getWindow(windowId)
+
+    if (!win) {
+      logAction('[inventory]', 'container_set_data for unknown window', { windowId })
+      return
+    }
+
+    const property = normalizeContainerDataProperty(packet.property)
+    win.containerData = updateContainerDataState(win.windowType, win.containerData, property, packet.value)
+
+    botState.emit('container_data_updated', windowId, win.containerData, packet)
+  })
+
   botState.client.on('container_close', (packet) => {
     const windowId = normalizeWindowId(packet.window_id)
-    const win = windows.get(windowId)
-    if (win) {
+
+    if (windowId === UI_WINDOW_ID) {
+      logAction('[inventory]', 'container_close ignored for ui container', { windowId })
+      return
+    }
+
+    if (windows.has(windowId)) {
       logAction('[inventory]', `container_close: id=${windowId}`)
       windows.delete(windowId)
     }
-  })
 
-  // ---------- log changes for the initial inventory window ----------
-  inv.on('updateSlot', (slot, oldItem, newItem) => {
-    if (oldItem && !newItem) {
-      logAction('[inventory]', `inv slot ${slot} cleared (was ${oldItem.name} x${oldItem.count})`)
-    } else if (!oldItem && newItem) {
-      logAction('[inventory]', `inv slot ${slot} gained ${newItem.name} x${newItem.count}`)
-    } else if (oldItem && newItem && oldItem.type !== newItem.type) {
-      logAction('[inventory]', `inv slot ${slot} replaced: ${oldItem.name} x${oldItem.count} → ${newItem.name} x${newItem.count}`)
-    } else if (oldItem && newItem && newItem.count !== oldItem.count) {
-      logAction('[inventory]', `inv slot ${slot} count changed: ${oldItem.count} → ${newItem.count}`)
+    if (activeWindowId === windowId) {
+      setActiveWindow(0)
     }
   })
+
+  attachLogger(inv, 0, 'inv')
 }
 
 module.exports = inject

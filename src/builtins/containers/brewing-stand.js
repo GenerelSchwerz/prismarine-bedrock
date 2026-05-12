@@ -3,6 +3,22 @@ const { putIndexedSlot, putSlot, takeIndexedSlot, takeSlot } = require('./helper
 const DEFAULT_BREW_DURATION = 400
 const DEFAULT_FUEL_TOTAL = 20
 
+// Bedrock/Geyser brewing stand window slots.
+//
+// Server inventory_slot updates use:
+//   0 = ingredient/input
+//   1 = bottle/result 0
+//   2 = bottle/result 1
+//   3 = bottle/result 2
+//   4 = fuel
+//
+// ItemStackRequest container refs in container-metadata.js already map these
+// logical window slots to the correct Bedrock container IDs/protocol slots.
+const INGREDIENT_SLOT = 0
+const FIRST_BOTTLE_SLOT = 1
+const BOTTLE_COUNT = 3
+const FUEL_SLOT = 4
+
 function clamp01 (value) {
   if (!Number.isFinite(value)) return 0
   return Math.max(0, Math.min(1, value))
@@ -24,6 +40,14 @@ function normalizeProperty (property) {
   if (Number.isInteger(asNumber)) return asNumber
 
   return text
+}
+
+function bottleSlot (index) {
+  if (!Number.isInteger(index) || index < 0 || index >= BOTTLE_COUNT) {
+    throw new RangeError(`bottleSlot must be between 0 and ${BOTTLE_COUNT - 1}`)
+  }
+
+  return FIRST_BOTTLE_SLOT + index
 }
 
 function makeProgressState () {
@@ -102,13 +126,35 @@ function updateProgressProperty (progress, property, value) {
 }
 
 function apply (container) {
-  container.putBottle = putIndexedSlot(container, 0, 3, 'bottleSlot')
+  container.ingredientSlot = INGREDIENT_SLOT
+  container.fuelSlot = FUEL_SLOT
+  container.bottleSlots = [1, 2, 3]
+  container.resultSlots = container.bottleSlots
+
+  container.getBottle = function (index = 0) {
+    return container.window.slots[bottleSlot(index)] ?? null
+  }
+
+  container.getBottles = function () {
+    return container.bottleSlots.map(slot => container.window.slots[slot] ?? null)
+  }
+
+  container.getIngredient = function () {
+    return container.window.slots[INGREDIENT_SLOT] ?? null
+  }
+
+  container.getFuel = function () {
+    return container.window.slots[FUEL_SLOT] ?? null
+  }
+
+  container.putBottle = putIndexedSlot(container, FIRST_BOTTLE_SLOT, BOTTLE_COUNT, 'bottleSlot')
   container.putInput = container.putBottle
-  container.putIngredient = putSlot(container, 3)
-  container.putFuel = putSlot(container, 4)
-  container.takeBottle = takeIndexedSlot(container, 0, 3, 'bottleSlot')
-  container.takeIngredient = takeSlot(container, 3)
-  container.takeFuel = takeSlot(container, 4)
+  container.putIngredient = putSlot(container, INGREDIENT_SLOT)
+  container.putFuel = putSlot(container, FUEL_SLOT)
+
+  container.takeBottle = takeIndexedSlot(container, FIRST_BOTTLE_SLOT, BOTTLE_COUNT, 'bottleSlot')
+  container.takeIngredient = takeSlot(container, INGREDIENT_SLOT)
+  container.takeFuel = takeSlot(container, FUEL_SLOT)
   container.takeResult = container.takeBottle
 
   container.progress = makeProgressState()

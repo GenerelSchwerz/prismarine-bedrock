@@ -40,6 +40,7 @@ module.exports = function containersPlugin (botState, options = {}) {
 
   let activeContainer = null
   const openContainers = new Map()
+  const pendingContainerData = new Map()
 
   function helpers () {
     if (!botState.inventoryActionHelpers) {
@@ -139,6 +140,9 @@ module.exports = function containersPlugin (botState, options = {}) {
     activeContainer = container
     openContainers.set(windowId, container)
     botState.currentContainer = container
+
+    replayPendingContainerData(windowId)
+
     return container
   }
 
@@ -439,15 +443,41 @@ module.exports = function containersPlugin (botState, options = {}) {
     return openContainers.get(id) ?? null
   }
 
+  function bufferContainerSetData (windowId, packet) {
+    const pending = pendingContainerData.get(windowId) ?? []
+    pending.push(packet)
+    pendingContainerData.set(windowId, pending)
+
+    logAction('[containers]', 'buffered container_set_data for pending container', {
+      windowId,
+      keys: Object.keys(packet),
+      pending: pending.length
+    })
+  }
+
+  function replayPendingContainerData (windowId) {
+    const id = normalizeWindowId(windowId)
+    const pending = pendingContainerData.get(id)
+    if (!pending || pending.length === 0) return
+
+    pendingContainerData.delete(id)
+
+    logAction('[containers]', 'replaying buffered container_set_data', {
+      windowId: id,
+      count: pending.length
+    })
+
+    for (const packet of pending) {
+      handleContainerSetData(packet)
+    }
+  }
+
   function handleContainerSetData (packet) {
     const windowId = normalizeWindowId(packet.window_id)
     const container = getContainerForWindowId(windowId)
 
     if (!container) {
-      logAction('[containers]', 'container_set_data for unknown container', {
-        windowId,
-        keys: Object.keys(packet)
-      })
+      bufferContainerSetData(windowId, packet)
       return
     }
 
@@ -508,6 +538,7 @@ module.exports = function containersPlugin (botState, options = {}) {
     }
 
     openContainers.delete(windowId)
+    pendingContainerData.delete(windowId)
 
     if (activeContainer?.id === windowId) {
       activeContainer = null

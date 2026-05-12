@@ -13,9 +13,9 @@ Legend:
 ## Foundation
 
 - `[~]` Define the public library entrypoint.
-  - Fix the root export typo from `module.export` to `module.exports`.
-  - Split runnable demo code from the exported library API.
-  - Add a `createBot(options)` wrapper or document `new BotState(options)` as the supported entrypoint.
+  - Root export now uses `module.exports`.
+  - Runnable demo code now lives under `examples/`.
+  - `createBot(options)` and `BotState` are both exported; API stability/docs still need work.
 - `[~]` Document supported Bedrock versions.
   - Current code and packet notes are centered on Bedrock `1.21.130`.
   - Keep protocol notes linked to symlinked `minecraft-data` paths, not pnpm store internals.

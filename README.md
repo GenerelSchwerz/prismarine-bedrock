@@ -26,7 +26,6 @@ Current strong areas:
 
 Major in-progress areas:
 
-- Stable public API entrypoint.
 - Mineflayer compatibility aliases.
 - Pathfinding.
 - Broader game-state APIs.
@@ -36,6 +35,35 @@ Major in-progress areas:
 
 ```bash
 pnpm install
+```
+
+## Library Usage
+
+```js
+const { createBot } = require('bedrock-test')
+
+const bot = createBot({
+  host: 'localhost',
+  port: 19132,
+  username: 'MyBot',
+  offline: true,
+  version: '1.21.130'
+})
+```
+
+The package exports:
+
+- `createBot(options)` to construct and start a bot.
+- `BotState` if you want to instantiate first and call `start()` manually.
+
+## Examples
+
+- Basic bot: [examples/basic-bot.js](examples/basic-bot.js)
+
+Run it with:
+
+```bash
+pnpm run example:basic-bot
 ```
 
 ## Test

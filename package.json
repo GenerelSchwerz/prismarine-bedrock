@@ -1,10 +1,14 @@
 {
   "name": "bedrock-test",
   "version": "0.0.1",
-  "description": "",
+  "description": "Bedrock-first bot runtime built on the Prismarine ecosystem.",
   "main": "index.js",
+  "exports": {
+    ".": "./index.js"
+  },
   "scripts": {
-    "test": "mocha \"test/**/*.test.js\""
+    "test": "mocha \"test/**/*.test.js\"",
+    "example:basic-bot": "node examples/basic-bot.js"
   },
   "keywords": [],
   "author": "",

@@ -34,7 +34,7 @@ The practical comparison:
 | Area | This repo | Mineflayer |
 | --- | --- | --- |
 | Protocol | Uses `bedrock-protocol` directly. Targets Bedrock protocol shape, currently configured around `1.21.130`. | Uses `minecraft-protocol` for Java Edition. Supports many Java versions through version-aware protocol/data packages. |
-| Bot entrypoint | `BotState` class in `src/state.js`; `start()` creates the Bedrock client and auto-loads builtins. | `mineflayer.createBot(options)` creates a ready high-level bot with built-in plugins. |
+| Bot entrypoint | `createBot(options)` from the package root starts a bot; `BotState` in `src/state.js` remains available for manual construction. | `mineflayer.createBot(options)` creates a ready high-level bot with built-in plugins. |
 | Data model | Uses Prismarine packages with a Bedrock registry: `prismarine-registry`, `prismarine-block`, `prismarine-item`, `prismarine-entity`, `prismarine-world`, `prismarine-windows`, `prismarine-chat`. | Uses the same Prismarine ecosystem, but most packages are exercised against Java protocol semantics. |
 | Plugin model | Has `loadPlugin`, `loadPlugins`, `hasPlugin`, `injectPlugins`, and auto-loaded local builtins. | Mature plugin API with a broad third-party ecosystem and strong expectations around common bot APIs. |
 | Edition target | Bedrock/Geyser. | Java Edition. |
@@ -60,8 +60,7 @@ Mineflayer:
 
 Gap:
 
-- This repo does not expose a polished public `createBot` API.
-- Root `index.js` currently contains `module.export = require('./src/index')`, which appears to be a typo and also points at a runnable example-style bot rather than a clean library API.
+- This repo now exposes a basic public `createBot` API and keeps runnable demo code in `examples/`, but the surrounding API/documentation surface is still less mature than Mineflayer.
 - Authentication/session ergonomics are far behind Mineflayer.
 
 ## Chat and Commands
@@ -359,9 +358,9 @@ Gap:
 
 ## Recommended Parity Roadmap
 
-1. Stabilize the public API entrypoint.
+1. Harden the public API entrypoint.
 
-   Add a clear `createBot(options)` or equivalent export instead of making users instantiate `BotState` directly. Fix the root export typo and separate runnable examples from library entrypoints.
+   `createBot(options)` now exists and runnable demo code is separated into `examples/`. The remaining work is documenting the exported surface and keeping the API stable.
 
 2. Decide on API compatibility goals.
 

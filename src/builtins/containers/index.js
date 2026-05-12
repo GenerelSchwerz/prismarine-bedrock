@@ -1,4 +1,4 @@
-// builtins/containers.js
+// builtins/containers/index.js
 // Generic Bedrock container window helpers. Inventory request construction and
 // response waiting are delegated to inventory-actions.js.
 
@@ -9,12 +9,13 @@ const {
   itemToRaw,
   logAction,
   toVec3f
-} = require('../utils')
+} = require('../../utils')
 const {
   containerSlotInfoFor,
   containerSlotTypeFor,
   normalizeWindowId
-} = require('../container-metadata')
+} = require('../../container-metadata')
+const specializeContainer = require('./specialize')
 
 function blockFace (botState, pos) {
   const eye = botState.self.position.offset(0, 1.62, 0)
@@ -237,7 +238,7 @@ module.exports = function containersPlugin (botState, options = {}) {
       }
     }
 
-    return api
+    return specializeContainer(api)
   }
 
   function blockNameAt (position) {

@@ -341,16 +341,20 @@ describe('real chest containers', function () {
 
     assert.strictEqual(furnace.type, 'furnace')
     assert.strictEqual(furnace.containerSlotCount, 3)
+    assert.strictEqual(typeof furnace.putFuel, 'function')
+    assert.strictEqual(typeof furnace.putInput, 'function')
+    assert.strictEqual(typeof furnace.takeInput, 'function')
+    assert.strictEqual(typeof furnace.takeOutput, 'function')
 
-    await assertContainerActionProducesPackets(botState, 'furnace putInventorySlot', () => {
-      return furnace.putInventorySlot(rawIronSlot, 0, 1)
+    await assertContainerActionProducesPackets(botState, 'furnace putInput', () => {
+      return furnace.putInput(rawIronSlot, 1)
     })
 
     assertSlot(botState.inventory, rawIronSlot, 'raw_iron', 1)
     assertSlot(furnace.window, 0, 'raw_iron', 1)
 
-    await assertContainerActionProducesPackets(botState, 'furnace takeContainerSlot', () => {
-      return furnace.takeContainerSlot(0, rawIronSlot, 1)
+    await assertContainerActionProducesPackets(botState, 'furnace takeInput', () => {
+      return furnace.takeInput(rawIronSlot, 1)
     })
 
     assertSlot(furnace.window, 0, null, 0)
@@ -373,16 +377,20 @@ describe('real chest containers', function () {
 
     assert.strictEqual(brewing.type, 'brewing_stand')
     assert.strictEqual(brewing.containerSlotCount, 5)
+    assert.strictEqual(typeof brewing.putFuel, 'function')
+    assert.strictEqual(typeof brewing.putIngredient, 'function')
+    assert.strictEqual(typeof brewing.putBottle, 'function')
+    assert.strictEqual(typeof brewing.takeIngredient, 'function')
 
-    await assertContainerActionProducesPackets(botState, 'brewing putInventorySlot', () => {
-      return brewing.putInventorySlot(wartSlot, 3, 1)
+    await assertContainerActionProducesPackets(botState, 'brewing putIngredient', () => {
+      return brewing.putIngredient(wartSlot, 1)
     })
 
     assertSlot(botState.inventory, wartSlot, 'nether_wart', 1)
     assertSlot(brewing.window, 3, 'nether_wart', 1)
 
-    await assertContainerActionProducesPackets(botState, 'brewing takeContainerSlot', () => {
-      return brewing.takeContainerSlot(3, wartSlot, 1)
+    await assertContainerActionProducesPackets(botState, 'brewing takeIngredient', () => {
+      return brewing.takeIngredient(wartSlot, 1)
     })
 
     assertSlot(brewing.window, 3, null, 0)

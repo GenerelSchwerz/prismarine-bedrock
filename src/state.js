@@ -71,9 +71,20 @@ class BotState extends EventEmitter {
     const fs = require('fs');
     const builtinsDir = path.join(__dirname, 'builtins');
     if (!fs.existsSync(builtinsDir)) return;
-    const files = fs.readdirSync(builtinsDir).filter(f => f.endsWith('.js'));
-    for (const file of files) {
-      const plugin = require(path.join(builtinsDir, file));
+    const entries = fs.readdirSync(builtinsDir);
+    for (const entry of entries) {
+      const entryPath = path.join(builtinsDir, entry);
+      const stat = fs.statSync(entryPath);
+      let pluginPath = null;
+      if (stat.isFile() && entry.endsWith('.js')) {
+        pluginPath = entryPath;
+      } else if (stat.isDirectory()) {
+        const indexPath = path.join(entryPath, 'index.js');
+        const siblingFilePath = path.join(builtinsDir, `${entry}.js`);
+        if (!fs.existsSync(siblingFilePath) && fs.existsSync(indexPath)) pluginPath = indexPath;
+      }
+      if (!pluginPath) continue;
+      const plugin = require(pluginPath);
       if (typeof plugin === 'function') {
         plugin(this, this.options);
       }

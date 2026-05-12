@@ -85,7 +85,9 @@ describe('container metadata', function () {
 
   it('maps known specialized containers to protocol slot identities', function () {
     assert.deepStrictEqual(slotInfo('furnace', 0), { containerId: 'furnace_ingredient', protocolSlot: 0 })
-    assert.deepStrictEqual(slotInfo('brewing_stand', 3), { containerId: 'brewing_input', protocolSlot: 0 })
+    assert.deepStrictEqual(slotInfo('brewing_stand', 0), { containerId: 'brewing_input', protocolSlot: 0 })
+    assert.deepStrictEqual(slotInfo('brewing_stand', 3), { containerId: 'brewing_result', protocolSlot: 3 })
+    assert.deepStrictEqual(slotInfo('brewing_stand', 4), { containerId: 'brewing_fuel', protocolSlot: 4 })
     assert.deepStrictEqual(slotInfo('anvil', 2), { containerId: 'anvil_result', protocolSlot: 50 })
     assert.deepStrictEqual(slotInfo('smithing_table', 0), { containerId: 'smithing_table_template', protocolSlot: 53 })
     assert.deepStrictEqual(slotInfo('loom', 3), { containerId: 'loom_result', protocolSlot: 50 })

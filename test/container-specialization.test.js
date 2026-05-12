@@ -48,11 +48,11 @@ describe('container specializations', function () {
     container.takeIngredient(9, 1)
 
     assert.deepStrictEqual(container.calls, [
-      ['put', 5, 2, 1],
-      ['put', 6, 3, 1],
+      ['put', 5, 3, 1],
+      ['put', 6, 0, 1],
       ['put', 7, 4, 1],
-      ['take', 1, 8, 1],
-      ['take', 3, 9, 1]
+      ['take', 2, 8, 1],
+      ['take', 0, 9, 1]
     ])
   })
 

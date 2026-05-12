@@ -5,6 +5,7 @@
 //
 // Normal logical windows live in botState.windows:
 //   - inventory window 0
+//   - persistent player equipment windows: armor 120, offhand 119
 //   - container_open windows
 //   - update_trade merchant windows
 //
@@ -24,6 +25,19 @@ const {
 } = require('../container-metadata')
 
 const UI_WINDOW_ID = normalizeWindowId('ui')
+const INVENTORY_WINDOW_ID = normalizeWindowId('inventory')
+const ARMOR_WINDOW_ID = normalizeWindowId('armor')
+const OFFHAND_WINDOW_ID = normalizeWindowId('offhand')
+const PERSISTENT_WINDOW_IDS = new Set([
+  INVENTORY_WINDOW_ID,
+  ARMOR_WINDOW_ID,
+  OFFHAND_WINDOW_ID
+])
+
+const PLAYER_EQUIPMENT_WINDOWS = [
+  { id: ARMOR_WINDOW_ID, type: 'armor', title: 'Armor', property: 'armor' },
+  { id: OFFHAND_WINDOW_ID, type: 'hand', title: 'Offhand', property: 'offhand' }
+]
 
 /**
  * @param {import('../state')} botState
@@ -39,11 +53,11 @@ function inject (botState, options) {
   botState.windows = windows
   botState.uiSlots = uiSlots
 
-  const inv = Window.createWindow(0, 'minecraft:inventory', 'Inventory', 36)
-  windows.set(0, inv)
+  const inv = Window.createWindow(INVENTORY_WINDOW_ID, 'minecraft:inventory', 'Inventory', 36)
+  windows.set(INVENTORY_WINDOW_ID, inv)
   botState.inventory = inv
 
-  let activeWindowId = 0
+  let activeWindowId = INVENTORY_WINDOW_ID
   let heldItemSlot = 0
   let loggedRawItemIdentity = false
 
@@ -122,14 +136,28 @@ function inject (botState, options) {
     })
   }
 
+  function createWindow (windowId, windowType, title) {
+    const info = windowInfoFor(windowType)
+    const win = Window.createWindow(windowId, info.key, title || info.key, info.containerSlots)
+    win.windowType = windowType
+    win.containerData = createContainerDataState(windowType)
+    windows.set(windowId, win)
+    return win
+  }
+
+  for (const equipmentWindow of PLAYER_EQUIPMENT_WINDOWS) {
+    const win = createWindow(equipmentWindow.id, equipmentWindow.type, equipmentWindow.title)
+    botState[equipmentWindow.property] = win
+    attachLogger(win, equipmentWindow.id, equipmentWindow.property)
+  }
+
   function ensureWindow (windowId, windowType, title) {
     const id = normalizeWindowId(windowId)
     let win = windows.get(id)
 
     if (!win) {
       const info = windowInfoFor(windowType)
-      win = Window.createWindow(id, info.key, title || (info.fallback ? `Container ${id}` : info.key), info.containerSlots)
-      windows.set(id, win)
+      win = createWindow(id, windowType, title || (info.fallback ? `Container ${id}` : info.key))
       attachLogger(win, id)
     }
 
@@ -380,17 +408,19 @@ function inject (botState, options) {
       return
     }
 
-    if (windows.has(windowId)) {
+    if (PERSISTENT_WINDOW_IDS.has(windowId)) {
+      logAction('[inventory]', 'container_close ignored for persistent window', { windowId })
+    } else if (windows.has(windowId)) {
       logAction('[inventory]', `container_close: id=${windowId}`)
       windows.delete(windowId)
     }
 
     if (activeWindowId === windowId) {
-      setActiveWindow(0)
+      setActiveWindow(INVENTORY_WINDOW_ID)
     }
   })
 
-  attachLogger(inv, 0, 'inv')
+  attachLogger(inv, INVENTORY_WINDOW_ID, 'inv')
 }
 
 module.exports = inject

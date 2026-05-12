@@ -57,7 +57,7 @@ function waitForSpawn (botState, timeoutMs = 30000) {
   })
 }
 
-function waitForEntity (botState, filter, timeoutMs = 15000) {
+function waitForEntity (botState, filter, timeoutMs = 2000) {
   const existing = [...botState.entities.values()].find(filter)
   if (existing) return Promise.resolve(existing)
 
@@ -171,25 +171,25 @@ async function setupTradingWorld (botState) {
 async function closeTradeState (botState, label = 'closeTradeState') {
   if (!botState?.client) return
 
-  try {
-    botState.closeTradeWindow?.()
-  } catch (err) {
-    console.log(`[trading.test] ${label}: closeTradeWindow failed`, err.message)
-  }
+  const tradeWindowId = botState.currentTradeWindow?.window_id
 
-  // Geyser/Bedrock merchant close can involve the generic UI window or -1
-  // depending on where the close is in the pending inventory flow.
-  for (const windowId of ['ui', 124, -1]) {
+  if (typeof botState.closeTradeWindow === 'function') {
+    try {
+      botState.closeTradeWindow()
+    } catch (err) {
+      console.log(`[trading.test] ${label}: closeTradeWindow failed`, err.message)
+    }
+  } else if (tradeWindowId != null) {
     try {
       botState.client.queue('container_close', {
-        window_id: windowId,
+        window_id: tradeWindowId,
         server: false
       })
 
-      console.log(`[trading.test] ${label}: queued container_close`, JSON.stringify({ windowId }, jsonDebugReplacer))
+      console.log(`[trading.test] ${label}: queued container_close`, JSON.stringify({ windowId: tradeWindowId }, jsonDebugReplacer))
     } catch (err) {
       console.log(`[trading.test] ${label}: container_close failed`, JSON.stringify({
-        windowId,
+        windowId: tradeWindowId,
         message: err.message
       }, jsonDebugReplacer))
     }
@@ -611,7 +611,7 @@ function responseStatusTradeAcceptable (response) {
   return responseStatusOk(response) || response?.status === 'error'
 }
 
-async function waitForInventoryPredicate (botState, predicate, label, timeoutMs = 10000) {
+async function waitForInventoryPredicate (botState, predicate, label, timeoutMs = 2000) {
   const start = Date.now()
   let lastSummary = inventorySummary(botState)
 
@@ -629,7 +629,7 @@ async function waitForInventoryPredicate (botState, predicate, label, timeoutMs 
   ].join('\n'))
 }
 
-async function waitForInventoryCounts (botState, expected, timeoutMs = 10000) {
+async function waitForInventoryCounts (botState, expected, timeoutMs = 2000) {
   await waitForInventoryPredicate(
     botState,
     () => {
@@ -678,7 +678,7 @@ async function openDeterministicTradeWindow (botState) {
   const villager = await waitForEntity(botState, isTradeTestVillager)
 
   const tradePacket = await botState.openTrade(villager, {
-    timeoutMs: 15000
+    timeoutMs: 2000
   })
 
   console.log('[trading.test] update_trade summary', JSON.stringify(summarizeTradePacket(tradePacket), jsonDebugReplacer, 2))
@@ -713,9 +713,9 @@ describe('real villager trading', function () {
 
     removeTradePacketDebug = installTradePacketDebug(botState)
 
-    botState.setInventoryActionResponseTimeout?.(10000)
-    botState.setInventoryActionUpdateTimeout?.(10000)
-    botState.setTradeTimeout?.(15000)
+    botState.setInventoryActionResponseTimeout?.(2000)
+    botState.setInventoryActionUpdateTimeout?.(2000)
+    botState.setTradeTimeout?.(2000)
   })
 
   beforeEach(async function () {
@@ -800,7 +800,7 @@ describe('real villager trading', function () {
     }, jsonDebugReplacer, 2))
 
     const response = await botState.executeTrade(breadTrade, 1, {
-      timeoutMs: 10000,
+      timeoutMs: 2000,
       geyserTradeDelayMs: 250
     })
 
@@ -820,7 +820,7 @@ describe('real villager trading', function () {
     await waitForInventoryCounts(botState, {
       emerald: emeraldsBefore - 1,
       bread: breadBefore + 6
-    }, 10000)
+    }, 2000)
 
     const emeraldsAfter = countInventoryItem(botState, 'emerald')
     const breadAfter = countInventoryItem(botState, 'bread')
@@ -880,7 +880,7 @@ describe('real villager trading', function () {
       outputId: 'minecraft:apple',
       outputCount: 1
     }, 1, {
-      timeoutMs: 10000,
+      timeoutMs: 2000,
       geyserTradeDelayMs: 250
     })
 
@@ -900,7 +900,7 @@ describe('real villager trading', function () {
     await waitForInventoryCounts(botState, {
       emerald: emeraldsBefore - 2,
       apple: applesBefore + 1
-    }, 10000)
+    }, 2000)
 
     const emeraldsAfter = countInventoryItem(botState, 'emerald')
     const applesAfter = countInventoryItem(botState, 'apple')

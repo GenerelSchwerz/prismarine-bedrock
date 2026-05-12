@@ -169,13 +169,11 @@ const EXACT_SLOT_MAPPINGS = {
   }
 }
 
-// container-metadata.js
-
 const UI_SLOT_MAPPINGS = {
   trading: {
-    4: 0,   // UI slot 4  -> logical merchant slot 0 / ingredient A
-    5: 1,   // UI slot 5  -> logical merchant slot 1 / ingredient B
-    50: 2   // UI slot 50 -> logical merchant slot 2 / result
+    4: 0,
+    5: 1,
+    50: 2
   }
 }
 
@@ -431,6 +429,7 @@ function containerSlotInfoFor (container, slotIndex) {
 module.exports = {
   WINDOW_TYPE_INFO,
   WINDOW_ID_TO_NUM,
+  UI_SLOT_MAPPINGS,
   normalizeWindowId,
   windowInfoFor,
   containerSlotTypeFor,

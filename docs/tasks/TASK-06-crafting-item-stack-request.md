@@ -33,6 +33,24 @@ The bot should craft vanilla recipes through Bedrock `crafting_data` and `item_s
 - `[ ]` Record server-specific behavior, including rejected response statuses and any Geyser routing differences.
 - `[ ]` Mark complete only after evidence covers static tests, packet round-trips for changed shapes, and at least one live server target.
 
+## Current State
+
+- Worktree state: `src/builtins/crafting.js` and `test/static/crafting.test.js` are currently modified in the local worktree. Treat them as user or prior-agent changes until inspected.
+- Already implemented: this task log documents the known crafting architecture and verification plan, but no code change has been attributed to this task log yet.
+- In progress: crafting implementation and static tests appear dirty in the worktree.
+- Not started: packet round-trip evidence and live server evidence have not been recorded here.
+- Known mismatch between notes and worktree: the task log does not yet explain the current dirty code diff. The next agent must inspect the diff before editing.
+
+## Change Ledger
+
+| File | State | Notes |
+| --- | --- | --- |
+| `src/builtins/crafting.js` | modified-before-log | Current dirty diff exists but has not been summarized in this task log. Inspect before editing. |
+| `test/static/crafting.test.js` | modified-before-log | Current dirty diff exists but has not been summarized in this task log. Inspect before editing. |
+| `test/live/crafting.test.js` | not-currently-dirty | Earlier task scope listed this file; current `git status` did not show it dirty during the resume-workflow doc pass. |
+| `src/builtins/setup.js` | not-currently-dirty | Listed as related architecture; no current dirty diff observed during the resume-workflow doc pass. |
+| `docs/in-dev/crafting-util-implementation-notes.md` | not-currently-dirty | Required reading for crafting changes; no current dirty diff observed during the resume-workflow doc pass. |
+
 ## Parallel Subtasks
 
 | Subtask | Owner | Owned files | Expected output | Status |
@@ -67,9 +85,25 @@ The bot should craft vanilla recipes through Bedrock `crafting_data` and `item_s
 
 First, inspect the current dirty changes in `src/builtins/crafting.js`, `test/static/crafting.test.js`, and `test/live/crafting.test.js` before editing. Then run static crafting tests and record exact results here. If packet shape changes, add a temporary JSON packet under `logs/`, run `node scripts/roundtrip-packet.js .\logs\<file>.json`, and summarize the parsed actions without committing the raw log.
 
+## Resume Notes
+
+- Next step: run `git diff -- src/builtins/crafting.js test/static/crafting.test.js`, summarize the existing changes in `Change Ledger`, then continue with the first unchecked plan item.
+- Do not repeat: do not rewrite the existing crafting changes until their current diff is understood and recorded.
+- Raw logs: none recorded for this task yet.
+
+## Final Summary
+
+Not complete.
+
+## Failure Summary
+
+Not blocked.
+
 ## Completion Checklist
 
 - `[ ]` Task log updated with final evidence.
+- `[ ]` Current State and Change Ledger reflect the worktree.
+- `[ ]` Resume Notes say exactly what to do next, or Final Summary is filled.
 - `[ ]` `pnpm run test:static` or focused equivalent passed.
 - `[ ]` Packet round-trip run for changed craft packet shapes.
 - `[ ]` Focused live crafting test run against at least one target, or deferred with reason.

@@ -78,10 +78,17 @@ describe('crafting builtin', function () {
   })
 
   it('builds recipe-book auto craft requests separately from normal craft requests', function () {
-    const { buildAutoActions, buildNormalActions } = injectCrafting._craftingHelpers
+    const {
+      buildAutoActions,
+      buildGridPlaceActions,
+      buildGridTakeActions,
+      buildNormalActions
+    } = injectCrafting._craftingHelpers
     const { botState, craft } = createCraftFixture()
 
     const auto = buildAutoActions(botState, craft)
+    const gridTake = buildGridTakeActions(botState, craft.placements[0])
+    const gridPlace = buildGridPlaceActions(craft, craft.placements[0], 11)
     const normal = buildNormalActions(botState, craft)
 
     assert.deepStrictEqual(auto.map(action => action.type_id), [
@@ -93,6 +100,15 @@ describe('crafting builtin', function () {
     assert.strictEqual(auto[0].times_crafted_2, 2)
     assert.deepStrictEqual(auto[0].ingredients, craft.ingredients)
 
+    assert.deepStrictEqual(gridTake.map(action => action.type_id), ['take'])
+    assert.strictEqual(gridTake[0].source.slot_type.container_id, 'hotbar')
+    assert.strictEqual(gridTake[0].destination.slot_type.container_id, 'cursor')
+
+    assert.deepStrictEqual(gridPlace.map(action => action.type_id), ['place'])
+    assert.strictEqual(gridPlace[0].source.slot_type.container_id, 'cursor')
+    assert.strictEqual(gridPlace[0].destination.slot_type.container_id, 'crafting_input')
+    assert.strictEqual(gridPlace[0].destination.slot, 28)
+
     assert.deepStrictEqual(normal.map(action => action.type_id), [
       'craft_recipe',
       'results_deprecated',
@@ -101,5 +117,23 @@ describe('crafting builtin', function () {
     ])
     assert.strictEqual(normal[0].times_crafted, 2)
     assert.strictEqual(normal[0].ingredients, undefined)
+    assert.strictEqual(normal[2].source.slot_type.container_id, 'crafting_input')
+    assert.strictEqual(normal[2].source.slot, 28)
+    assert.strictEqual(normal[3].source.slot_type.container_id, 'creative_output')
+    assert.strictEqual(normal[3].source.slot, 50)
+  })
+
+  it('uses native BDS inventory slot identities for normal craft transfers in hash mode', function () {
+    const { buildGridTakeActions, buildNormalActions } = injectCrafting._craftingHelpers
+    const { botState, craft } = createCraftFixture()
+    botState.blockNetworkIdsAreHashes = true
+
+    const gridTake = buildGridTakeActions(botState, craft.placements[0])
+    const normal = buildNormalActions(botState, craft)
+
+    assert.strictEqual(gridTake[0].source.slot_type.container_id, 'inventory')
+    assert.strictEqual(gridTake[0].source.slot, 0)
+    assert.strictEqual(normal[3].destination.slot_type.container_id, 'inventory')
+    assert.strictEqual(normal[3].destination.slot, 1)
   })
 })

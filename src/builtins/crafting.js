@@ -8,6 +8,8 @@ const { inventoryRequestSlotInfo, logAction, requestSlotInfo, sleep } = require(
 
 const CONTAINER = {
   output: 'creative_output',
+  cursor: 'cursor',
+  craftingInput: 'crafting_input',
 }
 
 const ACTION = {
@@ -157,6 +159,38 @@ function nextCraftStackId (botState) {
   let stackId = 0
   while (stackId <= maxInventoryStackId) stackId = botState.itemClass.nextStackId()
   return stackId
+}
+
+function itemStackId (item) {
+  return item?.stackId ?? item?.stack_id ?? 0
+}
+
+function responseSlot (response, containerId, slot) {
+  for (const container of response?.containers || []) {
+    if (container.slot_type?.container_id !== containerId) continue
+    const found = (container.slots || []).find(entry => entry.slot === slot)
+    if (found) return found
+  }
+
+  return null
+}
+
+function responseStackId (response, containerId, slot, fallback = 0) {
+  return responseSlot(response, containerId, slot)?.item_stack_id ?? fallback
+}
+
+function craftingGridProtocolSlot (craft, gridSlot) {
+  return isTableRecipe(craft.entry) ? 32 + gridSlot : 28 + gridSlot
+}
+
+function craftingGridSlotInfo (craft, gridSlot, stackId = 0) {
+  return requestSlotInfo(CONTAINER.craftingInput, craftingGridProtocolSlot(craft, gridSlot), stackId)
+}
+
+function normalPlayerSlotInfo (botState, slot, stackId = 0) {
+  return botState.blockNetworkIdsAreHashes
+    ? requestSlotInfo('inventory', slot, stackId)
+    : inventoryRequestSlotInfo(slot, stackId)
 }
 
 function makeCraftFromEntry (botState, entry, itemId, count) {
@@ -413,11 +447,7 @@ function buildAutoActions (botState, craft) {
 }
 
 function buildNormalActions (botState, craft) {
-  return buildCraftActions(botState, craft, {
-    type_id: ACTION.craftRecipe,
-    recipe_network_id: recipeNetworkId(craft.entry),
-    times_crafted: craft.times,
-  })
+  return buildNormalResultActions(botState, craft)
 }
 
 function buildActions (botState, craft, mode = 'auto') {
@@ -429,6 +459,73 @@ function buildActions (botState, craft, mode = 'auto') {
     default:
       throw new Error(`Unknown crafting mode: ${mode}`)
   }
+}
+
+function buildGridTakeActions (botState, placement) {
+  const item = botState.inventory.slots[placement.slot]
+  if (!item || item.count < placement.count) {
+    throw new Error(`Cannot normal craft: source slot ${placement.slot} no longer has ${placement.count} item(s)`)
+  }
+
+  return [{
+    type_id: ACTION.take,
+    count: placement.count,
+    source: normalPlayerSlotInfo(botState, placement.slot, itemStackId(item)),
+    destination: requestSlotInfo(CONTAINER.cursor, 0, 0),
+  }]
+}
+
+function buildGridPlaceActions (craft, placement, cursorStackId, gridStackId = 0) {
+  return [{
+    type_id: ACTION.place,
+    count: placement.count,
+    source: requestSlotInfo(CONTAINER.cursor, 0, cursorStackId),
+    destination: craftingGridSlotInfo(craft, placement.gridSlot, gridStackId),
+  }]
+}
+
+function buildNormalResultActions (botState, craft, gridStackIds = new Map()) {
+  const actions = [{
+    type_id: ACTION.craftRecipe,
+    recipe_network_id: recipeNetworkId(craft.entry),
+    times_crafted: craft.times,
+  }, {
+    type_id: ACTION.resultsDeprecated,
+    result_items: [craft.baseResult],
+    times_crafted: craft.times,
+  }]
+
+  const consumedGridSlots = new Map()
+  for (const placement of craft.placements) {
+    const key = placement.gridSlot
+    consumedGridSlots.set(key, (consumedGridSlots.get(key) || 0) + placement.count)
+  }
+
+  for (const [gridSlot, count] of consumedGridSlots) {
+    actions.push({
+      type_id: ACTION.consume,
+      count,
+      source: craftingGridSlotInfo(craft, gridSlot, gridStackIds.get(gridSlot) || 0),
+    })
+  }
+
+  const existing = botState.inventory.slots[craft.outSlot]
+  const outputStackId = existing?.type === craft.result.network_id && existing.count > 0
+    ? itemStackId(existing)
+    : nextCraftStackId(botState)
+  const destinationStackId = existing?.type === craft.result.network_id && existing.count > 0
+    ? itemStackId(existing)
+    : 0
+
+  actions.push({
+    type_id: ACTION.take,
+    count: craft.result.count,
+    source: requestSlotInfo(CONTAINER.output, 50, outputStackId),
+    destination: normalPlayerSlotInfo(botState, craft.outSlot, destinationStackId),
+  })
+
+  actions._craftEntry = craft.entry
+  return actions
 }
 
 function actionDebugSummary (actions) {
@@ -581,17 +678,64 @@ async function injectCrafting (botState, options = {}) {
         const craft = resolveCraftStep(botState, step)
         if (!craft) throw unresolvedCraftStepError(botState, step)
         const requiresCraftingTable = isTableRecipe(craft.entry)
-        const useStandaloneRequest = options.craftingStandaloneRequests || requiresCraftingTable
+        const useStandaloneRequest = options.craftingStandaloneRequests || requiresCraftingTable || mode === 'normal'
         if (requiresCraftingTable) openedCraftingContainer = await openCraftingTable(botState, craftingTableBlock)
-        const beforeInventory = inventorySignature(botState)
-        await sendRequest(botState, buildActions(botState, craft, mode), { standalone: useStandaloneRequest })
-        await waitForInventoryChange(botState, beforeInventory)
+
+        if (mode === 'normal') {
+          await executeNormalCraft(craft, useStandaloneRequest)
+        } else {
+          await executeAutoCraft(craft, useStandaloneRequest)
+        }
       }
     } finally {
       openedCraftingContainer?.close?.()
     }
 
     return plan
+  }
+
+  async function executeNormalCraft (craft, useStandaloneRequest) {
+    const gridStackIds = new Map()
+
+    for (const placement of craft.placements) {
+      const takeResponse = await sendRequest(
+        botState,
+        buildGridTakeActions(botState, placement),
+        { standalone: useStandaloneRequest }
+      )
+      const cursorStackId = responseStackId(takeResponse, CONTAINER.cursor, 0)
+      if (!cursorStackId) {
+        throw new Error(`Normal craft did not receive a cursor stack id after taking from slot ${placement.slot}`)
+      }
+
+      await sleep(50)
+
+      const gridProtocolSlot = craftingGridProtocolSlot(craft, placement.gridSlot)
+      const placeResponse = await sendRequest(
+        botState,
+        buildGridPlaceActions(craft, placement, cursorStackId, gridStackIds.get(placement.gridSlot) || 0),
+        { standalone: useStandaloneRequest }
+      )
+      const gridStackId = responseStackId(
+        placeResponse,
+        CONTAINER.craftingInput,
+        gridProtocolSlot,
+        gridStackIds.get(placement.gridSlot) || cursorStackId
+      )
+      gridStackIds.set(placement.gridSlot, gridStackId)
+
+      await sleep(50)
+    }
+
+    const beforeInventory = inventorySignature(botState)
+    await sendRequest(botState, buildNormalResultActions(botState, craft, gridStackIds), { standalone: useStandaloneRequest })
+    await waitForInventoryChange(botState, beforeInventory)
+  }
+
+  async function executeAutoCraft (craft, useStandaloneRequest) {
+    const beforeInventory = inventorySignature(botState)
+    await sendRequest(botState, buildAutoActions(botState, craft), { standalone: useStandaloneRequest })
+    await waitForInventoryChange(botState, beforeInventory)
   }
 
   botState.craftPlanAuto = (plan, craftingTableBlock) => craftPlanWithMode(plan, craftingTableBlock, 'auto')
@@ -623,5 +767,8 @@ module.exports._craftingHelpers = {
   ingredientMetadataMatchesItem,
   buildAutoActions,
   buildNormalActions,
+  buildGridTakeActions,
+  buildGridPlaceActions,
+  buildNormalResultActions,
   buildActions,
 }

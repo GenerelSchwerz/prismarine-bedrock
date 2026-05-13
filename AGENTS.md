@@ -6,10 +6,11 @@ This repo is optimized for long-running AI work where several agents may split a
 
 1. Read this file.
 2. Run `git status --short` and treat existing changes as user or peer-agent work. Do not revert them unless explicitly asked.
-3. Create or update a task log under `docs/tasks/` before making substantial code changes. Use `docs/tasks/TEMPLATE.md`.
-4. Identify owned files for the current task. If multiple agents are working, each agent must keep to disjoint write scopes or explicitly coordinate before touching shared files.
-5. Read the subsystem guide for the files you will edit.
-6. Keep runtime/debug artifacts in `logs/` or `scripts/tmp/`; both are gitignored. Commit only the distilled evidence in `docs/tasks/`.
+3. Look for an existing task log under `docs/tasks/` that matches the work. Read its `Current State`, `Change Ledger`, `Resume Notes`, and `Final Summary` or `Failure Summary` before editing.
+4. Create or update a task log under `docs/tasks/` before making substantial code changes. Use `docs/tasks/TEMPLATE.md`.
+5. Identify owned files for the current task. If multiple agents are working, each agent must keep to disjoint write scopes or explicitly coordinate before touching shared files.
+6. Read the subsystem guide for the files you will edit.
+7. Keep runtime/debug artifacts in `logs/` or `scripts/tmp/`; both are gitignored. Commit only the distilled evidence in `docs/tasks/`.
 
 ## Task Logs
 
@@ -26,18 +27,41 @@ Use a stable task number when one already exists. Otherwise choose the next avai
 - Goal, scope, and non-goals.
 - Files owned by the task.
 - Current plan and parallel subtasks.
+- Current state: what has already changed, what is in progress, and the next exact resume step.
+- Change ledger: file-by-file notes for edits already made or intentionally skipped.
 - Evidence: exact commands, server target, dates, and pass/fail result.
 - Architecture notes and known quirks discovered while working.
 - Handoff notes for the next agent.
+- Final summary or failure summary when the task stops.
 
 Update the log at these points:
 
 - When the plan changes.
+- After editing files, before starting unrelated investigation.
 - Before handing off to another agent.
 - After any packet round-trip, static test, live test, or server run.
 - When marking the task complete or blocked.
 
 Do not paste huge packet dumps into task logs. Put raw output in `logs/` and summarize the relevant packet names, request IDs, response statuses, and file path.
+
+## Resume And Stop Rules
+
+An interrupted task should be restartable from the task log without repeating prior work.
+
+Before editing an active task:
+
+- Read the task log's `Current State`, `Change Ledger`, `Evidence Log`, and `Resume Notes`.
+- Compare those notes with `git status --short` and the current diff for owned files.
+- If the same change already exists in the worktree, continue from verification or the next unchecked plan item instead of reapplying it.
+- If task notes and the worktree disagree, record the discrepancy in `Resume Notes` before changing code.
+
+Before stopping, even on failure:
+
+- Update `Current State` with the exact state of the worktree and the next command or file to inspect.
+- Update `Change Ledger` with every file touched and the intent of each change.
+- Add evidence for commands already run, including failed commands.
+- Fill either `Final Summary` for completed work or `Failure Summary` for blocked/abandoned work.
+- Leave raw logs in `logs/` and link or name them from the task log.
 
 ## Parallel Agent Rules
 

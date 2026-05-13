@@ -14,7 +14,14 @@
 // slot sync through UIInventoryUpdater, so inventory.js keeps it as uiSlots and
 // projects known UI slots into the active logical window using container metadata.
 
-const { cloneItem, logAction, rawStackId, sameRuntimeId, selfRuntimeEntityId } = require('../utils')
+const {
+  cloneItem,
+  itemStackResponseStatusOk,
+  logAction,
+  rawStackId,
+  sameRuntimeId,
+  selfRuntimeEntityId
+} = require('../utils')
 const {
   normalizeWindowId,
   windowInfoFor,
@@ -278,10 +285,6 @@ function inject (botState, options) {
     botState.emit('inventory_response_applied', response, [...serverSlots.keys()])
   }
 
-  function itemStackResponseOk (response) {
-    return response?.status === 0 || response?.status === 'ok' || response?.status === 'success'
-  }
-
   Object.defineProperty(botState, 'heldItem', {
     get () {
       const slot = botState.heldItemSlot
@@ -320,7 +323,7 @@ function inject (botState, options) {
 
   botState.client.on('item_stack_response', (packet) => {
     for (const response of packet.responses || []) {
-      if (itemStackResponseOk(response)) applyItemStackResponseToInventory(response)
+      if (itemStackResponseStatusOk(response)) applyItemStackResponseToInventory(response)
     }
   })
 

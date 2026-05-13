@@ -21,8 +21,11 @@
  */
 
 const {
+  entityRuntimeId,
   itemToRaw,
   logAction,
+  selfRuntimeEntityId,
+  sleep,
   toPlainId,
   toVec3f
 } = require('../utils')
@@ -30,16 +33,8 @@ const {
 module.exports = function entityInteractPlugin (botState) {
   const client = botState.client
 
-  function sleep (ms) {
-    return new Promise(resolve => setTimeout(resolve, ms))
-  }
-
-  function runtimeIdOf (entity) {
-    return entity?.runtimeId ?? entity?.runtime_id ?? entity?.runtimeEntityId
-  }
-
   function assertEntityRuntimeId (entity) {
-    const runtimeId = runtimeIdOf(entity)
+    const runtimeId = entityRuntimeId(entity)
     if (runtimeId == null) {
       throw new Error('Entity interaction requires an entity with runtimeId')
     }
@@ -134,7 +129,7 @@ module.exports = function entityInteractPlugin (botState) {
   }
 
   function queueSwingArm (opts = {}) {
-    const runtimeId = botState.self?.runtimeId
+    const runtimeId = selfRuntimeEntityId(botState)
     if (runtimeId == null) {
       throw new Error('Cannot swing arm before self runtimeId is known')
     }

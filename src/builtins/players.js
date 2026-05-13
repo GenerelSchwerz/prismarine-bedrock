@@ -45,17 +45,8 @@ module.exports = (botState, options) => {
     entity.onGround = packet.on_ground;
   });
 
-  // ========== Data Updates ==========
-  botState.client.on('set_entity_data', (packet) => {
-    const entity = botState.players.get(packet.runtime_entity_id);
-    if (!entity) return;
-    applyEntityMetadata(entity, packet.metadata);
-  });
-
   // Health (mirrors mineflayer's health.js pattern)
   botState.client.on('set_health', (packet) => {
-    const selfEntity = Array.from(botState.players.values()).find(e => e.id === botState.client.entityId);
-    if (selfEntity) applyHealth(selfEntity, packet);
     if (botState.self) applyHealth(botState.self, packet);
     logAction('[→]', 'set_health', { health: packet.health });
     botState.emit('health');

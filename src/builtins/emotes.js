@@ -1,25 +1,19 @@
 // builtins/emotes.js
 
-const { logAction } = require('../utils')
+const {
+  findEntityByRuntimeId,
+  logAction,
+  selfRuntimeEntityId,
+  toRuntimeId
+} = require('../utils')
 
 const DEFAULT_EMOTE_LENGTH_TICKS = 0
-
-function toRuntimeId (value) {
-  if (value === undefined || value === null) return null
-  return typeof value === 'bigint' ? value : BigInt(value)
-}
 
 function asEmoteId (emoteId) {
   if (typeof emoteId !== 'string' || emoteId.trim() === '') {
     throw new TypeError('emoteId must be a non-empty string')
   }
   return emoteId.trim()
-}
-
-function findEntity (botState, runtimeId) {
-  const key = toRuntimeId(runtimeId)
-  if (key === null) return null
-  return botState.players?.get(key) || botState.entities?.get(key) || null
 }
 
 function normalizeFlags (flags) {
@@ -38,10 +32,6 @@ function normalizeFlags (flags) {
   return value
 }
 
-function getSelfRuntimeId (botState) {
-  return toRuntimeId(botState.self?.runtimeId ?? botState.client?.entityId)
-}
-
 module.exports = function emotesPlugin (botState, options = {}) {
   const client = botState.client
 
@@ -51,7 +41,7 @@ module.exports = function emotesPlugin (botState, options = {}) {
   }
 
   function sendEmoteList (emoteIds = botState.emotes.equipped) {
-    const playerId = getSelfRuntimeId(botState)
+    const playerId = toRuntimeId(selfRuntimeEntityId(botState))
     if (playerId === null) {
       throw new Error('Cannot send emote_list before local runtime entity id is known')
     }
@@ -80,7 +70,7 @@ module.exports = function emotesPlugin (botState, options = {}) {
   }
 
   function playEmote (emoteId, emoteOptions = {}) {
-    const entityId = toRuntimeId(emoteOptions.entityId ?? emoteOptions.entity_id ?? getSelfRuntimeId(botState))
+    const entityId = toRuntimeId(emoteOptions.entityId ?? emoteOptions.entity_id ?? selfRuntimeEntityId(botState))
     if (entityId === null) {
       throw new Error('Cannot send emote before local runtime entity id is known')
     }
@@ -111,7 +101,7 @@ module.exports = function emotesPlugin (botState, options = {}) {
 
   client.on('emote', (packet) => {
     const runtimeId = toRuntimeId(packet.entity_id)
-    const entity = findEntity(botState, runtimeId)
+    const entity = findEntityByRuntimeId(botState, runtimeId)
     const emote = {
       entity,
       entityId: runtimeId,
@@ -142,7 +132,7 @@ module.exports = function emotesPlugin (botState, options = {}) {
 
   client.on('emote_list', (packet) => {
     const runtimeId = toRuntimeId(packet.player_id)
-    const entity = findEntity(botState, runtimeId)
+    const entity = findEntityByRuntimeId(botState, runtimeId)
     const emotePieces = [...(packet.emote_pieces || [])]
 
     if (entity) entity.emotePieces = emotePieces

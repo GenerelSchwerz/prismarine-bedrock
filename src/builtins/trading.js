@@ -21,6 +21,8 @@
  */
 
 const {
+  entityIds,
+  entityRuntimeId,
   itemCount,
   itemId,
   itemStackId,
@@ -28,7 +30,10 @@ const {
   nbtValue,
   normalizeItemId,
   playerInventorySlotInfo,
-  sameRuntimeId
+  requestSlotInfo,
+  sameRuntimeId,
+  sleep,
+  itemStackResponseStatusOk
 } = require('../utils')
 const { normalizeWindowId, containerSlotInfoFor } = require('../container-metadata')
 
@@ -37,24 +42,6 @@ module.exports = function tradingPlugin (botState, options = {}) {
 
   let tradeTimeoutMs = options.tradeTimeoutMs ?? 10000
   let lastTradeWindow = null
-
-  const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
-
-  function runtimeIdOf (entity) {
-    return entity?.runtimeId ?? entity?.runtime_id ?? entity?.runtimeEntityId
-  }
-
-  function entityIds (entity) {
-    return [
-      entity?.runtimeId,
-      entity?.runtime_id,
-      entity?.runtimeEntityId,
-      entity?.id,
-      entity?.entityId,
-      entity?.uniqueId,
-      entity?.unique_id
-    ].filter(v => v != null)
-  }
 
   function packetEntityIds (packet) {
     return [
@@ -133,7 +120,7 @@ module.exports = function tradingPlugin (botState, options = {}) {
   }
 
   async function openTrade (entity, opts = {}) {
-    const runtimeId = runtimeIdOf(entity)
+    const runtimeId = entityRuntimeId(entity)
     if (runtimeId == null) throw new Error('Cannot open trade: target entity has no runtimeId')
 
     const tradeWindowPromise = waitForTradeWindow({
@@ -326,26 +313,15 @@ module.exports = function tradingPlugin (botState, options = {}) {
     return null
   }
 
-  function requestSlot (containerId, slot, stackId = 0, dynamicContainerId = 0) {
-    return {
-      slot_type: {
-        container_id: containerId,
-        dynamic_container_id: dynamicContainerId
-      },
-      slot,
-      stack_id: stackId || 0
-    }
-  }
-
   function tradeSlotInfo (logicalSlot, stackId = 0) {
     const info = containerSlotInfoFor({ type: 'trading' }, logicalSlot)
     if (!info) throw new RangeError(`Unsupported trading slot: ${logicalSlot}`)
-    return requestSlot(info.containerId, info.protocolSlot, stackId)
+    return requestSlotInfo(info.containerId, info.protocolSlot, stackId)
   }
 
   function tradeIngredientSlotInfo (index, opts = {}) {
     if (index === 0 && opts.ingredientAContainerId) {
-      return requestSlot(
+      return requestSlotInfo(
         opts.ingredientAContainerId,
         opts.ingredientASlot ?? 4,
         opts.ingredientAStackId ?? 0,
@@ -354,7 +330,7 @@ module.exports = function tradingPlugin (botState, options = {}) {
     }
 
     if (index === 1 && opts.ingredientBContainerId) {
-      return requestSlot(
+      return requestSlotInfo(
         opts.ingredientBContainerId,
         opts.ingredientBSlot ?? 5,
         opts.ingredientBStackId ?? 0,
@@ -367,7 +343,7 @@ module.exports = function tradingPlugin (botState, options = {}) {
 
   function tradeResultSlotInfo (recipe, opts = {}) {
     if (opts.resultContainerId) {
-      return requestSlot(
+      return requestSlotInfo(
         opts.resultContainerId,
         opts.resultSlot ?? 50,
         opts.resultStackId ?? itemStackId(recipeOutput(recipe)),
@@ -375,7 +351,7 @@ module.exports = function tradingPlugin (botState, options = {}) {
       )
     }
 
-    return requestSlot(
+    return requestSlotInfo(
       'created_output',
       50,
       opts.resultStackId ?? 0
@@ -545,10 +521,6 @@ module.exports = function tradingPlugin (botState, options = {}) {
     )
   }
 
-  function makeRequest (actions) {
-    return botState.inventoryActionHelpers.makeRequest(actions)
-  }
-
   function buildTradeRequest (recipe, count = 1, opts = {}) {
     const output = recipeOutput(recipe)
     const destinationSlot = destinationSlotForOutput(output, opts)
@@ -563,7 +535,7 @@ module.exports = function tradingPlugin (botState, options = {}) {
     ]
 
     return {
-      request: makeRequest(actions),
+      request: botState.inventoryActionHelpers.makeRequest(actions),
       destinationSlot,
       actions
     }
@@ -580,7 +552,7 @@ module.exports = function tradingPlugin (botState, options = {}) {
     ]
 
     return {
-      request: makeRequest(actions),
+      request: botState.inventoryActionHelpers.makeRequest(actions),
       destinationSlot,
       actions
     }
@@ -590,7 +562,7 @@ module.exports = function tradingPlugin (botState, options = {}) {
     const actions = ingredientActions(recipe, count, opts)
 
     return {
-      request: makeRequest(actions),
+      request: botState.inventoryActionHelpers.makeRequest(actions),
       actions
     }
   }
@@ -601,7 +573,7 @@ module.exports = function tradingPlugin (botState, options = {}) {
     ]
 
     return {
-      request: makeRequest(actions),
+      request: botState.inventoryActionHelpers.makeRequest(actions),
       destinationSlot,
       actions
     }
@@ -613,7 +585,7 @@ module.exports = function tradingPlugin (botState, options = {}) {
     ]
 
     return {
-      request: makeRequest(actions),
+      request: botState.inventoryActionHelpers.makeRequest(actions),
       actions
     }
   }
@@ -684,10 +656,6 @@ module.exports = function tradingPlugin (botState, options = {}) {
     return responses
   }
 
-  async function containerTakeTradeResult (tradeContainer, destinationSlot, count) {
-    return tradeContainer.takeResult(destinationSlot, count)
-  }
-
   async function restoreExcessTradeInputs (recipe, count, sourceSlots, opts = {}) {
     const actions = []
 
@@ -705,14 +673,14 @@ module.exports = function tradingPlugin (botState, options = {}) {
 
       actions.push(takeAction(
         countToRestore,
-        requestSlot(containerId, uiSlot, itemStackId(tradeItem) || 1),
+        requestSlotInfo(containerId, uiSlot, itemStackId(tradeItem) || 1),
         playerInventorySlotInfo(sourceSlot, botState.inventory?.slots?.[sourceSlot] ?? null)
       ))
     }
 
     if (actions.length === 0) return null
 
-    const request = makeRequest(actions)
+    const request = botState.inventoryActionHelpers.makeRequest(actions)
 
     logAction('[trading]', 'execute_trade restore inputs request full', {
       request_id: request.request_id,
@@ -760,12 +728,6 @@ module.exports = function tradingPlugin (botState, options = {}) {
     throw new TypeError('executeTrade expects a recipe object, recipe index, or expected trade object')
   }
 
-  function responseStatusOk (response) {
-    return botState.inventoryActionHelpers?.responseStatusOk
-      ? botState.inventoryActionHelpers.responseStatusOk(response)
-      : response?.status === 'ok' || response?.status === 'success'
-  }
-
   async function executeTrade (tradeOrIndex, count = 1, opts = {}) {
     const tradeCount = Number(count)
     if (!Number.isInteger(tradeCount) || tradeCount <= 0) {
@@ -798,7 +760,7 @@ module.exports = function tradingPlugin (botState, options = {}) {
 
     const response = await responsePromise
 
-    if (!responseStatusOk(response)) {
+    if (!itemStackResponseStatusOk(response)) {
       logAction('[trading]', 'execute_trade response rejected; waiting for Geyser delayed merchant replay', {
         request_id: request.request_id,
         status: response.status,
@@ -843,8 +805,8 @@ module.exports = function tradingPlugin (botState, options = {}) {
             })()
 
         const ingredientFallbackOk = Array.isArray(ingredientFallbackResponse)
-          ? ingredientFallbackResponse.every(responseStatusOk)
-          : responseStatusOk(ingredientFallbackResponse)
+          ? ingredientFallbackResponse.every(itemStackResponseStatusOk)
+          : itemStackResponseStatusOk(ingredientFallbackResponse)
 
         if (ingredientFallbackOk) {
           const selectionFallback = buildTradeSelectionRequest(recipe, tradeCount, opts)
@@ -876,7 +838,7 @@ module.exports = function tradingPlugin (botState, options = {}) {
           })
 
           const resultFallbackResponse = tradeContainer
-            ? await containerTakeTradeResult(tradeContainer, destinationSlot, itemCount(recipeOutput(recipe)) * tradeCount)
+            ? await tradeContainer.takeResult(destinationSlot, itemCount(recipeOutput(recipe)) * tradeCount)
             : await (async () => {
                 logAction('[trading]', 'execute_trade result fallback request full', {
                   request_id: resultFallback.request.request_id,
@@ -898,7 +860,7 @@ module.exports = function tradingPlugin (botState, options = {}) {
                 return response
               })()
 
-          if (responseStatusOk(resultFallbackResponse)) {
+          if (itemStackResponseStatusOk(resultFallbackResponse)) {
             await sleep(opts.restoreTradeInputsDelayMs ?? 150)
             await restoreExcessTradeInputs(recipe, tradeCount, sourceSlots, opts)
           }

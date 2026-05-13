@@ -1,5 +1,6 @@
 const { Vec3 } = require('vec3');
 const { performance } = require('perf_hooks');
+const { sameRuntimeId, sleep } = require('../../utils');
 const { getConstants } = require('../physics-constants');
 const { createBedrockWorldAdapter } = require('./bedrock-world-adapter');
 const { installBedrockMovementStateHandlers } = require('./nxg-physics-utils-adapter');
@@ -47,10 +48,6 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
 
     if (movementMode !== 'client') movementPackets.sendPlayerAuthInput(tickMs / 1000);
     else movementPackets.sendMovePlayer(0, tickMs / 1000);
-  }
-
-  function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   function yieldImmediate() {
@@ -212,8 +209,7 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
   });
 
   client.on('move_player', (pkt) => {
-    const rid = typeof pkt.runtime_id === 'bigint' ? pkt.runtime_id : BigInt(pkt.runtime_id);
-    if (!botState.self || rid !== client.entityId) return;
+    if (!botState.self || !sameRuntimeId(pkt.runtime_id, client.entityId)) return;
 
     botState.self.position.set(
       pkt.position.x,
@@ -278,7 +274,7 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
   });
 
   client.on('set_entity_motion', (pkt) => {
-    if (botState.self && pkt.runtime_entity_id === client.entityId) {
+    if (botState.self && sameRuntimeId(pkt.runtime_entity_id, client.entityId)) {
       botState.self.velocity.set(pkt.velocity.x, pkt.velocity.y, pkt.velocity.z);
     }
   });

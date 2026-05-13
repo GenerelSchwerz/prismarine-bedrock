@@ -21,6 +21,10 @@ function logAction (dir, packetName, detail = '') {
   console.log(`[${ts}] [#${++seq}] ${dir} ${packetName}${renderedDetail}`)
 }
 
+function sleep (ms) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
 function sameRuntimeId (a, b) {
   if (a == null || b == null) return false
   try {
@@ -33,6 +37,33 @@ function sameRuntimeId (a, b) {
 function toPlainId (value) {
   if (typeof value === 'bigint') return value.toString()
   return value
+}
+
+function toRuntimeId (value) {
+  if (value === undefined || value === null) return null
+  return typeof value === 'bigint' ? value : BigInt(value)
+}
+
+function entityRuntimeId (entity) {
+  return entity?.runtimeId ?? entity?.runtime_id ?? entity?.runtimeEntityId
+}
+
+function entityIds (entity) {
+  return [
+    entity?.runtimeId,
+    entity?.runtime_id,
+    entity?.runtimeEntityId,
+    entity?.id,
+    entity?.entityId,
+    entity?.uniqueId,
+    entity?.unique_id
+  ].filter(v => v != null)
+}
+
+function findEntityByRuntimeId (botState, runtimeId) {
+  const key = toRuntimeId(runtimeId)
+  if (key === null) return null
+  return botState.players?.get(key) || botState.entities?.get(key) || null
 }
 
 function toVec3f (pos) {
@@ -98,6 +129,18 @@ function rawStackId (raw) {
 
 function itemStackId (item) {
   return item ? item.stackId ?? item.stack_id ?? 0 : 0
+}
+
+function itemStackResponseStatusOk (response) {
+  return response?.status === 0 || response?.status === 'ok' || response?.status === 'success'
+}
+
+function sameItem (a, b) {
+  return a && b && a.name === b.name && a.metadata === b.metadata
+}
+
+function maxStackSize (item) {
+  return item?.stackSize || item?.maxStackSize || 64
 }
 
 function nbtValue (value) {
@@ -169,19 +212,19 @@ function toBedrockItem (item) {
 }
 
 function selfRuntimeEntityId (botState) {
-  return botState.self?.runtimeId ?? botState.client?.entityId
+  return botState.client?.entityId
 }
 
-function fullContainerName (containerId = 'inventory') {
+function fullContainerName (containerId = 'inventory', dynamicContainerId = 0) {
   return {
     container_id: containerId,
-    dynamic_container_id: 0
+    dynamic_container_id: dynamicContainerId
   }
 }
 
-function requestSlotInfo (containerId, slot, stackId = 0) {
+function requestSlotInfo (containerId, slot, stackId = 0, dynamicContainerId = 0) {
   return {
-    slot_type: fullContainerName(containerId),
+    slot_type: fullContainerName(containerId, dynamicContainerId),
     slot,
     stack_id: stackId || 0
   }
@@ -253,8 +296,13 @@ function deltaDeg (y1, y2) {
 
 module.exports = {
   logAction,
+  sleep,
   sameRuntimeId,
   toPlainId,
+  toRuntimeId,
+  entityRuntimeId,
+  entityIds,
+  findEntityByRuntimeId,
   jsonSafeReplacer,
   toVec3f,
   toVec3i,
@@ -266,6 +314,9 @@ module.exports = {
   clickPositionForFace,
   rawStackId,
   itemStackId,
+  itemStackResponseStatusOk,
+  sameItem,
+  maxStackSize,
   nbtValue,
   normalizeItemId,
   itemId,

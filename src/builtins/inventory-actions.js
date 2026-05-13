@@ -26,9 +26,12 @@
 
 const {
   cloneItem,
+  itemStackResponseStatusOk,
   itemToRaw,
   logAction,
+  maxStackSize,
   selfRuntimeEntityId,
+  sameItem,
   stackRequestSlotInfo
 } = require('../utils')
 
@@ -64,26 +67,6 @@ module.exports = function inventoryActionsPlugin (botState, options = {}) {
 
   function isHotbarSlot (slot) {
     return slot >= 0 && slot <= 8
-  }
-
-  function stackSlot (slot) {
-    return stackRequestSlotInfo(slot, itemAt(slot))
-  }
-
-  function stackSlotWithItem (slot, item) {
-    return stackRequestSlotInfo(slot, item)
-  }
-
-  function countOf (slot) {
-    return itemAt(slot).count
-  }
-
-  function sameItem (a, b) {
-    return a && b && a.name === b.name && a.metadata === b.metadata
-  }
-
-  function maxStackSize (item) {
-    return item.stackSize || item.maxStackSize || 64
   }
 
   function setStackId (item, id) {
@@ -190,10 +173,6 @@ module.exports = function inventoryActionsPlugin (botState, options = {}) {
         raw: true
       })
     })
-  }
-
-  function responseStatusOk (response) {
-    return response.status === 'ok' || response.status === 'success'
   }
 
   function parseItemStackResponsePacket (packet) {
@@ -327,7 +306,7 @@ module.exports = function inventoryActionsPlugin (botState, options = {}) {
       // still rejects on non-ok responses.
       if (waiter.raw) {
         waiter.resolve(response)
-      } else if (responseStatusOk(response)) {
+      } else if (itemStackResponseStatusOk(response)) {
         waiter.resolve(response)
       } else {
         waiter.reject(new Error(`item_stack_response rejected request ${id}: ${response.status}`))
@@ -430,8 +409,8 @@ module.exports = function inventoryActionsPlugin (botState, options = {}) {
   }
 
   async function swapInventorySlots (slotA, slotB) {
-    const source = stackSlot(slotA)
-    const destination = stackSlot(slotB)
+    const source = stackRequestSlotInfo(slotA, itemAt(slotA))
+    const destination = stackRequestSlotInfo(slotB, itemAt(slotB))
 
     const request = makeRequest([
       swapAction(source, destination)
@@ -460,11 +439,11 @@ module.exports = function inventoryActionsPlugin (botState, options = {}) {
   }
 
   async function moveInventorySlot (fromSlot, toSlot) {
-    const source = stackSlot(fromSlot)
-    const destination = stackSlot(toSlot)
+    const source = stackRequestSlotInfo(fromSlot, itemAt(fromSlot))
+    const destination = stackRequestSlotInfo(toSlot, itemAt(toSlot))
 
     const request = makeRequest([
-      takeAction(countOf(fromSlot), source, destination)
+      takeAction(itemAt(fromSlot).count, source, destination)
     ])
 
     return transactInventory(request, [fromSlot, toSlot])
@@ -476,7 +455,7 @@ module.exports = function inventoryActionsPlugin (botState, options = {}) {
     const count = Math.min(from.count, maxStackSize(to) - to.count)
 
     const request = makeRequest([
-      takeAction(count, stackSlotWithItem(fromSlot, from), stackSlotWithItem(toSlot, to))
+      takeAction(count, stackRequestSlotInfo(fromSlot, from), stackRequestSlotInfo(toSlot, to))
     ])
 
     return transactInventory(request, [fromSlot, toSlot])
@@ -486,8 +465,8 @@ module.exports = function inventoryActionsPlugin (botState, options = {}) {
     const from = itemAt(fromSlot)
     const to = itemAt(toSlot)
 
-    const source = stackSlotWithItem(fromSlot, from)
-    const destination = stackSlotWithItem(toSlot, to)
+    const source = stackRequestSlotInfo(fromSlot, from)
+    const destination = stackRequestSlotInfo(toSlot, to)
 
     const request = makeRequest([
       takeAction(1, source, destination)
@@ -497,10 +476,10 @@ module.exports = function inventoryActionsPlugin (botState, options = {}) {
   }
 
   async function splitInventorySlot (fromSlot, toSlot) {
-    const count = Math.ceil(countOf(fromSlot) / 2)
+    const count = Math.ceil(itemAt(fromSlot).count / 2)
 
     const request = makeRequest([
-      takeAction(count, stackSlot(fromSlot), stackSlot(toSlot))
+      takeAction(count, stackRequestSlotInfo(fromSlot, itemAt(fromSlot)), stackRequestSlotInfo(toSlot, itemAt(toSlot)))
     ])
 
     return transactInventory(request, [fromSlot, toSlot])
@@ -508,7 +487,7 @@ module.exports = function inventoryActionsPlugin (botState, options = {}) {
 
   async function dropInventorySlot (slot, randomly = false) {
     const request = makeRequest([
-      dropAction(countOf(slot), stackSlot(slot), randomly)
+      dropAction(itemAt(slot).count, stackRequestSlotInfo(slot, itemAt(slot)), randomly)
     ])
 
     return transactInventory(request, [slot])
@@ -516,7 +495,7 @@ module.exports = function inventoryActionsPlugin (botState, options = {}) {
 
   async function dropOneInventoryItem (slot, randomly = false) {
     const request = makeRequest([
-      dropAction(1, stackSlot(slot), randomly)
+      dropAction(1, stackRequestSlotInfo(slot, itemAt(slot)), randomly)
     ])
 
     return transactInventory(request, [slot])
@@ -524,7 +503,7 @@ module.exports = function inventoryActionsPlugin (botState, options = {}) {
 
   async function destroyInventorySlot (slot) {
     const request = makeRequest([
-      dropAction(countOf(slot), stackSlot(slot), false)
+      dropAction(itemAt(slot).count, stackRequestSlotInfo(slot, itemAt(slot)), false)
     ])
 
     return transactInventory(request, [slot])
@@ -532,7 +511,7 @@ module.exports = function inventoryActionsPlugin (botState, options = {}) {
 
   async function destroyOneInventoryItem (slot) {
     const request = makeRequest([
-      dropAction(1, stackSlot(slot), false)
+      dropAction(1, stackRequestSlotInfo(slot, itemAt(slot)), false)
     ])
 
     return transactInventory(request, [slot])
@@ -588,7 +567,7 @@ module.exports = function inventoryActionsPlugin (botState, options = {}) {
     setStackId,
     maxStackSize,
     sameItem,
-    responseStatusOk,
+    responseStatusOk: itemStackResponseStatusOk,
     parseItemStackResponsePacket
   }
 

@@ -1,4 +1,4 @@
-const { logAction } = require('../utils');
+const { logAction, sameRuntimeId } = require('../utils');
 const { Vec3 } = require('vec3');
 const buildIndexFromArray = require('prismarine-registry/lib/indexer');
 
@@ -129,7 +129,7 @@ module.exports = (botState, options) => {
   });
 
   client.on('update_attributes', (packet) => {
-    if (String(packet.runtime_entity_id) !== String(client.entityId)) return;
+    if (!sameRuntimeId(packet.runtime_entity_id, client.entityId)) return;
 
     for (const attr of packet.attributes || []) {
       if (attr.name === 'minecraft:player.experience') {

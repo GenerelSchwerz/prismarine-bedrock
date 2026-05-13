@@ -10,7 +10,7 @@ function createBotState () {
 
   return {
     client,
-    self: { runtimeId: 7n, type: 'player' },
+    self: { runtimeId: 99n, type: 'player' },
     players: new Map(),
     entities: new Map(),
     emit: EventEmitter.prototype.emit,

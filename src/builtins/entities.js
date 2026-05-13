@@ -1,5 +1,5 @@
 const Vec3 = require('vec3');
-const { logAction } = require('../utils');
+const { findEntityByRuntimeId, logAction, sameRuntimeId } = require('../utils');
 const {
   applyAbilities,
   applyAdventureSettings,
@@ -31,13 +31,6 @@ module.exports = (botState, options) => {
 
   function lookupEntityData (entityTypeStr) {
     return entityDataByName[entityTypeStr] || entityDataByName[entityTypeStr.replace('minecraft:', '')] || null;
-  }
-
-  // Helper: find entity by runtimeId (always BigInt) across entities/players
-  function findEntity (runtimeId) {
-    // runtimeId must be a BigInt; compatibility safeguard
-    const key = typeof runtimeId === 'bigint' ? runtimeId : BigInt(runtimeId);
-    return botState.entities.get(key) || botState.players.get(key);
   }
 
   // ========== Self entity (from start_game) ==========
@@ -168,10 +161,10 @@ module.exports = (botState, options) => {
 
   // ========== Item pickup ==========
   botState.client.on('take_item_entity', (packet) => {
-    const entity = findEntity(packet.runtime_entity_id);
+    const entity = findEntityByRuntimeId(botState, packet.runtime_entity_id);
     if (!entity) return;
     logAction('[→]', 'take_item_entity', { id: packet.runtime_entity_id, collector: packet.target });
-    const isSelf = packet.target === botState.client.entityId;
+    const isSelf = sameRuntimeId(packet.target, botState.client.entityId);
     botState.emit('itemPickup', {
       itemEntity: entity,
       itemEntityId: packet.runtime_entity_id,
@@ -184,7 +177,7 @@ module.exports = (botState, options) => {
 
   // MoveActorAbsolute – for non‑player and player entities
   botState.client.on('move_entity', (packet) => {
-    const entity = findEntity(packet.runtime_entity_id);
+    const entity = findEntityByRuntimeId(botState, packet.runtime_entity_id);
     if (!entity) return;
     entity.position.set(packet.position.x, packet.position.y, packet.position.z);
     if (packet.rotation) {
@@ -198,7 +191,7 @@ module.exports = (botState, options) => {
   // MovePlayer – runtime_id is varint (number), must convert to BigInt
   botState.client.on('move_player', (packet) => {
     const runtimeId = typeof packet.runtime_id === 'bigint' ? packet.runtime_id : BigInt(packet.runtime_id);
-    const entity = findEntity(runtimeId);
+    const entity = findEntityByRuntimeId(botState, runtimeId);
     if (!entity) return;
     entity.position.set(packet.position.x, packet.position.y, packet.position.z);
     entity.pitch = packet.pitch;
@@ -209,7 +202,7 @@ module.exports = (botState, options) => {
 
   // MoveActorDelta – efficient delta update
   botState.client.on('move_entity_delta', (packet) => {
-    const entity = findEntity(packet.runtime_entity_id);
+    const entity = findEntityByRuntimeId(botState, packet.runtime_entity_id);
     if (!entity) return;
     if (packet.flags.has_x) entity.position.x += packet.x;
     if (packet.flags.has_y) entity.position.y += packet.y;
@@ -222,7 +215,7 @@ module.exports = (botState, options) => {
 
   // MotionPredictionHints – velocity update from server
   botState.client.on('motion_prediction_hints', (packet) => {
-    const entity = findEntity(packet.entity_runtime_id);
+    const entity = findEntityByRuntimeId(botState, packet.entity_runtime_id);
     if (!entity) return;
     entity.velocity.set(packet.velocity.x, packet.velocity.y, packet.velocity.z);
     entity.onGround = packet.on_ground;
@@ -249,19 +242,19 @@ module.exports = (botState, options) => {
 
   // ========== Data & Motion ==========
   botState.client.on('set_entity_data', (packet) => {
-    const entity = findEntity(packet.runtime_entity_id);
+    const entity = findEntityByRuntimeId(botState, packet.runtime_entity_id);
     if (!entity) return;
     applyEntityMetadata(entity, packet.metadata);
   });
 
   botState.client.on('set_entity_motion', (packet) => {
-    const entity = findEntity(packet.runtime_entity_id);
+    const entity = findEntityByRuntimeId(botState, packet.runtime_entity_id);
     if (!entity) return;
     entity.velocity.set(packet.velocity.x, packet.velocity.y, packet.velocity.z);
   });
 
   botState.client.on('entity_event', (packet) => {
-    const entity = findEntity(packet.runtime_entity_id);
+    const entity = findEntityByRuntimeId(botState, packet.runtime_entity_id);
     if (!entity) return;
     logAction('[→]', 'entity_event', { id: packet.runtime_entity_id, event: packet.event_id });
     botState.emit('entityEvent', entity, packet.event_id, packet.data);
@@ -269,7 +262,7 @@ module.exports = (botState, options) => {
 
   botState.client.on('player_action', (packet) => {
     const runtimeId = packet.runtime_entity_id ?? packet.runtime_id;
-    const entity = runtimeId === undefined ? botState.self : findEntity(runtimeId);
+    const entity = runtimeId === undefined ? botState.self : findEntityByRuntimeId(botState, runtimeId);
     if (!entity) return;
 
     switch (packet.action) {
@@ -332,7 +325,7 @@ module.exports = (botState, options) => {
   });
 
   botState.client.on('update_attributes', (packet) => {
-    const entity = findEntity(packet.runtime_entity_id);
+    const entity = findEntityByRuntimeId(botState, packet.runtime_entity_id);
     if (!entity) return;
     applyAttributes(entity, packet.attributes);
   });
@@ -354,7 +347,7 @@ module.exports = (botState, options) => {
   });
 
   botState.client.on('mob_effect', (packet) => {
-    const entity = findEntity(packet.runtime_entity_id);
+    const entity = findEntityByRuntimeId(botState, packet.runtime_entity_id);
     if (!entity) return;
     applyMobEffect(entity, packet);
     botState.emit('entityEffect', entity, packet);
@@ -362,7 +355,7 @@ module.exports = (botState, options) => {
 
   botState.client.on('movement_effect', (packet) => {
     const runtimeId = packet.runtime_id ?? packet.runtime_entity_id;
-    const entity = findEntity(runtimeId);
+    const entity = findEntityByRuntimeId(botState, runtimeId);
     if (!entity) return;
 
     ensureEntityState(entity);
@@ -386,8 +379,8 @@ module.exports = (botState, options) => {
 
   botState.client.on('set_entity_link', (packet) => {
     const link = packet.link;
-    const rider = findEntity(link.rider_entity_id);
-    const vehicle = findEntity(link.ridden_entity_id);
+    const rider = findEntityByRuntimeId(botState, link.rider_entity_id);
+    const vehicle = findEntityByRuntimeId(botState, link.ridden_entity_id);
     if (rider) rider.vehicle = vehicle || null;
     if (vehicle) {
       vehicle.passengers = vehicle.passengers || [];

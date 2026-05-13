@@ -6,15 +6,12 @@ const {
   itemToRaw,
   logAction,
   normalizeItemId,
+  sleep,
   toVec3f
 } = require('../utils')
 
 const DEFAULT_USE_DURATION_MS = 1700
 const DEFAULT_COMPLETION_TIMEOUT_MS = 3000
-
-function sleep (ms) {
-  return new Promise(resolve => setTimeout(resolve, ms))
-}
 
 function itemName (item) {
   if (!item) return null

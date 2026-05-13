@@ -10,8 +10,17 @@
     "test": "pnpm run test:static",
     "test:static": "mocha \"test/static/**/*.test.js\"",
     "test:live": "mocha --config .mocharc.live.json \"test/live/**/*.test.js\"",
+    "test:live:e2e:java": "node scripts/e2e-servers.js launch --target=java --java-profiles=none --world=superflat --exit-after-client --client-timeout-ms=600000 --client \"pnpm run test:live\"",
     "test:all": "pnpm run test:static && pnpm run test:live",
-    "example:basic-bot": "node examples/basic-bot.js"
+    "e2e:servers:install": "node scripts/e2e-servers.js install",
+    "e2e:servers:launch": "node scripts/e2e-servers.js launch",
+    "example:basic-bot": "node examples/basic-bot.js",
+    "example:block-access": "node examples/block-access.js",
+    "example:crafting": "node examples/crafting.js",
+    "example:dig-command": "node examples/dig-command.js",
+    "example:hit-command": "node examples/hit-command.js",
+    "example:superflat-scan": "node examples/superflat-scan.js",
+    "example:world-diagnostics": "node examples/world-diagnostics.js"
   },
   "keywords": [],
   "author": "",

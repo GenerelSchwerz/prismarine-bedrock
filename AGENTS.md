@@ -148,15 +148,15 @@ rg -n "bedrockSlotToJava|javaSlotToBedrock|ContainerSlotType" temp-geyser-inspec
 
 ```powershell
 $env:DEBUG='minecraft-protocol'
-node scripts/test_crafting.js 2>&1 | Select-String -NotMatch 'player_auth_input'
+node examples/crafting.js 2>&1 | Select-String -NotMatch 'player_auth_input'
 ```
 
 - For longer investigations, log packet debug to a file and inspect it with `rg` or an editor:
 
 ```powershell
 $env:DEBUG='minecraft-protocol'
-node scripts/test_crafting.js *> .\logs\test-crafting-debug.log
-rg -n "item_stack|inventory|container|craft|error" .\logs\test-crafting-debug.log
+node examples/crafting.js *> .\logs\crafting-example-debug.log
+rg -n "item_stack|inventory|container|craft|error" .\logs\crafting-example-debug.log
 ```
 
 - Create the `logs` directory first if it does not exist:

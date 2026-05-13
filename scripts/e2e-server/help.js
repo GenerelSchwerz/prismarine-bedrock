@@ -1,0 +1,50 @@
+"use strict";
+
+function printHelp() {
+  console.log([
+    "Usage:",
+    "  node scripts/e2e-servers.js install [--target=all|java|endstone] [--java-count=2] [--endstone-count=2]",
+    "  node scripts/e2e-servers.js launch  [--target=all|java|endstone] [--java-count=2] [--endstone-count=2] [--client=\"pnpm run test:live\"]",
+    "  node scripts/e2e-servers.js launch  --target=java --exit-after-client --client-timeout-ms=600000 --client pnpm run test:live",
+    "  node scripts/e2e-servers.js launch  --target=endstone --client pnpm run test:live",
+    "  node scripts/e2e-servers.js install --target=java --geyser-extension=astrox --geyser-extension=boar",
+    "  node scripts/e2e-servers.js install --target=java --java-profiles=none,astrox,boar",
+    "  node scripts/e2e-servers.js install --target=java --java-worlds=normal,superflat",
+    "  node scripts/e2e-servers.js clean --scope=worlds",
+    "  node scripts/e2e-servers.js clean --scope=logs",
+    "",
+    "Environment:",
+    "  E2E_PAPER_VERSION       Paper Minecraft version, default latest",
+    "  E2E_JAVA_BIN            Java executable used to launch Paper, default java",
+    "  E2E_GEYSER_AUTH_TYPE    Geyser Java auth type, default offline for local bot tests",
+    "  E2E_JAVA_PORT           Java server port, default 25565",
+    "  E2E_GEYSER_PORT         Geyser Bedrock UDP port, default 19133",
+    "  E2E_ENDSTONE_PORT       Endstone Bedrock UDP port, default 19132",
+    "  E2E_JAVA_COUNT          Number of Java/Geyser instances, default 1",
+    "  E2E_JAVA_PROFILES       Comma-separated Java plugin profiles, e.g. none,astrox,boar,astrox+boar",
+    "  E2E_WORLD               World type for all instances: normal or superflat",
+    "  E2E_JAVA_WORLDS         Comma-separated Java world types, e.g. normal,superflat",
+    "  E2E_ENDSTONE_COUNT      Number of Endstone/BDS instances, default 1",
+    "  E2E_ENDSTONE_WORLDS     Comma-separated Endstone world types, e.g. normal,superflat",
+    "  E2E_ENDSTONE_PACKAGE    uv package spec, default endstone",
+    "  E2E_GEYSER_EXTENSIONS   Comma-separated Geyser extensions: astrox, boar, github:owner/repo, or URL",
+    "",
+    "Interactive launch commands:",
+    "  /client <client command>",
+    "  /java <server command>",
+    "  /java-1 <server command>",
+    "  /endstone <server command>",
+    "  /endstone-1 <server command>",
+    "  /all <server command>",
+    "  /quit",
+    "",
+    "Launch options:",
+    "  --exit-after-client      Stop launched servers after the next client run exits and return its exit code",
+    "  --client-timeout-ms=N    With --exit-after-client, stop servers and return 124 if the client times out",
+    "  --client-stop-delay-ms=N Delay before stopping servers after client exit, default 2000",
+    "  --server-ready-timeout-ms=N Delay before giving up on server readiness, default 120000",
+    ""
+  ].join("\n"));
+}
+
+module.exports = { printHelp };

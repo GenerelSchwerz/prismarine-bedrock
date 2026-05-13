@@ -1,0 +1,42 @@
+#!/usr/bin/env node
+"use strict";
+
+const { parseCli } = require("./e2e-server/options");
+const { buildInstances } = require("./e2e-server/instances");
+const { installTargets, cleanTargets } = require("./e2e-server/install");
+const { launchTargets } = require("./e2e-server/launch");
+const { printHelp } = require("./e2e-server/help");
+
+const { command, options } = parseCli(process.argv);
+const targets = options.targets;
+const instances = buildInstances(targets, options);
+
+main().catch((err) => {
+  console.error(err.stack || err.message);
+  process.exit(1);
+});
+
+async function main() {
+  if (command === "help" || command === "--help" || command === "-h") {
+    printHelp();
+    return;
+  }
+
+  if (command === "install") {
+    await installTargets(instances, options);
+    return;
+  }
+
+  if (command === "clean") {
+    await cleanTargets(instances, options);
+    return;
+  }
+
+  if (command === "launch") {
+    await installTargets(instances, options);
+    await launchTargets(instances, options);
+    return;
+  }
+
+  throw new Error(`Unknown command: ${command}`);
+}

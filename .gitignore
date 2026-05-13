@@ -4,3 +4,6 @@ pnpm-lock.yaml
 temp-geyser-inspect
 Boar
 .test-lock.json
+.e2e-servers/
+logs/
+superflat-scan-mismatches.json

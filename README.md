@@ -59,6 +59,12 @@ The package exports:
 ## Examples
 
 - Basic bot: [examples/basic-bot.js](examples/basic-bot.js)
+- Block access: [examples/block-access.js](examples/block-access.js)
+- Crafting: [examples/crafting.js](examples/crafting.js)
+- Dig command: [examples/dig-command.js](examples/dig-command.js)
+- Hit command: [examples/hit-command.js](examples/hit-command.js)
+- Superflat scan: [examples/superflat-scan.js](examples/superflat-scan.js)
+- World diagnostics: [examples/world-diagnostics.js](examples/world-diagnostics.js)
 
 Run it with:
 
@@ -66,13 +72,15 @@ Run it with:
 pnpm run example:basic-bot
 ```
 
+Most examples accept `HOST`, `PORT`, `BOT_USERNAME`, `OFFLINE`, and `MC_VERSION` environment variables.
+
 ## Test
 
 ```bash
 pnpm test
 ```
 
-Some integration scripts expect a local Bedrock/Geyser test server. See the in-development docs before changing packet-heavy systems such as inventory, crafting, or trading.
+Live tests expect a local Bedrock/Geyser test server. See the in-development docs before changing packet-heavy systems such as inventory, crafting, or trading.
 
 ## Documentation
 

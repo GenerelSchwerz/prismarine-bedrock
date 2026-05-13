@@ -192,11 +192,28 @@ module.exports = (botState, options = {}) => {
   function normalizeNetworkChunkPublisherCoordinates(coordinates) {
     if (!coordinates) return coordinates;
 
+    const rawY = coordinates.y;
+    const decodedY = zigZagDecode(rawY);
+    const rawSectionY = sectionYFromWorldY(rawY);
+    const decodedSectionY = sectionYFromWorldY(decodedY);
+    let y = decodedY;
+
+    if (usesDirectNetworkChunkPublisherY() && rawSectionY !== undefined) {
+      y = rawY;
+    } else if (rawSectionY !== undefined && decodedSectionY === undefined) {
+      y = rawY;
+    }
+
     return {
       x: coordinates.x,
-      y: zigZagDecode(coordinates.y),
+      y,
       z: coordinates.z
     };
+  }
+
+  function usesDirectNetworkChunkPublisherY() {
+    const match = String(botState.version || '').match(/^1\.(\d+)\./);
+    return match ? Number(match[1]) >= 26 : false;
   }
 
   function signedBlockCoordinateY(value) {

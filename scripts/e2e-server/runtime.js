@@ -67,11 +67,12 @@ async function createRuntime(targetInstances, options) {
         run: spawnOptions.run || null,
         activeRuns,
         ready: kind !== "server",
-        readyPattern: spawnOptions.readyPattern || null
+        readyPattern: spawnOptions.readyPattern || null,
+        autoOppedPlayers: new Set()
       };
       processes.set(name, record);
       writeEvent(record, combined, "process_start", { command: commandLine, cwd });
-      console.log(`[${name}] ${commandLine}`);
+      console.log(`[${consoleLabel(record)}] ${commandLine}`);
 
       const stdoutHandler = createOutputHandler(record, combined, "stdout", runtime);
       const stderrHandler = createOutputHandler(record, combined, "stderr", runtime);
@@ -97,7 +98,7 @@ async function createRuntime(targetInstances, options) {
             setTimeout(() => runtime.stopAll(), options.clientStopDelayMs).unref();
           }
         }
-        console.log(`[${name}] exited ${signal || code}`);
+        console.log(`[${consoleLabel(record)}] exited ${signal || code}`);
       });
     },
     async startClientRun(command) {
@@ -171,6 +172,15 @@ async function createRuntime(targetInstances, options) {
       writeEvent(record, combined, "server_ready", { line });
       console.log(`[${record.name}] ready`);
       resolveReadyWaitersIfReady();
+    },
+    maybeAutoOpPlayer(record, line) {
+      if (!options.autoOp || record.kind !== "server" || record.external) return;
+      const instance = targetInstances.find((candidate) => candidate.name === record.name);
+      if (!instance || instance.type !== "java") return;
+      const player = joinedPlayerName(line);
+      if (!player || record.autoOppedPlayers.has(player)) return;
+      record.autoOppedPlayers.add(player);
+      sendServerCommand(record, `op ${quoteCommandArgument(player)}`, commands, combined, "auto_op");
     },
     startConsole() {
       process.stdin.setEncoding("utf8");
@@ -254,13 +264,19 @@ function createOutputHandler(record, combined, stream, runtime) {
     pending = lines.pop();
     for (const line of lines) {
       writeOutputLine(record, combined, stream, line);
-      if (runtime) runtime.markServerReady(record, line);
+      if (runtime) {
+        runtime.markServerReady(record, line);
+        runtime.maybeAutoOpPlayer(record, line);
+      }
     }
   };
   handler.flush = () => {
     if (!pending) return;
     writeOutputLine(record, combined, stream, pending);
-    if (runtime) runtime.markServerReady(record, pending);
+    if (runtime) {
+      runtime.markServerReady(record, pending);
+      runtime.maybeAutoOpPlayer(record, pending);
+    }
     pending = "";
   };
   return handler;
@@ -269,7 +285,18 @@ function createOutputHandler(record, combined, stream, runtime) {
 function writeOutputLine(record, combined, stream, line) {
   writeEvent(record, combined, stream, { line });
   const out = stream === "stderr" ? process.stderr : process.stdout;
-  out.write(`[${record.name}] ${line}\n`);
+  if (record.kind === "client" && line === "") {
+    out.write("\n");
+    return;
+  }
+  out.write(`[${consoleLabel(record)}] ${line}\n`);
+}
+
+function consoleLabel(record) {
+  if (record.kind === "client" && record.run?.id) {
+    return `client-${record.run.id.split("-", 1)[0]}`;
+  }
+  return record.name;
 }
 
 function finishClientRun(run, activeRuns, sessionCombined) {
@@ -314,17 +341,36 @@ function handleConsoleLine(line, runtime, commands, combined, targetInstances) {
       console.log(`${record.name} is an existing external server; console command was not sent.`);
       continue;
     }
-    const event = {
-      ts: new Date().toISOString(),
-      process: record.name,
-      kind: record.kind,
-      event: "stdin",
-      command: routed.command
-    };
-    commands.write(`${JSON.stringify(event)}\n`);
-    combined.write(`${JSON.stringify(event)}\n`);
-    record.child.stdin.write(`${routed.command}\n`);
+    sendServerCommand(record, routed.command, commands, combined, "stdin");
   }
+}
+
+function sendServerCommand(record, command, commands, combined, eventName) {
+  const event = {
+    ts: new Date().toISOString(),
+    process: record.name,
+    kind: record.kind,
+    event: eventName,
+    command
+  };
+  commands.write(`${JSON.stringify(event)}\n`);
+  combined.write(`${JSON.stringify(event)}\n`);
+  record.child.stdin.write(`${command}\n`);
+}
+
+function joinedPlayerName(line) {
+  const joined = line.match(/^\[[^\]]+\]:\s+(.+?) joined the game$/);
+  if (joined) return joined[1];
+
+  const loggedIn = line.match(/^\[[^\]]+\]:\s+(.+?)\[[^\]]+\] logged in with entity id \d+ at /);
+  if (loggedIn) return loggedIn[1];
+
+  return null;
+}
+
+function quoteCommandArgument(value) {
+  if (/^[A-Za-z0-9_.-]+$/.test(value)) return value;
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
 function parseConsoleCommand(line, targetInstances) {

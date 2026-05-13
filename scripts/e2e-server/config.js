@@ -2,6 +2,8 @@
 
 const crypto = require("crypto");
 
+const FLOODGATE_ZERO_UUID = "00000000-0000-0000-0000-000000000000";
+
 function javaServerProperties(instance, options) {
   return [
     `motd=bedrock-test ${instance.name}`,
@@ -81,12 +83,21 @@ function geyserConfig(instance, options) {
 }
 
 function javaOpsJson() {
-  return `${JSON.stringify(["OpBot", ".OpBot"].map((name) => ({
+  const ops = ["OpBot", ".OpBot"].map((name) => ({
     uuid: offlinePlayerUuid(name),
     name,
     level: 4,
     bypassesPlayerLimit: true
-  })), null, 2)}\n`;
+  }));
+
+  ops.push({
+    uuid: FLOODGATE_ZERO_UUID,
+    name: ".OpBot",
+    level: 4,
+    bypassesPlayerLimit: true
+  });
+
+  return `${JSON.stringify(ops, null, 2)}\n`;
 }
 
 function offlinePlayerUuid(name) {

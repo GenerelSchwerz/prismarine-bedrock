@@ -56,6 +56,30 @@ async function waitForInventoryPredicate (botState, predicate, label, timeoutMs 
   ].join('\n'))
 }
 
+async function waitForBotPosition (botState, target, label, timeoutMs = 8000) {
+  const start = Date.now()
+
+  while (Date.now() - start < timeoutMs) {
+    const pos = botState.self?.position
+    if (
+      pos &&
+      Math.abs(pos.x - target.x) < 0.75 &&
+      Math.abs(pos.y - target.y) < 0.75 &&
+      Math.abs(pos.z - target.z) < 0.75
+    ) {
+      return
+    }
+    await sleep(100)
+  }
+
+  const pos = botState.self?.position
+  assert.fail([
+    `Timed out waiting for bot position: ${label}`,
+    `Expected near: ${target.x} ${target.y} ${target.z}`,
+    `Actual: ${pos ? `${pos.x} ${pos.y} ${pos.z}` : 'unknown'}`
+  ].join('\n'))
+}
+
 function inventorySummary (botState) {
   return botState.inventory.slots
     .map((item, slot) => item && {
@@ -96,6 +120,8 @@ async function waitForInventoryCounts (botState, expected, timeoutMs = 4000) {
 
 async function setupCraftingWorld (botState) {
   const { x, y, z } = CRAFT_POS
+  const tablePos = new Vec3(x, y, z)
+  const standPos = new Vec3(x + 1.5, y, z + 0.5)
 
   setPlayerGamemode(botState, USERNAME, 'survival')
   await sleep(SETUP_DELAY_MS)
@@ -103,18 +129,18 @@ async function setupCraftingWorld (botState) {
   clearPlayer(botState, USERNAME)
   await sleep(SETUP_DELAY_MS)
 
-  await setBlockIfNeeded(botState, new Vec3(x, y - 1, z), 'minecraft:stone')
-  await setBlockIfNeeded(botState, new Vec3(x, y, z), 'minecraft:crafting_table')
-  await setBlockIfNeeded(botState, new Vec3(x, y + 1, z), 'minecraft:air')
-  await setBlockIfNeeded(botState, new Vec3(x + 1, y - 1, z), 'minecraft:stone')
-  await setBlockIfNeeded(botState, new Vec3(x + 1, y, z), 'minecraft:air')
-  await setBlockIfNeeded(botState, new Vec3(x + 1, y + 1, z), 'minecraft:air')
+  await setBlockIfNeeded(botState, tablePos.offset(0, -1, 0), 'minecraft:stone')
+  await setBlockIfNeeded(botState, tablePos, 'minecraft:crafting_table')
+  await setBlockIfNeeded(botState, tablePos.offset(0, 1, 0), 'minecraft:air')
+  await setBlockIfNeeded(botState, standPos.floored().offset(0, -1, 0), 'minecraft:stone')
+  await setBlockIfNeeded(botState, standPos.floored(), 'minecraft:air')
+  await setBlockIfNeeded(botState, standPos.floored().offset(0, 1, 0), 'minecraft:air')
 
-  teleportPlayer(botState, USERNAME, x + 1.5, y, z + 0.5)
-  await sleep(SETUP_DELAY_MS)
+  teleportPlayer(botState, USERNAME, standPos.x, standPos.y, standPos.z)
+  await waitForBotPosition(botState, standPos, 'next to crafting table')
 
   if (typeof botState.waitForChunksToLoad === 'function') {
-    await botState.waitForChunksToLoad(2, new Vec3(x, y, z), 10000)
+    await botState.waitForChunksToLoad(2, tablePos, 10000)
   }
 }
 

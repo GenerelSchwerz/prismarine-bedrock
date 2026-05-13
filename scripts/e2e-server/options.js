@@ -24,7 +24,8 @@ function parseOptions(args) {
     endstoneCount: null,
     paperVersion: process.env.E2E_PAPER_VERSION || "latest",
     javaBin: process.env.E2E_JAVA_BIN || "java",
-    geyserAuthType: process.env.E2E_GEYSER_AUTH_TYPE || "offline"
+    geyserAuthType: process.env.E2E_GEYSER_AUTH_TYPE || "offline",
+    autoOp: process.env.E2E_AUTO_OP !== "0"
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -61,6 +62,8 @@ function parseOptions(args) {
       options.clientStopDelayMs = parsePositiveInt(arg.slice("--client-stop-delay-ms=".length), "--client-stop-delay-ms");
     } else if (arg.startsWith("--server-ready-timeout-ms=")) {
       options.serverReadyTimeoutMs = parsePositiveInt(arg.slice("--server-ready-timeout-ms=".length), "--server-ready-timeout-ms");
+    } else if (arg === "--no-auto-op") {
+      options.autoOp = false;
     } else if (arg === "--client") {
       options.client = args.slice(index + 1).join(" ");
       break;

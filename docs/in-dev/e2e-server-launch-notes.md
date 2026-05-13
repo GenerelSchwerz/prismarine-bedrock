@@ -151,7 +151,7 @@ advanced:
 
 This is required for the local offline Bedrock protocol bot to connect through Geyser without Bedrock/Xbox login validation.
 
-Every Java/Paper instance writes `ops.json` entries for both `OpBot` and `.OpBot`. The plain name covers offline Geyser auth; the dotted name covers Floodgate-style prefixed Bedrock usernames. Endstone/BDS instances keep `default-player-permission-level=operator`, so local test players are operators by default.
+Every Java/Paper instance writes `ops.json` entries for `OpBot`, `.OpBot`, and the Floodgate all-zero UUID used by local offline Bedrock logins. The plain name covers offline Geyser auth, and the dotted names cover Floodgate-style prefixed Bedrock usernames. Endstone/BDS instances keep `default-player-permission-level=operator`, so local test players are operators by default.
 
 The Java/Paper installer also writes `config/paper-global.yml` with relaxed local e2e spam limits. This keeps command-heavy setup tests from being disconnected by Paper's player packet spam checks while still leaving a high packet limiter in place:
 

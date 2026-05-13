@@ -28,6 +28,7 @@ function printHelp() {
     "  E2E_ENDSTONE_WORLDS     Comma-separated Endstone world types, e.g. normal,superflat",
     "  E2E_ENDSTONE_PACKAGE    uv package spec, default endstone",
     "  E2E_GEYSER_EXTENSIONS   Comma-separated Geyser extensions: astrox, boar, github:owner/repo, or URL",
+    "  E2E_AUTO_OP             Auto-op Java/Geyser players on join, default 1; set 0 to disable",
     "",
     "Interactive launch commands:",
     "  /client <client command>",
@@ -43,6 +44,7 @@ function printHelp() {
     "  --client-timeout-ms=N    With --exit-after-client, stop servers and return 124 if the client times out",
     "  --client-stop-delay-ms=N Delay before stopping servers after client exit, default 2000",
     "  --server-ready-timeout-ms=N Delay before giving up on server readiness, default 120000",
+    "  --no-auto-op            Disable automatic Java/Geyser op-on-join",
     ""
   ].join("\n"));
 }

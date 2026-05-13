@@ -50,7 +50,7 @@ const PLAYER_EQUIPMENT_WINDOWS = [
  * @param {import('../state')} botState
  * @param {object} options
  */
-function inject (botState, options) {
+function inject (botState, options = {}) {
   const ItemClass = botState.itemClass
   const Window = botState.windowFactory
 
@@ -67,6 +67,7 @@ function inject (botState, options) {
   let activeWindowId = INVENTORY_WINDOW_ID
   let heldItemSlot = 0
   let loggedRawItemIdentity = false
+  const logUnchangedUiSlots = options.logUnchangedUiSlots === true
 
   botState.activeWindowId = activeWindowId
   botState.heldItemSlot = heldItemSlot
@@ -221,15 +222,21 @@ function inject (botState, options) {
 
   function handleUiSlot (packet) {
     const item = toItem(packet.item)
+    const hadPrevious = uiSlots.has(packet.slot)
+    const previous = uiSlots.get(packet.slot) ?? null
+    const previousDesc = itemDesc(previous)
     uiSlots.set(packet.slot, item)
 
     const projected = projectUiSlotToActiveWindow(packet.slot, item, packet)
+    const nextDesc = itemDesc(item)
 
-    logAction('[inventory]', 'ui_slot', {
-      slot: packet.slot,
-      item: itemDesc(item),
-      projected
-    })
+    if (logUnchangedUiSlots || !hadPrevious || previousDesc !== nextDesc) {
+      logAction('[inventory]', 'ui_slot', {
+        slot: packet.slot,
+        item: nextDesc,
+        projected
+      })
+    }
 
     botState.emit('ui_slot_updated', packet.slot, item, packet)
   }

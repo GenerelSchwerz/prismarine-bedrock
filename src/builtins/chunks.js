@@ -310,6 +310,8 @@ module.exports = (botState, options = {}) => {
 
     requestChunkRadius();
 
+    if (!botState.blockNetworkIdsAreHashes && !options.teleportSubchunkRequests) return;
+
     const minCX = Math.floor((center.x - radius) / 16);
     const maxCX = Math.floor((center.x + radius) / 16);
     const minCZ = Math.floor((center.z - radius) / 16);

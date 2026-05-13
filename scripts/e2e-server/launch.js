@@ -46,7 +46,7 @@ async function launchTargets(targetInstances, options) {
   console.log(`Server session logs: ${runtime.sessionDir}`);
   console.log("Commands: /client <cmd>, /java <cmd>, /java-1 <cmd>, /endstone <cmd>, /endstone-1 <cmd>, /all <cmd>, /help, /quit.");
   if (options.client) {
-    void runtime.startClientRun(options.client);
+    void runtime.startClientRuns(options.client);
   }
   await runtime.waitForExit();
   if (options.exitAfterClient && runtime.clientExitCode !== null) {

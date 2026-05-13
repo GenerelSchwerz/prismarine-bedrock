@@ -25,6 +25,8 @@ async function createRuntime(targetInstances, options) {
   let stdinHandler = null;
   let clientRunCounter = 0;
   let clientTimeout = null;
+  let launchedClientRuns = 0;
+  let finishedClientRuns = 0;
 
   const runtime = {
     sessionDir,
@@ -100,18 +102,31 @@ async function createRuntime(targetInstances, options) {
         if (record.run) {
           finishClientRun(record.run, activeRuns, combined);
           if (options.exitAfterClient) {
-            if (clientTimeout) clearTimeout(clientTimeout);
-            if (runtime.clientExitCode === null) {
-              runtime.clientExitCode = signal ? 1 : code || 0;
+            finishedClientRuns += 1;
+            const exitCode = signal ? 1 : code || 0;
+            if (exitCode !== 0 || runtime.clientExitCode === null) {
+              runtime.clientExitCode = exitCode;
             }
-            void runtime.stopAll("client_exit");
+            if (finishedClientRuns >= launchedClientRuns) {
+              if (clientTimeout) clearTimeout(clientTimeout);
+              void runtime.stopAll("client_exit");
+            }
           }
         }
         console.log(`[${consoleLabel(record)}] exited ${signal || code}`);
         maybeResolveWait();
       });
     },
-    async startClientRun(command) {
+    async startClientRuns(command, instances = targetInstances) {
+      const targets = instances.length === 1 ? instances : [...instances];
+      await Promise.all(targets.map((instance, index) => {
+        return runtime.startClientRun(command, [instance], { shardIndex: index, shardTotal: targets.length });
+      }));
+    },
+    async startClientRun(command, instances = targetInstances, runOptions = {}) {
+      const runTargets = normalizeClientRunTargets(instances, targetInstances);
+      const shardIndex = runOptions.shardIndex ?? 0;
+      const shardTotal = runOptions.shardTotal ?? 1;
       try {
         await runtime.waitForServersReady();
       } catch (err) {
@@ -123,12 +138,17 @@ async function createRuntime(targetInstances, options) {
         return;
       }
       clientRunCounter += 1;
-      const id = `${String(clientRunCounter).padStart(3, "0")}-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+      launchedClientRuns += 1;
+      const targetLabel = runTargets.map((instance) => instance.name).join("+");
+      const id = `${String(clientRunCounter).padStart(3, "0")}-${safeFileLabel(targetLabel)}-${new Date().toISOString().replace(/[:.]/g, "-")}`;
       const runDir = path.join(sessionDir, "client-runs", id);
       await mkdir(runDir);
       const run = {
         id,
         dir: runDir,
+        targetNames: new Set(runTargets.map((instance) => instance.name)),
+        shardIndex,
+        shardTotal,
         commandFile: path.join(runDir, "server-commands.jsonl"),
         combined: fs.createWriteStream(path.join(runDir, "combined.jsonl"), { flags: "a" }),
         clientLog: fs.createWriteStream(path.join(runDir, "client.jsonl"), { flags: "a" }),
@@ -136,20 +156,23 @@ async function createRuntime(targetInstances, options) {
         commandBridge: null
       };
       fs.closeSync(fs.openSync(run.commandFile, "a"));
-      run.commandBridge = startServerCommandBridge(run.commandFile, runtime, commands, combined);
-      const startEvent = { ts: new Date().toISOString(), event: "client_run_start", run: id, dir: runDir, command };
+      run.commandBridge = startServerCommandBridge(run.commandFile, runtime, commands, combined, run.targetNames);
+      const startEvent = { ts: new Date().toISOString(), event: "client_run_start", run: id, dir: runDir, command, targets: [...run.targetNames], shardIndex, shardTotal };
       combined.write(`${JSON.stringify(startEvent)}\n`);
       run.combined.write(`${JSON.stringify(startEvent)}\n`);
       activeRuns.set(id, run);
       for (const record of processes.values()) {
-        if (record.kind === "server") {
+        if (record.kind === "server" && run.targetNames.has(record.name)) {
           run.serverLogs.set(record.name, fs.createWriteStream(path.join(runDir, `${record.name}.jsonl`), { flags: "a" }));
         }
       }
       const name = `client-${id}`;
-      console.log(`Client run logs: ${runDir}`);
+      console.log(`Client run logs (${targetLabel}): ${runDir}`);
       runtime.launch(name, "client", command, [], ROOT, {
-        ...clientEnv(targetInstances),
+        ...clientEnv(runTargets),
+        E2E_CLIENT_RUN_INDEX: String(shardIndex),
+        E2E_CLIENT_RUN_TOTAL: String(shardTotal),
+        E2E_CLIENT_RUN_TARGETS: [...run.targetNames].join(","),
         E2E_SERVER_COMMAND_FILE: run.commandFile
       }, { shell: true, run });
       if (options.exitAfterClient && options.clientTimeoutMs !== null) {
@@ -441,15 +464,32 @@ function consoleLabel(record) {
 
 function finishClientRun(run, activeRuns, sessionCombined) {
   if (!activeRuns.has(run.id)) return;
-  activeRuns.delete(run.id);
   run.commandBridge?.stop();
+  activeRuns.delete(run.id);
   writeLine(sessionCombined, `${JSON.stringify({ ts: new Date().toISOString(), event: "client_run_end", run: run.id, dir: run.dir })}\n`);
   run.combined.end();
   run.clientLog.end();
   for (const log of run.serverLogs.values()) log.end();
 }
 
-function startServerCommandBridge(commandFile, runtime, commands, combined) {
+function normalizeClientRunTargets(instances, targetInstances) {
+  if (!Array.isArray(instances) || instances.length === 0) {
+    throw new Error("Client run requires at least one target server.");
+  }
+
+  const known = new Set(targetInstances.map((instance) => instance.name));
+  for (const instance of instances) {
+    if (!known.has(instance.name)) throw new Error(`Unknown client run target: ${instance.name}`);
+  }
+
+  return instances;
+}
+
+function safeFileLabel(value) {
+  return String(value).replace(/[^A-Za-z0-9_.+-]/g, "_");
+}
+
+function startServerCommandBridge(commandFile, runtime, commands, combined, targetNames) {
   let offset = 0;
   let stopped = false;
 
@@ -472,7 +512,10 @@ function startServerCommandBridge(commandFile, runtime, commands, combined) {
       for (const line of buffer.toString("utf8").split(/\r?\n/)) {
         if (!line.trim()) continue;
         const entry = JSON.parse(line);
-        const targets = [...runtime.processes.values()].filter((record) => record.kind === "server");
+        const targetSet = entryTargets(entry, runtime, targetNames);
+        const targets = [...runtime.processes.values()].filter((record) => {
+          return record.kind === "server" && targetSet.has(record.name);
+        });
         for (const record of targets) {
           sendServerCommand(record, entry.command, commands, combined, "client_command_file");
         }
@@ -494,6 +537,15 @@ function startServerCommandBridge(commandFile, runtime, commands, combined) {
   };
 }
 
+function entryTargets(entry, runtime, targetNames) {
+  if (Array.isArray(entry.targets) && entry.targets.length > 0) return new Set(entry.targets);
+  if (targetNames?.size) return targetNames;
+
+  return new Set([...runtime.processes.values()]
+    .filter((record) => record.kind === "server")
+    .map((record) => record.name));
+}
+
 function handleConsoleLine(line, runtime, commands, combined, targetInstances) {
   if (line === "/help") {
     console.log("Use /client <cmd>, /java <cmd>, /java-1 <cmd>, /endstone <cmd>, /endstone-1 <cmd>, /all <cmd>, /quit. Without a prefix, commands route to the only running server.");
@@ -505,7 +557,7 @@ function handleConsoleLine(line, runtime, commands, combined, targetInstances) {
   }
   if (line.startsWith("/client ")) {
     const command = line.slice("/client ".length).trim();
-    if (command) void runtime.startClientRun(command);
+    if (command) void runtime.startClientRuns(command);
     return;
   }
 
@@ -604,6 +656,7 @@ function writeRunEvent(record, line, payload) {
 
   if (record.kind !== "server" || !record.activeRuns) return;
   for (const run of record.activeRuns.values()) {
+    if (!run.targetNames.has(record.name)) continue;
     const serverLog = run.serverLogs.get(record.name);
     if (serverLog) writeLine(serverLog, line);
     writeLine(run.combined, `${JSON.stringify({ ...payload, run: run.id })}\n`);

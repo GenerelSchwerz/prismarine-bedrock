@@ -56,6 +56,7 @@ module.exports = (botState, options) => {
     botState.spawnRotation = pkt.rotation;
     botState.game.gameMode = pkt.player_gamemode;
     botState.dimension = pkt.dimension;
+    botState.blockNetworkIdsAreHashes = !!pkt.block_network_ids_are_hashes;
     botState.playerHealth = 20;
     botState.isDead = false;
 
@@ -70,6 +71,7 @@ module.exports = (botState, options) => {
       rotation: botState.spawnRotation,
       gamemode: botState.game.gameMode,
       block_network_ids_are_hashes: !!pkt.block_network_ids_are_hashes,
+      server_authoritative_inventory: !!pkt.server_authoritative_inventory,
     });
   });
 

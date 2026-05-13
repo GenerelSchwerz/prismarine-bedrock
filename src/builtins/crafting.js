@@ -153,6 +153,16 @@ function outputSlot (botState, result, used) {
   return null
 }
 
+function nextCraftStackId (botState) {
+  const maxInventoryStackId = Math.max(0, ...(botState.inventory?.slots || [])
+    .map(item => item?.stackId ?? item?.stack_id ?? 0)
+    .filter(Number.isFinite))
+
+  let stackId = 0
+  while (stackId <= maxInventoryStackId) stackId = botState.itemClass.nextStackId()
+  return stackId
+}
+
 function makeCraftFromEntry (botState, entry, itemId, count) {
   const result = recipeResult(entry, itemId)
   if (!result?.count) return null
@@ -381,7 +391,7 @@ function buildActions (botState, craft) {
   const outSlotCountAfterConsume = (existing?.count || 0) - (craft.used.get(craft.outSlot) || 0)
   const outputStackId = existing?.type === craft.result.network_id && outSlotCountAfterConsume > 0
     ? existing.stackId || 0
-    : botState.itemClass.nextStackId()
+    : nextCraftStackId(botState)
   const destinationStackId = outSlotCountAfterConsume > 0 ? (existing?.stackId || 0) : 0
 
   actions.push({
@@ -544,8 +554,9 @@ async function injectCrafting (botState, options = {}) {
       for (const step of plan.recipesToDo) {
         const craft = resolveCraftStep(botState, step)
         if (!craft) throw unresolvedCraftStepError(botState, step)
-        const useStandaloneRequest = isTableRecipe(craft.entry)
-        if (useStandaloneRequest) openedCraftingContainer = await openCraftingTable(botState, craftingTableBlock)
+        const requiresCraftingTable = isTableRecipe(craft.entry)
+        const useStandaloneRequest = options.craftingStandaloneRequests || requiresCraftingTable
+        if (requiresCraftingTable) openedCraftingContainer = await openCraftingTable(botState, craftingTableBlock)
         const beforeInventory = inventorySignature(botState)
         await sendRequest(botState, buildActions(botState, craft), { standalone: useStandaloneRequest })
         await waitForInventoryChange(botState, beforeInventory)

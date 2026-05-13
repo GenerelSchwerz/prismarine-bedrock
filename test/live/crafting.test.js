@@ -30,7 +30,7 @@ function sleep (ms) {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
-function waitForSpawn (botState, timeoutMs = 10000) {
+function waitForSpawn (botState, timeoutMs = 30000) {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('Timeout waiting for spawn')), timeoutMs)
 

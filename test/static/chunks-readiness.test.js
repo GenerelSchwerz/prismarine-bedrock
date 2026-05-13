@@ -201,6 +201,7 @@ describe('chunk readiness helpers', function () {
     const botState = createBotState()
     botState.client.entityId = 1n
     botState.dimension = 0
+    botState.blockNetworkIdsAreHashes = true
     injectChunks(botState)
 
     botState.client.emit('move_player', {
@@ -220,6 +221,26 @@ describe('chunk readiness helpers', function () {
       { dx: 0, dy: 0, dz: 0 },
       { dx: 0, dy: 1, dz: 0 }
     ])
+  })
+
+  it('does not send subchunk requests after Geyser-style teleports', function () {
+    const botState = createBotState()
+    botState.client.entityId = 1n
+    botState.dimension = 0
+    botState.blockNetworkIdsAreHashes = false
+    injectChunks(botState)
+
+    botState.client.emit('move_player', {
+      runtime_id: 1,
+      position: { x: 17.5, y: 81.62, z: 16.5 },
+      mode: 'teleport'
+    })
+
+    assert.ok(botState.client.queued.find(packet => packet.name === 'request_chunk_radius'))
+    assert.strictEqual(
+      botState.client.queued.some(packet => packet.name === 'subchunk_request'),
+      false
+    )
   })
 
   it('applies update_subchunk_blocks using absolute block positions', async function () {

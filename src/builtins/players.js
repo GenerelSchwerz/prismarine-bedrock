@@ -1,5 +1,6 @@
 const { logAction } = require('../utils');
 const { Vec3 } = require('vec3');
+const { applyEntityMetadata, applyHealth, flagsToBigInt, METADATA_FLAGS } = require('../entity-metadata');
 
 /**
  * @param {import('../state')} botState
@@ -48,14 +49,14 @@ module.exports = (botState, options) => {
   botState.client.on('set_entity_data', (packet) => {
     const entity = botState.players.get(packet.runtime_entity_id);
     if (!entity) return;
-    entity.metadata = packet.metadata;
+    applyEntityMetadata(entity, packet.metadata);
   });
 
   // Health (mirrors mineflayer's health.js pattern)
   botState.client.on('set_health', (packet) => {
-    if (botState.self) botState.self.health = packet.health;
     const selfEntity = Array.from(botState.players.values()).find(e => e.id === botState.client.entityId);
-    if (selfEntity) selfEntity.health = packet.health;
+    if (selfEntity) applyHealth(selfEntity, packet);
+    if (botState.self) applyHealth(botState.self, packet);
     logAction('[→]', 'set_health', { health: packet.health });
     botState.emit('health');
     if (packet.health <= 0) botState.emit('death');
@@ -107,10 +108,11 @@ module.exports = (botState, options) => {
   botState.client.on('set_entity_data', (packet) => {
     const entity = botState.players.get(packet.runtime_entity_id);
     if (!entity) return;
+    applyEntityMetadata(entity, packet.metadata);
     const meta = packet.metadata;
-    const flagMeta = meta.find(m => m.key === 0);
+    const flagMeta = Array.isArray(meta) ? meta.find(m => m.key === 0 || m.key === 'flags') : null;
     if (flagMeta) {
-      const flags = typeof flagMeta.value === 'bigint' ? flagMeta.value : BigInt(flagMeta.value);
+      const flags = flagsToBigInt(flagMeta.value, METADATA_FLAGS) ?? 0n;
       if (flags & 2n) {
         entity.eyeHeight = CROUCH_EYEHEIGHT;
         entity.height = CROUCH_HEIGHT;

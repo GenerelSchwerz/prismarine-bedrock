@@ -97,9 +97,8 @@ class SelfEntityProxy {
     e.attributes = e.attributes || {};
     this._ensureDefaultAttributes(e.attributes);
 
-    // Effects – engine expects Array of effect objects
-    e.effects = Array.isArray(e.effects) ? e.effects : [];
-    e.rawEffects = Array.isArray(e.rawEffects) ? e.rawEffects : [];
+    e.effects = e.effects && typeof e.effects === 'object' ? e.effects : {};
+    e.rawEffects = e.rawEffects && typeof e.rawEffects === 'object' ? e.rawEffects : {};
 
     // equipment array – used for depth strider / swift sneak
     if (!Array.isArray(e.equipment)) {
@@ -369,8 +368,8 @@ class SelfEntityProxy {
   set stuckSpeedMultiplier(v)   { this._self.stuckSpeedMultiplier = v; }
   get pose()                    { return this._self.pose || PlayerPoses.STANDING; }
   set pose(v)                   { this._self.pose = v; }
-  get gameMode()                { return normalizeGameMode(this._self.gamemode || this._self.gameMode || 'survival'); }
-  set gameMode(v)               { this._self.gameMode = v; }
+  get gameMode()                { return normalizeGameMode(this._bot.game?.gameMode || this._self.gamemode || 'survival'); }
+  set gameMode(v)               { this._bot.game = this._bot.game || {}; this._bot.game.gameMode = v; }
   get age()                     { return Number(this._bot.tick || 0n); }
   set age(v)                    { /* engine sets age on PlayerState, not proxy */ }
   get depthStrider()            { return this._self.depthStrider || 0; }

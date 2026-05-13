@@ -1,8 +1,8 @@
 // physics/nxg-physics-utils-adapter.js
 //
 // Refactored adapter for @nxg-org/mineflayer-physics-util
-// Uses BotcraftPhysics engine with PlayerState and a SelfEntityProxy
-// that bridges the raw botState.self object with the engine’s expectations.
+// Generic packet state is handled in entities.js. This adapter only keeps
+// local movement/session state that is specific to the bot.
 //
 // Bedrock 1.21.130 specific:
 // - Attribute name mapping: 'movement' → 'minecraft:movement_speed'
@@ -10,19 +10,15 @@
 // - Abilities from update_abilities packet (including flySpeed, walkSpeed)
 // - World settings tuned for Bedrock (defaultSlipperiness 0.6, etc.)
 //
-// The adapter exports:
-//   createNxgPhysicsAdapter(options)  → { engine, mcData, simulateSelf }
-//   installBedrockMovementStateHandlers(botState, options)
-//
-// Usage:
-//   const { simulateSelf } = createNxgPhysicsAdapter({ mcData });
-//   const newState = simulateSelf(botState, controls, world);
-//   botState.self.position = newState.position;
-//   ...
+// The active export is installBedrockMovementStateHandlers(botState, options).
+// createNxgPhysicsAdapter is kept only as a fail-fast legacy export.
 
 const { Vec3 } = require('vec3');
 const mcDataLoader = require('minecraft-data');
-const SelfEntityProxy = require('./self-entity-proxy');
+const {
+  applyAttributes,
+  ensureEntityState
+} = require('../../entity-metadata');
 
 const {
   BotcraftPhysics,
@@ -33,7 +29,7 @@ const {
   PlayerPoses,
 } = require('@nxg-org/mineflayer-physics-util');
 
-const {  convInpToAxes } = require('@nxg-org/mineflayer-physics-util/dist/physics/states/playerState')
+const { convInpToAxes } = require('@nxg-org/mineflayer-physics-util/dist/physics/states/playerState')
 
 // ===================================================================
 // Logger helper (same as original)
@@ -257,6 +253,8 @@ function bedrockYawToNxgYaw(yawDegrees) {
 // Create the physics adapter
 // ===================================================================
 function createNxgPhysicsAdapter(options = {}) {
+  throw new Error('[physics] createNxgPhysicsAdapter is retired; current physics mutates botState.self directly')
+
   const dataVersion = options.physicsDataVersion || '1.21.1';
   const mcData = options.mcData || mcDataLoader(dataVersion);
 
@@ -444,364 +442,9 @@ function createNxgPhysicsAdapter(options = {}) {
 // ===================================================================
 function installBedrockMovementStateHandlers(botState, options = {}) {
   const client = botState.client;
-  const log = createLogger(options);
 
   if (!client) {
     throw new Error('[physics] Cannot install Bedrock movement handlers without botState.client');
-  }
-
-  // NOTE: We do NOT eagerly construct SelfEntityProxy here.
-  // botState.self is set by the entities plugin in the start_game handler.
-  // All handlers below guard with `if (!self) return;` so they are safe.
-
-  // ---- Helper to apply attribute from a packet ----
-  function applyBedrockAttributeToProxy(proxy, attr) {
-    if (!attr || !attr.name) return;
-    const name = String(attr.name);
-    const mappedName = mapBedrockAttributeName(name);
-
-    const nxgAttr = {
-      value: Number(attr.current ?? attr.value ?? attr.default ?? 0),
-      min: Number(attr.min ?? 0),
-      max: Number(attr.max ?? 1024),
-      default: Number(attr.default ?? attr.current ?? attr.value ?? 0),
-      modifiers: Array.isArray(attr.modifiers) ? attr.modifiers : [],
-    };
-
-    // Store both raw and mapped
-    proxy._self.bedrockAttributes[name] = attr;
-    proxy._self.attributes[mappedName] = nxgAttr;
-    // Also store under raw name for fallback
-    proxy._self.attributes[name] = nxgAttr;
-
-    log('attribute:applied', {
-      name,
-      mappedName,
-      value: nxgAttr.value,
-    });
-  }
-
-  // ---- Helper to apply abilities ----
-  function applyBedrockAbilitiesToProxy(proxy, layers) {
-    if (!Array.isArray(layers)) {
-      log('abilities:ignored:not_array', { type: typeof layers });
-      return;
-    }
-
-    const self = proxy._self;
-    self.abilityLayers = layers;
-
-    const baseLayer =
-      layers.find((layer) => layer?.type === 'base') ||
-      layers[0];
-
-    if (!baseLayer) {
-      log('abilities:ignored:no_base_layer');
-      return;
-    }
-
-    const enabledSet = Number(baseLayer.enabled ?? 0);
-    const allowedSet = Number(baseLayer.allowed ?? 0);
-
-    self.flying = !!(enabledSet & (1 << 9));
-    self.mayFly = !!(enabledSet & (1 << 10)) || !!(allowedSet & (1 << 10));
-    self.allowFlight = self.mayFly;
-
-    if (baseLayer.fly_speed !== undefined) self.flySpeed = Number(baseLayer.fly_speed);
-    if (baseLayer.vertical_fly_speed !== undefined) self.verticalFlySpeed = Number(baseLayer.vertical_fly_speed);
-    if (baseLayer.walk_speed !== undefined) self.walkSpeed = Number(baseLayer.walk_speed);
-
-    log('abilities:applied', {
-      flying: self.flying,
-      mayFly: self.mayFly,
-      flySpeed: self.flySpeed,
-      walkSpeed: self.walkSpeed,
-    });
-  }
-
-  // ---- Helper to apply a mob effect ----
-  function applyMobEffectToProxy(proxy, pkt) {
-    const self = proxy._self;
-    const eventId = Number(pkt.event_id);
-    const effectId = Number(pkt.effect_id);
-    const amplifier = Number(pkt.amplifier ?? 0);
-    const duration = Number(pkt.duration ?? 0);
-    const level = amplifier + 1;
-    const name = BEDROCK_EFFECT_NAMES[effectId] || `bedrockEffect${effectId}`;
-
-    if (eventId === 3) {
-      // Remove effect
-      delete self.rawEffects[effectId];
-      delete self.effects[effectId];
-      const stateKey = BEDROCK_EFFECT_TO_STATE_KEY[effectId];
-      if (stateKey) {
-        self[stateKey] = 0;
-      }
-      log('mob_effect:removed', { effectId, name });
-      return;
-    }
-
-    // Add or update
-    const effect = {
-      id: effectId,
-      name,
-      amplifier,
-      level,
-      duration,
-      particles: !!pkt.particles,
-      ambient: !!pkt.ambient,
-    };
-    self.rawEffects[effectId] = effect;
-    self.effects[effectId] = effect;
-    self.effects[name] = effect;
-
-    const stateKey = BEDROCK_EFFECT_TO_STATE_KEY[effectId];
-    if (stateKey) {
-      self[stateKey] = level;
-    }
-
-    log('mob_effect:applied', { effectId, name, level, duration });
-  }
-
-  // ---- Helper to apply entity metadata ----
-  function applyEntityMetadataToProxy(proxy, metadata) {
-    const self = proxy._self;
-    const entries = Array.isArray(metadata)
-      ? metadata
-      : Object.entries(metadata || {}).map(([key, value]) => ({ key, value }));
-
-    for (const entry of entries) {
-      if (!entry) continue;
-      const key = entry.key ?? entry.name;
-      const value = entry.value;
-
-      switch (key) {
-        case 'flags':
-        case 'flags_1':
-        case 'metadata_flags':
-        case 'metadata_flags_1': {
-          const flags = toBigIntSafe(value);
-          if (flags === null) break;
-          self.serverSneaking = !!((flags >> 1n) & 1n);
-          self.serverSprinting = !!((flags >> 3n) & 1n);
-          self.swimming = !!((flags >> 21n) & 1n);
-          self.gliding = !!((flags >> 33n) & 1n);
-          self.fallFlying = self.gliding;
-          log('metadata:flags', {
-            serverSneaking: self.serverSneaking,
-            serverSprinting: self.serverSprinting,
-            swimming: self.swimming,
-            gliding: self.gliding,
-          });
-          break;
-        }
-        case 'air':
-          self.air = Number(value);
-          break;
-        case 'pose':
-          self.pose = normalizePose(value);
-          break;
-        default:
-          break;
-      }
-    }
-  }
-
-  // ---- Client event listeners ----
-
-  // NOTE: start_game is the first packet that sets botState.self (via entities.js).
-  // By the time this handler runs, botState.self MUST be non-null because entities.js
-  // runs first (it was loaded earlier). We still guard defensively.
-  client.on('start_game', (pkt) => {
-    log('packet:start_game');
-    const self = botState.self;
-    if (!self) return;
-
-    // Pass botState (not self) to SelfEntityProxy constructor
-    const proxy = new SelfEntityProxy(botState, null); // engine not available yet
-    applyBedrockAbilitiesToProxy(proxy, pkt.abilities);
-
-    if (Array.isArray(pkt.attributes)) {
-      for (const attr of pkt.attributes) {
-        applyBedrockAttributeToProxy(proxy, attr);
-      }
-    }
-    ensureAttributeShape(self.attributes);
-  });
-
-  client.on('update_attributes', (pkt) => {
-    const self = botState.self;
-    if (!self) return;
-
-    if (!isSelfRuntime(botState, pkt.runtime_entity_id)) {
-      return;
-    }
-
-    // Pass botState (not self) to SelfEntityProxy constructor
-    const proxy = new SelfEntityProxy(botState, null);
-    const attrs = Array.isArray(pkt.attributes) ? pkt.attributes : [];
-
-    // Clear and rebuild
-    self.attributes = {};
-    self.bedrockAttributes = {};
-
-    for (const attr of attrs) {
-      applyBedrockAttributeToProxy(proxy, attr);
-    }
-    ensureAttributeShape(self.attributes);
-  });
-
-  client.on('update_abilities', (pkt) => {
-    const self = botState.self;
-    if (!self) return;
-
-    // Pass botState (not self) to SelfEntityProxy constructor
-    const proxy = new SelfEntityProxy(botState, null);
-    applyBedrockAbilitiesToProxy(proxy, pkt.abilities);
-  });
-
-  client.on('adventure_settings', (pkt) => {
-    const self = botState.self;
-    if (!self) return;
-
-    const flags = Number(pkt.flags ?? 0);
-    self.flying = !!(flags & 0x200);
-    self.mayFly = !!(flags & 0x40);
-    self.allowFlight = self.mayFly;
-  });
-
-  client.on('mob_effect', (pkt) => {
-    const self = botState.self;
-    if (!self) return;
-
-    if (!isSelfRuntime(botState, pkt.runtime_entity_id)) return;
-
-    // Pass botState (not self) to SelfEntityProxy constructor
-    const proxy = new SelfEntityProxy(botState, null);
-    applyMobEffectToProxy(proxy, pkt);
-  });
-
-  client.on('movement_effect', (pkt) => {
-    const self = botState.self;
-    if (!self) return;
-
-    if (!isSelfRuntime(botState, pkt.runtime_id)) return;
-
-    self.movementEffects[pkt.effect_type] = {
-      type: pkt.effect_type,
-      duration: Number(pkt.effect_duration || 0),
-      tick: pkt.tick,
-    };
-
-    if (isLikelyFireworkMovementEffect(pkt.effect_type)) {
-      self.fireworkRocketDuration = Number(pkt.effect_duration || 0);
-    }
-  });
-
-  client.on('set_entity_data', (pkt) => {
-    const self = botState.self;
-    if (!self) return;
-
-    const runtimeId = pkt.runtime_entity_id ?? pkt.runtime_id;
-    if (!isSelfRuntime(botState, runtimeId)) return;
-
-    // Pass botState (not self) to SelfEntityProxy constructor
-    const proxy = new SelfEntityProxy(botState, null);
-    applyEntityMetadataToProxy(proxy, pkt.metadata);
-  });
-
-  client.on('set_entity_motion', (pkt) => {
-    const self = botState.self;
-    if (!self) return;
-
-    const runtimeId = pkt.runtime_entity_id ?? pkt.runtime_id;
-    if (!isSelfRuntime(botState, runtimeId)) return;
-
-    const vel = pkt.velocity;
-    if (vel) {
-      self.velocity = new Vec3(Number(vel.x || 0), Number(vel.y || 0), Number(vel.z || 0));
-    }
-  });
-
-  client.on('player_action', (pkt) => {
-    const self = botState.self;
-    if (!self) return;
-
-    const runtimeId = pkt.runtime_entity_id ?? pkt.runtime_id;
-    if (runtimeId !== undefined && !isSelfRuntime(botState, runtimeId)) return;
-
-    switch (pkt.action) {
-      case 'start_sprint': self.serverSprinting = true; break;
-      case 'stop_sprint': self.serverSprinting = false; break;
-      case 'start_sneak': self.serverSneaking = true; break;
-      case 'stop_sneak': self.serverSneaking = false; break;
-      case 'start_glide': self.gliding = true; self.fallFlying = true; break;
-      case 'stop_glide': self.gliding = false; self.fallFlying = false; break;
-      case 'start_flying': self.flying = true; break;
-      case 'stop_flying': self.flying = false; break;
-      case 'jump': self.jumpQueued = true; break;
-      default: break;
-    }
-  });
-
-  client.on('update_player_game_type', (pkt) => {
-    const self = botState.self;
-    if (!self) return;
-    self.gamemode = pkt.gamemode;
-    self.gameMode = normalizeGameMode(pkt.gamemode);
-  });
-
-  client.on('change_dimension', (pkt) => {
-    const self = botState.self;
-    if (!self) return;
-    if (pkt.position) {
-      self.position = new Vec3(pkt.position.x, pkt.position.y, pkt.position.z);
-    }
-    self.velocity = new Vec3(0, 0, 0);
-    self.supportingBlockPos = null;
-    self.onGround = false;
-  });
-
-  client.on('respawn', (pkt) => {
-    const self = botState.self;
-    if (!self) return;
-    if (pkt.position) {
-      self.position = new Vec3(pkt.position.x, pkt.position.y, pkt.position.z);
-    }
-  });
-
-  client.on('set_health', (pkt) => {
-    const self = botState.self;
-    if (!self) return;
-    self.health = pkt.health;
-  });
-
-  client.on('set_spawn_position', (pkt) => {
-    const self = botState.self;
-    if (!self) return;
-    self.spawnPosition = pkt.spawn_position ?? pkt.position ?? pkt;
-  });
-
-  client.on('game_rules_changed', (pkt) => {
-    const self = botState.self;
-    if (!self) return;
-    self.gamerules = pkt.gamerules ?? pkt.rules ?? pkt;
-  });
-
-  // ---- Helper: is this runtime ID the local player? ----
-  function isSelfRuntime(botState, runtimeId) {
-    const rid = toBigIntSafe(runtimeId);
-    if (rid === null) return true;
-    const self = botState.self;
-    if (!self) return false;
-    const selfId = toBigIntSafe(self.runtimeId) || toBigIntSafe(botState.client?.entityId) || toBigIntSafe(botState.client?.entityRuntimeId);
-    return rid === selfId;
-  }
-
-  // ---- Helper: detect firework movement effect ----
-  function isLikelyFireworkMovementEffect(effectType) {
-    const s = String(effectType).toLowerCase();
-    return s.includes('firework') || s.includes('rocket') || effectType === 0;
   }
 }
 

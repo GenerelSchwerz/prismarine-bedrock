@@ -1,5 +1,15 @@
 const Vec3 = require('vec3');
 const { logAction } = require('../utils');
+const {
+  applyAbilities,
+  applyAdventureSettings,
+  applyAttributes,
+  applyEntityMetadata,
+  applyHealth,
+  applyMobEffect,
+  ensureEntityState,
+  normalizeGameMode
+} = require('../entity-metadata');
 
 /**
  * @param {import('../state')} botState
@@ -42,6 +52,9 @@ module.exports = (botState, options) => {
     entity.name = 'player';
     entity.displayName = 'self';
     entity.gamemode = packet.player_gamemode;
+    ensureEntityState(entity);
+    applyAttributes(entity, packet.attributes);
+    applyAbilities(entity, packet.abilities);
 
     botState.self = entity;
     botState.players.set(packet.runtime_entity_id, entity);
@@ -64,7 +77,7 @@ module.exports = (botState, options) => {
     entity.displayName = packet.username;
     entity.gamemode = packet.gamemode;
     entity.heldItem = packet.held_item ? Item.fromNotch(packet.held_item) : null;
-    entity.metadata = packet.metadata;
+    applyEntityMetadata(entity, packet.metadata);
     entity.permissionLevel = packet.permission_level;
     entity.commandPermission = packet.command_permission;
     entity.deviceOS = packet.device_os;
@@ -104,13 +117,8 @@ module.exports = (botState, options) => {
       entity.kind = 'mob';
     }
 
-    entity.metadata = packet.metadata;
-
-    if (packet.attributes) {
-      for (const attr of packet.attributes) {
-        if (attr.name === 'minecraft:health') entity.health = attr.value;
-      }
-    }
+    applyEntityMetadata(entity, packet.metadata);
+    applyAttributes(entity, packet.attributes);
 
     botState.entities.set(packet.runtime_id, entity);
     logAction('[→]', 'add_entity', { id: packet.runtime_id, type: entity.name, pos: entity.position });
@@ -127,7 +135,7 @@ module.exports = (botState, options) => {
     entity.kind = 'object';
     entity.name = 'item';
     entity.displayName = 'Item';
-    entity.metadata = packet.metadata;
+    applyEntityMetadata(entity, packet.metadata);
     entity.isFromFishing = packet.is_from_fishing;
 
     const item = Item.fromNotch(packet.item);
@@ -150,7 +158,9 @@ module.exports = (botState, options) => {
       entity.isValid = false;
       botState.entities.delete(key);
       botState.players.delete(key);
-      if (botState.self === entity) botState.self = null;
+      if (botState.self === entity) {
+        botState.self = null;
+      }
       logAction('[→]', 'remove_entity', { id: key });
       botState.emit('entityRemoved', entity);
     }
@@ -228,11 +238,20 @@ module.exports = (botState, options) => {
     // delta and tick are available but not stored by default
   });
 
+  botState.client.on('change_dimension', (packet) => {
+    const entity = botState.self;
+    if (!entity) return;
+    if (packet.position) entity.position.set(packet.position.x, packet.position.y, packet.position.z);
+    entity.velocity.set(0, 0, 0);
+    entity.supportingBlockPos = null;
+    entity.onGround = false;
+  });
+
   // ========== Data & Motion ==========
   botState.client.on('set_entity_data', (packet) => {
     const entity = findEntity(packet.runtime_entity_id);
     if (!entity) return;
-    entity.metadata = packet.metadata;
+    applyEntityMetadata(entity, packet.metadata);
   });
 
   botState.client.on('set_entity_motion', (packet) => {
@@ -248,12 +267,121 @@ module.exports = (botState, options) => {
     botState.emit('entityEvent', entity, packet.event_id, packet.data);
   });
 
+  botState.client.on('player_action', (packet) => {
+    const runtimeId = packet.runtime_entity_id ?? packet.runtime_id;
+    const entity = runtimeId === undefined ? botState.self : findEntity(runtimeId);
+    if (!entity) return;
+
+    switch (packet.action) {
+      case 'start_sprint':
+        entity.serverSprinting = true;
+        entity.sprinting = true;
+        break;
+      case 'stop_sprint':
+        entity.serverSprinting = false;
+        entity.sprinting = false;
+        break;
+      case 'start_sneak':
+        entity.serverSneaking = true;
+        entity.sneaking = true;
+        entity.inferredPose = 'sneaking';
+        if (!entity.pose || entity.pose === 'standing') entity.pose = 'sneaking';
+        break;
+      case 'stop_sneak':
+        entity.serverSneaking = false;
+        entity.sneaking = false;
+        entity.inferredPose = 'standing';
+        if (entity.pose === 'sneaking') entity.pose = 'standing';
+        break;
+      case 'start_swimming':
+        entity.swimming = true;
+        entity.inferredPose = 'swimming';
+        entity.pose = 'swimming';
+        break;
+      case 'stop_swimming':
+        entity.swimming = false;
+        entity.inferredPose = 'standing';
+        if (entity.pose === 'swimming') entity.pose = 'standing';
+        break;
+      case 'start_glide':
+        entity.gliding = true;
+        entity.fallFlying = true;
+        entity.inferredPose = 'fall_flying';
+        entity.pose = 'fall_flying';
+        break;
+      case 'stop_glide':
+        entity.gliding = false;
+        entity.fallFlying = false;
+        entity.inferredPose = 'standing';
+        if (entity.pose === 'fall_flying') entity.pose = 'standing';
+        break;
+      case 'start_flying':
+        entity.flying = true;
+        break;
+      case 'stop_flying':
+        entity.flying = false;
+        break;
+      case 'jump':
+        entity.jumpQueued = true;
+        break;
+      default:
+        break;
+    }
+
+    botState.emit('entityAction', entity, packet.action, packet);
+  });
+
   botState.client.on('update_attributes', (packet) => {
     const entity = findEntity(packet.runtime_entity_id);
     if (!entity) return;
-    for (const attr of packet.attributes) {
-      if (attr.name === 'minecraft:health') entity.health = attr.current;
+    applyAttributes(entity, packet.attributes);
+  });
+
+  botState.client.on('update_abilities', (packet) => {
+    if (!botState.self) return;
+    applyAbilities(botState.self, packet.abilities);
+  });
+
+  botState.client.on('adventure_settings', (packet) => {
+    if (!botState.self) return;
+    applyAdventureSettings(botState.self, packet);
+  });
+
+  botState.client.on('update_player_game_type', (packet) => {
+    if (!botState.self) return;
+    botState.self.gamemode = packet.gamemode;
+    botState.game.gameMode = normalizeGameMode(packet.gamemode);
+  });
+
+  botState.client.on('mob_effect', (packet) => {
+    const entity = findEntity(packet.runtime_entity_id);
+    if (!entity) return;
+    applyMobEffect(entity, packet);
+    botState.emit('entityEffect', entity, packet);
+  });
+
+  botState.client.on('movement_effect', (packet) => {
+    const runtimeId = packet.runtime_id ?? packet.runtime_entity_id;
+    const entity = findEntity(runtimeId);
+    if (!entity) return;
+
+    ensureEntityState(entity);
+    entity.movementEffects[packet.effect_type] = {
+      type: packet.effect_type,
+      duration: Number(packet.effect_duration || 0),
+      tick: packet.tick
+    };
+
+    if (isLikelyFireworkMovementEffect(packet.effect_type)) {
+      entity.fireworkRocketDuration = Number(packet.effect_duration || 0);
     }
+
+    botState.emit('entityMovementEffect', entity, packet);
+  });
+
+  botState.client.on('set_health', (packet) => {
+    if (!botState.self) return;
+    applyHealth(botState.self, packet);
   });
 
   botState.client.on('set_entity_link', (packet) => {
@@ -308,4 +436,9 @@ module.exports = (botState, options) => {
 
     return best;
   };
+
+  function isLikelyFireworkMovementEffect(effectType) {
+    const s = String(effectType).toLowerCase();
+    return s.includes('firework') || s.includes('rocket') || effectType === 0;
+  }
 };

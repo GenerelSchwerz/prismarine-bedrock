@@ -143,9 +143,26 @@ rg -n "bedrockSlotToJava|javaSlotToBedrock|ContainerSlotType" temp-geyser-inspec
 
 - Before creating or changing tests, read `test/rules.md` for repository-specific test rules.
 - When testing, the Bedrock server keeps the player connected for about 10-15 seconds after disconnect. If doing quick test successions, wait 3-5 seconds before trying after the first run.
-- Avoid running with unfiltered `DEBUG=minecraft-protocol` during normal test iteration because the 20 TPS `player_auth_input` spam consumes too much context. If packet debug is needed, filter out `player_auth_input`, for example:
+- If a live test failure is unclear after the first focused run, inspect packet traffic before guessing or repeatedly changing tests. Run the test with `DEBUG=minecraft-protocol` to see every packet sent and received by the protocol layer.
+- Avoid leaving unfiltered packet debug in normal iteration because the 20 TPS `player_auth_input` spam consumes too much context. Prefer filtering it out while watching the console:
 
 ```powershell
 $env:DEBUG='minecraft-protocol'
 node scripts/test_crafting.js 2>&1 | Select-String -NotMatch 'player_auth_input'
 ```
+
+- For longer investigations, log packet debug to a file and inspect it with `rg` or an editor:
+
+```powershell
+$env:DEBUG='minecraft-protocol'
+node scripts/test_crafting.js *> .\logs\test-crafting-debug.log
+rg -n "item_stack|inventory|container|craft|error" .\logs\test-crafting-debug.log
+```
+
+- Create the `logs` directory first if it does not exist:
+
+```powershell
+New-Item -ItemType Directory -Force .\logs
+```
+
+- Keep the debug log local investigation output unless the test explicitly asserts on it. Do not commit large packet logs.

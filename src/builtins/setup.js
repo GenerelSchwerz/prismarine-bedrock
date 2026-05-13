@@ -45,7 +45,7 @@ module.exports = (botState, options) => {
       pkt.player_position.x, pkt.player_position.y, pkt.player_position.z
     );
     botState.spawnRotation = pkt.rotation;
-    botState.playerGamemode = pkt.player_gamemode;
+    botState.game.gameMode = pkt.player_gamemode;
     botState.playerHealth = 20;
     botState.isDead = false;
 
@@ -57,7 +57,7 @@ module.exports = (botState, options) => {
       runtime_entity_id: String(pkt.runtime_entity_id),
       pos: botState.spawnPosition,
       rotation: botState.spawnRotation,
-      gamemode: botState.playerGamemode,
+      gamemode: botState.game.gameMode,
     });
   });
 
@@ -122,6 +122,10 @@ module.exports = (botState, options) => {
       botState.isDead = false;
       logAction('[→]', 'set_health -> alive');
     }
+  });
+
+  client.on('game_rules_changed', (packet) => {
+    botState.gamerules = packet.gamerules ?? packet.rules ?? packet;
   });
 
   client.on('update_attributes', (packet) => {
@@ -248,15 +252,4 @@ module.exports = (botState, options) => {
       }, 1500);
     }, delay);
   }
-
-  // Expose for debugging
-  botState.fallbackRespawn = function () {
-    if (!botState.isDead) return;
-    logAction('[→]', 'respawn(state=0) FALLBACK');
-    client.queue('respawn', {
-      position: { x: 0, y: 0, z: 0 },
-      state: 0,
-      runtime_entity_id: client.entityId,
-    });
-  };
 };

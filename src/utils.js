@@ -169,7 +169,7 @@ function toBedrockItem (item) {
 }
 
 function selfRuntimeEntityId (botState) {
-  return botState.self?.runtimeId ?? botState.entity?.runtime_entity_id ?? botState.client?.entityId
+  return botState.self?.runtimeId ?? botState.client?.entityId
 }
 
 function fullContainerName (containerId = 'inventory') {

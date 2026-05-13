@@ -8,7 +8,8 @@ function installControls(botState, C) {
     right: false,
     jump: false,
     sprint: false,
-    sneak: false
+    sneak: false,
+    swim: false
   };
   const previousControlState = { ...controlState };
 
@@ -57,6 +58,8 @@ function installControls(botState, C) {
       stop_sprinting: C.BIT_STOP_SPRINTING,
       start_sneaking: C.BIT_START_SNEAKING,
       stop_sneaking: C.BIT_STOP_SNEAKING,
+      start_swimming: C.BIT_START_SWIMMING,
+      stop_swimming: C.BIT_STOP_SWIMMING,
       start_jumping: C.BIT_START_JUMPING,
       received_server_data: C.BIT_RECEIVED_SERVER_DATA,
       horizontal_collision: C.BIT_HORIZONTAL_COLLISION,
@@ -96,6 +99,8 @@ function installControls(botState, C) {
     setFlag('stop_sprinting', false);
     setFlag('start_sneaking', false);
     setFlag('stop_sneaking', false);
+    setFlag('start_swimming', false);
+    setFlag('stop_swimming', false);
     setFlag('start_jumping', false);
   }
 
@@ -122,6 +127,8 @@ function installControls(botState, C) {
     setFlag('stop_sprinting', !sprinting && previousSprinting);
     setFlag('start_sneaking', controlState.sneak && !previousControlState.sneak);
     setFlag('stop_sneaking', !controlState.sneak && previousControlState.sneak);
+    setFlag('start_swimming', controlState.swim && !previousControlState.swim);
+    setFlag('stop_swimming', !controlState.swim && previousControlState.swim);
     setFlag('start_jumping', controlState.jump && !previousControlState.jump);
     setFlag('camera_relative_movement_enabled', false);
     setFlag('block_action', false);
@@ -132,6 +139,7 @@ function installControls(botState, C) {
     self.analogueMoveVector = moveVector;
     self.sprinting = sprinting;
     self.sneaking = controlState.sneak;
+    self.swimming = controlState.swim;
 
     for (const key of Object.keys(controlState)) {
       previousControlState[key] = controlState[key];

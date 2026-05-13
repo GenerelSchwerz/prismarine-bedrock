@@ -21,7 +21,9 @@ class BotState extends EventEmitter {
     this.playerHealth = null;
     this.spawnPosition = null;
     this.spawnRotation = null;
-    this.playerGamemode = null;
+    this.game = {
+      gameMode: null
+    };
     this.chunkCount = 0;
 
     // Plugin system

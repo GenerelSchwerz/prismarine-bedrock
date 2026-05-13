@@ -97,13 +97,16 @@ function withLayer (pos, layer = 0) {
 }
 
 function getStateId (registry, runtimeId) {
-  return registry.blocksByRuntimeId?.[runtimeId]?.stateId
+  return registry.blocksByRuntimeId?.[runtimeId]?.stateId ??
+    (registry.blocksByStateId?.[runtimeId] ? runtimeId : undefined)
 }
 
 function getBlockRuntimeId (botState, pos) {
   try {
     const block = botState.world.getBlock(pos)
-    if (block?.stateId != null) return block.stateId
+    if (block?.stateId != null) {
+      return botState.registry.blockNetworkRuntimeIdsByStateId?.[block.stateId] ?? block.stateId
+    }
   } catch (err) {
     logAction('[utils]', 'getBlockRuntimeId error', { pos: pos.toString(), msg: err.message })
   }

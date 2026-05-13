@@ -61,18 +61,25 @@ function normalizeTag (tag = '') {
   return tag.replace(/^minecraft:/, '')
 }
 
+function ingredientMetadataMatchesItem (ingredientMetadata, itemMetadata) {
+  return ingredientMetadata == null ||
+    ingredientMetadata === 0 ||
+    ingredientMetadata === 32767 ||
+    ingredientMetadata === itemMetadata
+}
+
 function ingredientMatchesItem (botState, ingredient, item) {
   if (!ingredient || !item) return false
 
   if (ingredient.type === 'int_id_meta' || ingredient.network_id != null) {
     if (ingredient.network_id !== item.type) return false
-    return ingredient.metadata == null || ingredient.metadata === 0 || ingredient.metadata === item.metadata
+    return ingredientMetadataMatchesItem(ingredient.metadata, item.metadata)
   }
 
   if (ingredient.type === 'string_id_meta' || ingredient.name) {
     const wanted = String(ingredient.name).replace(/^minecraft:/, '')
     if (wanted !== itemName(botState, item)) return false
-    return ingredient.metadata == null || ingredient.metadata === item.metadata
+    return ingredientMetadataMatchesItem(ingredient.metadata, item.metadata)
   }
 
   if (ingredient.type === 'item_tag' || ingredient.tag) {
@@ -493,7 +500,7 @@ async function planWithCraftingUtil (botState, wantedItem) {
   }
 }
 
-module.exports = async (botState, options = {}) => {
+async function injectCrafting (botState, options = {}) {
   const craftingRegistry = options.craftingRecipeRegistry ??
     options.craftingRegistry ??
     registryLoader(`bedrock_${options.version ?? botState.options?.version}`)
@@ -557,4 +564,10 @@ module.exports = async (botState, options = {}) => {
   }
 
   logAction('[craft]', 'crafting plugin loaded')
+}
+
+module.exports = injectCrafting
+module.exports._craftingHelpers = {
+  ingredientMatchesItem,
+  ingredientMetadataMatchesItem,
 }

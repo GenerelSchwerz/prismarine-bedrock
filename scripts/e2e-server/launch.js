@@ -56,7 +56,7 @@ async function launchTargets(targetInstances, options) {
 
 function serverReadyPattern(instance) {
   if (instance.type === "java") return /\bDone \([^)]+\)! For help, type "help"/;
-  return /\b(Server started\.|IPv4 supported, port:|IPv6 supported, port:|Done \([^)]+\)!)/;
+  return /\bServer started\./;
 }
 
 module.exports = { launchTargets };

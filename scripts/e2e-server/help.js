@@ -27,7 +27,7 @@ function printHelp() {
     "  E2E_JAVA_WORLDS         Comma-separated Java world types, e.g. normal,superflat",
     "  E2E_ENDSTONE_COUNT      Number of Endstone/BDS instances, default 1",
     "  E2E_ENDSTONE_WORLDS     Comma-separated Endstone world types, e.g. normal,superflat",
-    "  E2E_ENDSTONE_PACKAGE    uv package spec, default endstone",
+    "  E2E_ENDSTONE_PACKAGE    uv package spec, default endstone==0.10.18 for Bedrock 1.21.130",
     "  E2E_GEYSER_EXTENSIONS   Comma-separated Geyser extensions: astrox, boar, github:owner/repo, or URL",
     "  E2E_AUTO_OP             Auto-op Java/Geyser players on join, default 1; set 0 to disable",
     "",

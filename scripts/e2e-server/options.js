@@ -3,6 +3,8 @@
 const fs = require("fs");
 const path = require("path");
 
+const DEFAULT_ENDSTONE_PACKAGE = "endstone==0.10.18";
+
 function parseCli(argv) {
   const command = argv[2] || "help";
   const options = parseOptions(argv.slice(3));
@@ -25,7 +27,7 @@ function parseOptions(args) {
     world: process.env.E2E_WORLD || "normal",
     javaCount: null,
     endstoneCount: null,
-    endstonePackage: process.env.E2E_ENDSTONE_PACKAGE || "endstone",
+    endstonePackage: process.env.E2E_ENDSTONE_PACKAGE || DEFAULT_ENDSTONE_PACKAGE,
     paperVersion: process.env.E2E_PAPER_VERSION || "latest",
     javaBin: process.env.E2E_JAVA_BIN || defaultJavaBin(),
     geyserAuthType: process.env.E2E_GEYSER_AUTH_TYPE || "offline",

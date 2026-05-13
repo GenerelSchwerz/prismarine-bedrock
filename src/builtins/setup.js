@@ -33,6 +33,15 @@ module.exports = (botState, options) => {
 
   registry.loadItemStates = loadItemStates;
 
+  function loadBlockNetworkRuntimeIds() {
+    registry.blockNetworkRuntimeIdsByStateId = {};
+
+    for (const [runtimeId, block] of Object.entries(registry.blocksByRuntimeId || {})) {
+      if (block?.stateId == null) continue;
+      registry.blockNetworkRuntimeIdsByStateId[block.stateId] = Number(runtimeId);
+    }
+  }
+
   // ── Initial connection ──
   client.on('connect_allowed', () => {
     logAction('[→]', 'connect', { host: options.host, port: options.port });
@@ -51,6 +60,7 @@ module.exports = (botState, options) => {
 
     pkt.itemstates ??= [];
     registry.handleStartGame(pkt);
+    loadBlockNetworkRuntimeIds();
 
     logAction('[←]', 'start_game', {
       entity_id: String(pkt.entity_id),
@@ -58,6 +68,7 @@ module.exports = (botState, options) => {
       pos: botState.spawnPosition,
       rotation: botState.spawnRotation,
       gamemode: botState.game.gameMode,
+      block_network_ids_are_hashes: !!pkt.block_network_ids_are_hashes,
     });
   });
 

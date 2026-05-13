@@ -5,7 +5,21 @@ const os = require('os')
 const path = require('path')
 
 const repoRoot = path.resolve(__dirname, '..', '..')
-const lockPath = path.join(repoRoot, process.env.TEST_LOCK_FILE || '.test-lock.json')
+
+function lockScope () {
+  return process.env.E2E_SERVER_TARGET ||
+    (process.env.PORT ? `port-${process.env.PORT}` : null) ||
+    'default'
+}
+
+function safeLockScope (scope) {
+  return String(scope).replace(/[^A-Za-z0-9_.-]/g, '_')
+}
+
+const lockPath = path.join(
+  repoRoot,
+  process.env.TEST_LOCK_FILE || `.test-lock.${safeLockScope(lockScope())}.json`
+)
 
 function isProcessAlive (pid) {
   if (!Number.isInteger(pid) || pid <= 0) return false
@@ -41,7 +55,7 @@ function lockError (lock) {
 
   return new Error([
     `Test lock already exists: ${lockPath}`,
-    'Another agent may be using the single Bedrock test server.',
+    `Another agent may be using this Bedrock test server scope: ${lockScope()}.`,
     'Wait for that run to finish, or remove the lock only after confirming no test is active.',
     'Existing lock:',
     details
@@ -56,7 +70,8 @@ function acquireTestLock () {
     hostname: os.hostname(),
     startedAt: new Date().toISOString(),
     cwd: process.cwd(),
-    command: process.argv.join(' ')
+    command: process.argv.join(' '),
+    scope: lockScope()
   }
 
   while (true) {
@@ -96,4 +111,3 @@ exports.mochaHooks = {
     activeLock = null
   }
 }
-

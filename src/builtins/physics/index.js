@@ -30,6 +30,22 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
   const chunkWaitTimeoutMs = options.chunkWaitTimeoutMs ?? 10000;
   const chunkWaitVerticalSectionRadius = options.chunkWaitVerticalSectionRadius ?? 1;
 
+  function isTeleportMove(mode) {
+    return mode === 1 || mode === 2 || mode === 'teleport' || mode === 'pitch'
+  }
+
+  function hasSupportingBlock() {
+    const self = botState.self;
+    if (!self?.position || !botState.world?.sync?.getBlock) return false;
+
+    try {
+      const below = botState.world.sync.getBlock(self.position.offset(0, -0.1, 0).floored());
+      return below?.boundingBox === 'block' || (Array.isArray(below?.shapes) && below.shapes.length > 0);
+    } catch {
+      return false;
+    }
+  }
+
   async function tickSimulation() {
     const self = botState.self;
     if (!self) return;
@@ -38,8 +54,14 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
 
     physics.simulateSelf(botState, controls.getControlStateSnapshot(), world, C);
 
+    if (!self.verticalCollision && !self.onGround && hasSupportingBlock()) {
+      self.verticalCollision = true;
+      self.isCollidedVertically = true;
+      self.onGround = true;
+    }
+
     controls.setFlag('horizontal_collision', !!self.horizontalCollision);
-    controls.setFlag('vertical_collision', !!self.verticalCollision);
+    controls.setFlag('vertical_collision', !!(self.verticalCollision || self.onGround));
 
     updateEyeDeltaAndTick(self, C);
   }
@@ -223,9 +245,10 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
     botState.self.headYaw = pkt.head_yaw;
     botState.self.onGround = !!pkt.on_ground;
 
-    if (pkt.mode === 1 || pkt.mode === 2) {
+    if (isTeleportMove(pkt.mode)) {
       botState.self.velocity.set(0, 0, 0);
       botState.self.unvalidatedPosition = botState.self.position.clone();
+      botState.self._handledTeleportPending = true;
     }
 
     movementPackets.resetRotation();

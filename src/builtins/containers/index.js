@@ -61,6 +61,11 @@ function lookPositionForFace (pos, face) {
   }
 }
 
+function lookPositionForClick (pos, clickPos) {
+  const target = pos instanceof Vec3 ? pos : new Vec3(pos.x, pos.y, pos.z)
+  return target.offset(clickPos.x, clickPos.y, clickPos.z)
+}
+
 function openHeldItemRaw (item, itemClass) {
   const raw = { ...itemToRaw(item, itemClass) }
   delete raw.stack_id
@@ -206,7 +211,7 @@ module.exports = function containersPlugin (botState, options = {}) {
     const playerPos = botState.self?.position?.offset?.(0, 1.62, 0) ??
       botState.self?.position ??
       botState.spawnPosition
-    const clickPos = rayClickPositionForFace(
+    const clickPos = opts.clickPosition ?? rayClickPositionForFace(
       playerPos,
       target,
       face,
@@ -214,12 +219,6 @@ module.exports = function containersPlugin (botState, options = {}) {
       botState.self?.pitch ?? 0
     ) ?? clickPositionForFace(face)
     const runtimeEntityId = client.entityId ?? botState.self?.runtimeId ?? 0n
-
-    client.queue('interact', {
-      action_id: 'mouse_over_entity',
-      target_entity_id: 0n,
-      has_position: false
-    })
 
     client.queue('player_action', {
       runtime_entity_id: runtimeEntityId,
@@ -327,10 +326,13 @@ module.exports = function containersPlugin (botState, options = {}) {
     }, opts.timeoutMs ?? openTimeoutMs)
 
     if (typeof botState.lookAt === 'function' && opts.look !== false) {
-      botState.lookAt(lookPositionForFace(target, face), true)
+      const lookPosition = opts.lookPosition ||
+        (opts.clickPosition ? lookPositionForClick(target, opts.clickPosition) : lookPositionForFace(target, face))
+      botState.lookAt(lookPosition, false)
+      if (typeof botState.waitForLookComplete === 'function') {
+        await botState.waitForLookComplete()
+      }
       await sleep(opts.lookSettleMs ?? 100)
-      botState.syncLook?.()
-      await sleep(opts.lookSyncSettleMs ?? 50)
     }
 
     await ensureContainerOpenHeldSlot(opts)

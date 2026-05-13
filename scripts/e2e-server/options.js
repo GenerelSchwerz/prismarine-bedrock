@@ -3,7 +3,7 @@
 const fs = require("fs");
 const path = require("path");
 
-const DEFAULT_ENDSTONE_PACKAGE = "endstone==0.10.18";
+const DEFAULT_ENDSTONE_PACKAGE = "endstone";
 
 function parseCli(argv) {
   const command = argv[2] || "help";
@@ -31,6 +31,8 @@ function parseOptions(args) {
     endstonePackage: process.env.E2E_ENDSTONE_PACKAGE || DEFAULT_ENDSTONE_PACKAGE,
     endstonePacketRecorder: process.env.E2E_ENDSTONE_PACKET_RECORDER === "1",
     endstoneScenario: process.env.E2E_ENDSTONE_SCENARIO || null,
+    endstonePacketRecorderPlayers: process.env.E2E_PACKET_RECORDER_PLAYERS || "",
+    endstonePacketRecorderSplitByPlayer: process.env.E2E_PACKET_RECORDER_SPLIT_BY_PLAYER === "1",
     paperVersion: process.env.E2E_PAPER_VERSION || "latest",
     javaBin: process.env.E2E_JAVA_BIN || defaultJavaBin(),
     geyserAuthType: process.env.E2E_GEYSER_AUTH_TYPE || "offline",
@@ -61,6 +63,14 @@ function parseOptions(args) {
       options.endstonePackage = arg.slice("--endstone-package=".length);
     } else if (arg === "--endstone-packet-recorder") {
       options.endstonePacketRecorder = true;
+    } else if (arg === "--endstone-packet-recorder-player") {
+      if (!args[index + 1]) throw new Error("--endstone-packet-recorder-player requires a value.");
+      options.endstonePacketRecorderPlayers = appendCsv(options.endstonePacketRecorderPlayers, args[index + 1]);
+      index += 1;
+    } else if (arg.startsWith("--endstone-packet-recorder-player=")) {
+      options.endstonePacketRecorderPlayers = appendCsv(options.endstonePacketRecorderPlayers, arg.slice("--endstone-packet-recorder-player=".length));
+    } else if (arg === "--endstone-packet-recorder-split-by-player") {
+      options.endstonePacketRecorderSplitByPlayer = true;
     } else if (arg === "--endstone-scenario") {
       if (!args[index + 1]) throw new Error("--endstone-scenario requires a value.");
       options.endstoneScenario = args[index + 1];
@@ -179,6 +189,10 @@ function defaultJavaBin() {
 
 function splitCsv(raw) {
   return raw.split(",").map((value) => value.trim()).filter(Boolean);
+}
+
+function appendCsv(existing, value) {
+  return [...splitCsv(existing || ""), ...splitCsv(value || "")].join(",");
 }
 
 function normalizeCleanScope(value) {

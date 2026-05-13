@@ -62,6 +62,7 @@ function installControls(botState, C) {
       stop_swimming: C.BIT_STOP_SWIMMING,
       start_jumping: C.BIT_START_JUMPING,
       received_server_data: C.BIT_RECEIVED_SERVER_DATA,
+      block_breaking_delay_enabled: C.BIT_BLOCK_BREAKING_DELAY_ENABLED,
       horizontal_collision: C.BIT_HORIZONTAL_COLLISION,
       vertical_collision: C.BIT_VERTICAL_COLLISION,
       start_using_item: C.BIT_START_USING_ITEM,
@@ -130,6 +131,7 @@ function installControls(botState, C) {
     setFlag('start_swimming', controlState.swim && !previousControlState.swim);
     setFlag('stop_swimming', !controlState.swim && previousControlState.swim);
     setFlag('start_jumping', controlState.jump && !previousControlState.jump);
+    setFlag('block_breaking_delay_enabled', true);
     setFlag('camera_relative_movement_enabled', false);
     setFlag('block_action', false);
 

@@ -61,6 +61,8 @@ function endstoneEnv(instance, options = {}) {
   const extra = {};
   if (options.packetRecorder || options.scenario) extra.E2E_ENDSTONE_PACKET_RECORDER = "1";
   if (options.scenario) extra.E2E_ENDSTONE_SCENARIO = options.scenario;
+  if (options.packetRecorderPlayers) extra.E2E_PACKET_RECORDER_PLAYERS = options.packetRecorderPlayers;
+  if (options.packetRecorderSplitByPlayer) extra.E2E_PACKET_RECORDER_SPLIT_BY_PLAYER = "1";
   if (options.repoRoot) extra.E2E_REPO_ROOT = options.repoRoot;
   if (os.platform() !== "win32") return { LD_LIBRARY_PATH: instance.dir, ...extra };
 

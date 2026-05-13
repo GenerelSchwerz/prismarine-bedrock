@@ -314,7 +314,7 @@ The template is created by running Endstone once against that cache folder. Inst
 By default, Endstone installs the published `endstone` package through `uv pip`. Pin an older Endstone package when you need the BDS version bundled by that Endstone release:
 
 ```powershell
-node scripts/e2e-servers.js launch --target=endstone --endstone-package=endstone==0.10.18
+node scripts/e2e-servers.js launch --target=endstone --endstone-package=endstone
 ```
 
 The launcher records the selected package in the Endstone instance and shared BDS template. If the package spec changes, it rebuilds the generated Endstone instance and template so the existing BDS executable is not silently reused.
@@ -352,6 +352,14 @@ node scripts/e2e-servers.js launch --java-count=2 --endstone-count=2
 ```
 
 The launcher prefixes each process line with the instance name, such as `java-1`, `java-2`, `endstone-1`, or `endstone-2`. Endstone is launched with `--server-folder <instance-dir> --no-confirm --interactive` so it manages BDS in that working directory and keeps a console open for live commands. Press `Ctrl+C` in the launcher terminal to stop all processes it started.
+
+For Endstone packet recording, scope the hook when another Bedrock client may join during a bot run:
+
+```powershell
+node scripts/e2e-servers.js launch --target=endstone --world=superflat --endstone-packet-recorder --endstone-packet-recorder-player=OpBot
+```
+
+Use `--endstone-packet-recorder-player=NAME` repeatedly, or pass a comma-separated value, to record only selected players. Use `--endstone-packet-recorder-split-by-player` to keep the combined recorder file and also write clean files such as `packet-recorder.OpBot.jsonl` beside it. The environment variables are `E2E_PACKET_RECORDER_PLAYERS` and `E2E_PACKET_RECORDER_SPLIT_BY_PLAYER=1`.
 
 ## Structured Logs
 

@@ -41,6 +41,8 @@ async function launchTargets(targetInstances, options) {
         serverFolder: instance.dir,
         packetRecorder: options.endstonePacketRecorder,
         scenario: options.endstoneScenario,
+        packetRecorderPlayers: options.endstonePacketRecorderPlayers,
+        packetRecorderSplitByPlayer: options.endstonePacketRecorderSplitByPlayer,
         repoRoot: ROOT
       }), { readyPattern: serverReadyPattern(instance) });
     }

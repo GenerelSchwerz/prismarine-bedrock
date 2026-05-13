@@ -4,11 +4,11 @@ const assert = require('assert')
 const BotState = require('../../src/state')
 const { Vec3 } = require('vec3')
 const {
+  bedrockPlayerName,
   clearPlayer,
   givePlayer,
   sendCommand,
-  setPlayerGamemode,
-  teleportPlayer
+  setPlayerGamemode
 } = require('../helpers/commands')
 const {
   HOST,
@@ -134,7 +134,10 @@ async function setupCraftingWorld (botState) {
   await markLocalArea(botState, tablePos)
   await sleep(SETUP_DELAY_MS)
 
-  teleportPlayer(botState, USERNAME, standPos.x, standPos.y, standPos.z)
+  sendCommand(
+    botState,
+    `tp ${bedrockPlayerName(USERNAME)} ${standPos.x.toFixed(1)} ${standPos.y.toFixed(1)} ${standPos.z.toFixed(1)}`
+  )
   await waitForBotPosition(botState, standPos, 'next to crafting table')
 }
 

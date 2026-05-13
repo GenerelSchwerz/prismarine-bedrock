@@ -8,16 +8,29 @@ const { createDeserializer } = require("bedrock-protocol/src/transforms/serializ
 const { bedrockVersionFromEnv, normalizeBedrockVersion } = require("../src/version");
 
 const PLAYER_AUTH_INPUT_PACKET_ID = 0x90;
+const DEFAULT_AUTH_INPUT_DELTA_IGNORE = [
+  "tick",
+  "camera_orientation",
+  "interact_rotation",
+  "pitch",
+  "yaw",
+  "head_yaw",
+  "position",
+  "delta",
+  "move_vector",
+  "analogue_move_vector",
+  "raw_move_vector"
+];
 
 function usage() {
   const script = path.relative(process.cwd(), __filename);
   console.error(`Usage:
-  node ${script} <recording.jsonl> [version] [--packet-ids=46,147,148] [--player-auth-input-delta-ignore=tick] [--full] [--out=logs/decoded.jsonl]
+  node ${script} <recording.jsonl> [version] [--packet-ids=46,147,148] [--player-auth-input-delta-ignore=tick,yaw] [--full] [--out=logs/decoded.jsonl]
 
 Reads JSONL from the Endstone packet recorder and writes decoded packet JSONL to stdout.
 Default output is a compact summary for agent/human analysis; use --full for full decoded packet params.
 Use --out to write decoded JSONL to a file that can be searched with rg without loading it into chat.
-player_auth_input is printed as deltas: the first packet for each stream, then only decoded state changes.
+player_auth_input is printed as semantic deltas: the first packet for each stream, then only non-ignored decoded state changes.
 `);
 }
 
@@ -29,7 +42,7 @@ if (!file || file === "--help" || file === "-h") {
 }
 
 let versionArg = null;
-let playerAuthInputDeltaIgnore = new Set(["tick"]);
+let playerAuthInputDeltaIgnore = new Set(DEFAULT_AUTH_INPUT_DELTA_IGNORE);
 let packetIds = null;
 let fullOutput = false;
 let outFile = null;

@@ -4,10 +4,6 @@
 
 When creating new tests that teleport a player or bot, ensure there is a block beneath the destination position before teleporting there. This prevents tests from depending on falling, void behavior, or timing-sensitive ground placement after the teleport.
 
-## Test Timing
-
-When running tests back to back, wait 3-5 seconds before starting the next run. The Bedrock server can keep the previous player connection alive for about 10-15 seconds after disconnect, so immediate reruns can interfere with each other.
-
 ## Static And Live Tests
 
 Put tests that do not connect to the shared Bedrock server under `test/static/`. Run them with `pnpm run test:static`. This is also the default `pnpm test` suite.

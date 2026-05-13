@@ -289,8 +289,6 @@ rg -n "bedrockSlotToJava|javaSlotToBedrock|ContainerSlotType" temp-geyser-inspec
 - Parallel Java/Geyser live shards: `pnpm run test:live:e2e:java:parallel`
 - All default tests: `pnpm test`
 
-Before live reruns, wait 3-5 seconds. The Bedrock server can keep the previous player connection alive for about 10-15 seconds after disconnect.
-
 If a live packet failure is unclear after the first focused run, inspect packet traffic before guessing:
 
 ```powershell

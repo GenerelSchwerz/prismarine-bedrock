@@ -1,5 +1,43 @@
 const { Vec3 } = require('vec3')
-const { deltaDeg, logAction, numberOrZero } = require('../../utils')
+const { deltaDeg, logAction, normalizeInputData, numberOrZero } = require('../../utils')
+
+const INPUT_FLAG_NAME_BY_CONSTANT = {
+  BIT_JUMPING: 'jumping',
+  BIT_AUTO_JUMPING_IN_WATER: 'auto_jumping_in_water',
+  BIT_SNEAKING: 'sneaking',
+  BIT_UP: 'up',
+  BIT_DOWN: 'down',
+  BIT_LEFT: 'left',
+  BIT_RIGHT: 'right',
+  BIT_UP_LEFT: 'up_left',
+  BIT_UP_RIGHT: 'up_right',
+  BIT_WANT_UP: 'want_up',
+  BIT_WANT_DOWN: 'want_down',
+  BIT_SPRINTING: 'sprinting',
+  BIT_START_SPRINTING: 'start_sprinting',
+  BIT_STOP_SPRINTING: 'stop_sprinting',
+  BIT_START_SNEAKING: 'start_sneaking',
+  BIT_STOP_SNEAKING: 'stop_sneaking',
+  BIT_START_SWIMMING: 'start_swimming',
+  BIT_STOP_SWIMMING: 'stop_swimming',
+  BIT_START_JUMPING: 'start_jumping',
+  BIT_HANDLED_TELEPORT: 'handled_teleport',
+  BIT_RECEIVED_SERVER_DATA: 'received_server_data',
+  BIT_BLOCK_ACTION: 'block_action',
+  BIT_BLOCK_BREAKING_DELAY_ENABLED: 'block_breaking_delay_enabled',
+  BIT_HORIZONTAL_COLLISION: 'horizontal_collision',
+  BIT_VERTICAL_COLLISION: 'vertical_collision',
+  BIT_START_USING_ITEM: 'start_using_item',
+  BIT_CAMERA_RELATIVE_MOVEMENT: 'camera_relative_movement_enabled'
+}
+
+function inputFlagByBit (C) {
+  return Object.fromEntries(
+    Object.entries(INPUT_FLAG_NAME_BY_CONSTANT)
+      .filter(([constant]) => C[constant] != null)
+      .map(([constant, name]) => [String(C[constant]), name])
+  )
+}
 
 function degreesToRadians (degrees) {
   return (degrees * Math.PI) / 180
@@ -14,6 +52,18 @@ function cameraOrientationFromRotation (yaw, pitch) {
     x: numberOrZero(-Math.sin(yawRad) * cosPitch),
     y: numberOrZero(-Math.sin(pitchRad)),
     z: numberOrZero(Math.cos(yawRad) * cosPitch),
+  }
+}
+
+function hasSupportingBlock (botState) {
+  const self = botState.self
+  if (!self?.position || !botState.world?.sync?.getBlock) return false
+
+  try {
+    const below = botState.world.sync.getBlock(self.position.offset(0, -0.1, 0).floored())
+    return below?.boundingBox === 'block' || (Array.isArray(below?.shapes) && below.shapes.length > 0)
+  } catch {
+    return false
   }
 }
 
@@ -71,6 +121,15 @@ function createMovementPacketSender (botState, C) {
     const sentPitch = numberOrZero(lastSentPitch)
     const sentYaw = numberOrZero(lastSentYaw)
     const cameraOrientation = cameraOrientationFromRotation(sentYaw, sentPitch)
+    const inputData = normalizeInputData(self.inputData || 0n, inputFlagByBit(C))
+    inputData.block_breaking_delay_enabled = true
+    if (self.verticalCollision || self.onGround || hasSupportingBlock(botState)) {
+      inputData.vertical_collision = true
+    }
+    if (self._handledTeleportPending) {
+      inputData.handled_teleport = true
+      self._handledTeleportPending = false
+    }
 
     const packet = {
       pitch: sentPitch,
@@ -84,10 +143,10 @@ function createMovementPacketSender (botState, C) {
         x: numberOrZero(moveVector.x),
         z: numberOrZero(moveVector.z),
       },
-      head_yaw: numberOrZero(self.headYaw !== undefined ? self.headYaw : self.yaw),
-      input_data: self.inputData || 0n,
+      head_yaw: sentYaw,
+      input_data: inputData,
       input_mode: 1,
-      play_mode: 0,
+      play_mode: 2,
       interaction_model: 1,
       interact_rotation: { x: sentPitch, z: sentYaw },
       tick: self.tick || 0n,
@@ -130,7 +189,7 @@ function createMovementPacketSender (botState, C) {
       },
       pitch: numberOrZero(lastSentPitch),
       yaw: numberOrZero(lastSentYaw),
-      head_yaw: numberOrZero(self.headYaw !== undefined ? self.headYaw : self.yaw),
+      head_yaw: numberOrZero(lastSentYaw),
       mode,
       on_ground: !!self.onGround,
       ridden_runtime_id: 0,

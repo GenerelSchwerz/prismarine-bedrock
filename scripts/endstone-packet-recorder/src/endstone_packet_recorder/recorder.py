@@ -26,9 +26,12 @@ class PacketRecorderPlugin(Plugin):
         self._sequence = 0
         self._lock = threading.Lock()
         self._packet_ids = self._parse_packet_ids(os.environ.get("E2E_PACKET_RECORDER_PACKET_IDS", ""))
+        self._player_filter = self._parse_names(os.environ.get("E2E_PACKET_RECORDER_PLAYERS", ""))
+        self._split_by_player = os.environ.get("E2E_PACKET_RECORDER_SPLIT_BY_PLAYER", "") == "1"
         self._record_file = Path(os.environ.get("E2E_PACKET_RECORD_FILE", "logs/packet-recorder.jsonl"))
         self._record_file.parent.mkdir(parents=True, exist_ok=True)
         self._handle = self._record_file.open("a", encoding="utf8")
+        self._player_handles = {}
         self._scenario = self._load_scenario()
         self._sessions = {}
         self._check_task = None
@@ -37,6 +40,8 @@ class PacketRecorderPlugin(Plugin):
         self._write({
             "type": "recorder_start",
             "packet_ids": sorted(self._packet_ids) if self._packet_ids is not None else None,
+            "players": sorted(self._player_filter) if self._player_filter is not None else None,
+            "split_by_player": self._split_by_player,
             "scenario": self._scenario.get("id") if self._scenario else None
         })
 
@@ -60,6 +65,9 @@ class PacketRecorderPlugin(Plugin):
         if handle is None:
             return
         self._write({"type": "recorder_stop"})
+        for player_handle in getattr(self, "_player_handles", {}).values():
+            player_handle.close()
+        self._player_handles = {}
         handle.close()
         self._handle = None
 
@@ -67,6 +75,8 @@ class PacketRecorderPlugin(Plugin):
     def on_player_join(self, event: PlayerJoinEvent) -> None:
         player = getattr(event, "player", None)
         player_name = self._player_name(player)
+        if not self._should_record_player(player_name):
+            return
         self._write({
             "type": "player_join",
             "player": player_name
@@ -78,6 +88,8 @@ class PacketRecorderPlugin(Plugin):
     def on_player_quit(self, event: PlayerQuitEvent) -> None:
         player = getattr(event, "player", None)
         player_name = self._player_name(player)
+        if not self._should_record_player(player_name):
+            return
         session = self._sessions.pop(player_name, None) if player_name else None
         if session is not None:
             self._write({
@@ -106,6 +118,8 @@ class PacketRecorderPlugin(Plugin):
         self._count_step_packet(player_name, direction, packet_id)
 
         if self._packet_ids is not None and packet_id not in self._packet_ids:
+            return
+        if not self._should_record_player(player_name):
             return
 
         payload = bytes(event.payload)
@@ -495,8 +509,31 @@ class PacketRecorderPlugin(Plugin):
                 "sequence": self._sequence,
                 **record
             }
-            self._handle.write(json.dumps(record, separators=(",", ":")) + "\n")
+            line = json.dumps(record, separators=(",", ":")) + "\n"
+            self._handle.write(line)
             self._handle.flush()
+            if self._split_by_player and record.get("player"):
+                player_handle = self._player_handle(str(record["player"]))
+                player_handle.write(line)
+                player_handle.flush()
+
+    def _player_handle(self, player_name: str) -> Any:
+        handle = self._player_handles.get(player_name)
+        if handle is not None:
+            return handle
+        player_file = self._record_file.with_name(
+            f"{self._record_file.stem}.{self._safe_file_label(player_name)}{self._record_file.suffix}"
+        )
+        handle = player_file.open("a", encoding="utf8")
+        self._player_handles[player_name] = handle
+        return handle
+
+    def _should_record_player(self, player_name: Optional[str]) -> bool:
+        if self._player_filter is None:
+            return True
+        if not player_name:
+            return False
+        return player_name.lower() in self._player_filter
 
     @staticmethod
     def _parse_packet_ids(raw: str) -> Optional[Set[int]]:
@@ -504,6 +541,13 @@ class PacketRecorderPlugin(Plugin):
         if not values:
             return None
         return {int(value, 0) for value in values}
+
+    @staticmethod
+    def _parse_names(raw: str) -> Optional[Set[str]]:
+        values = [value.strip().lower() for value in raw.split(",") if value.strip()]
+        if not values:
+            return None
+        return set(values)
 
     @staticmethod
     def _identifier_candidates(identifier: str) -> List[str]:
@@ -529,3 +573,8 @@ class PacketRecorderPlugin(Plugin):
         if player is None:
             return None
         return getattr(player, "name", None) or str(player)
+
+    @staticmethod
+    def _safe_file_label(value: str) -> str:
+        rendered = "".join(char if char.isalnum() or char in ("-", "_", ".") else "_" for char in value)
+        return rendered.strip("._") or "unknown"

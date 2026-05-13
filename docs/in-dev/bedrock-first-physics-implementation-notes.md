@@ -4,7 +4,7 @@ This note records the local source pass used for the Bedrock physics implementat
 
 ## Sources checked
 
-- `node_modules/minecraft-data/minecraft-data/data/bedrock/1.21.130/proto.yml`
+- `node_modules/minecraft-data/minecraft-data/data/bedrock/1.26.10/proto.yml`
   - `packet_player_auth_input`
   - `InputFlag`
   - `packet_correct_player_move_prediction`
@@ -42,7 +42,7 @@ This note records the local source pass used for the Bedrock physics implementat
 6. Apply gravity, levitation/slow-falling handling, vertical drag, and horizontal drag.
 7. Write back `position`, `velocity`, `onGround`, horizontal/vertical collision flags, and supporting block state.
 
-`src/builtins/physics/input-controls.js` now sends Bedrock-local control vectors in `move_vector`, `analogue_move_vector`, and `raw_move_vector`. It also sets the directional and transition `InputFlag` bits from the 1.21.130 protocol schema, including `up`, `down`, `left`, `right`, `start_sprinting`, `stop_sprinting`, `start_sneaking`, `stop_sneaking`, and `start_jumping`.
+`src/builtins/physics/input-controls.js` now sends Bedrock-local control vectors in `move_vector`, `analogue_move_vector`, and `raw_move_vector`. It also sets the directional and transition `InputFlag` bits from the 1.26.10 protocol schema, including `up`, `down`, `left`, `right`, `start_sprinting`, `stop_sprinting`, `start_sneaking`, `stop_sneaking`, and `start_jumping`.
 
 `src/builtins/physics/index.js` still installs the Bedrock movement-state packet handlers from the existing adapter. Those handlers preserve useful Bedrock state from abilities, effects, metadata, velocity packets, game mode packets, and corrections. The tick itself now calls `createBedrockPhysicsEngine`.
 

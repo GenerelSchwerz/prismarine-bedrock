@@ -26,16 +26,30 @@ Default recording output:
 .e2e-servers/endstone-bds/logs/packet-recorder.jsonl
 ```
 
+When a bot run might overlap with a human joining the same Endstone server, scope the recorder to the bot player so unrelated client packets are not captured:
+
+```powershell
+node scripts/e2e-servers.js launch --target=endstone --world=superflat --endstone-packet-recorder --endstone-packet-recorder-player=OpBot
+```
+
+To keep every player while still getting clean per-player traces, split the recorder output:
+
+```powershell
+node scripts/e2e-servers.js launch --target=endstone --world=superflat --endstone-packet-recorder --endstone-packet-recorder-split-by-player
+```
+
+This still writes the main `packet-recorder.jsonl` and also writes files such as `packet-recorder.OpBot.jsonl` beside it. The environment equivalents are `E2E_PACKET_RECORDER_PLAYERS=OpBot` and `E2E_PACKET_RECORDER_SPLIT_BY_PLAYER=1`.
+
 Decode packet records:
 
 ```powershell
-node scripts/decode-endstone-packet-recording.js .e2e-servers/endstone-bds/logs/packet-recorder.jsonl 1.21.130
+node scripts/decode-endstone-packet-recording.js .e2e-servers/endstone-bds/logs/packet-recorder.jsonl 1.26.10
 ```
 
 The default decoded output is intentionally compact for agent and human inspection. It omits raw payload bytes and summarizes large packet bodies. Use `--full` only when the full decoded params are needed for a specific packet, and write that output to a file:
 
 ```powershell
-node scripts/decode-endstone-packet-recording.js .e2e-servers/endstone-bds/logs/packet-recorder.jsonl 1.21.130 --packet-ids=147 --full --out=logs/decoded-item-stack-requests.jsonl
+node scripts/decode-endstone-packet-recording.js .e2e-servers/endstone-bds/logs/packet-recorder.jsonl 1.26.10 --packet-ids=147 --full --out=logs/decoded-item-stack-requests.jsonl
 ```
 
 Then search the decoded file:
@@ -49,10 +63,10 @@ Do not inspect raw recorder JSONL with broad `Get-Content`/`cat` during analysis
 Decode only `player_auth_input` changes:
 
 ```powershell
-node scripts/decode-endstone-packet-recording.js .e2e-servers/endstone-bds/logs/packet-recorder.jsonl 1.21.130 --packet-ids=144
+node scripts/decode-endstone-packet-recording.js .e2e-servers/endstone-bds/logs/packet-recorder.jsonl 1.26.10 --packet-ids=144
 ```
 
-The decoder always prints `player_auth_input` as deltas and ignores `tick` by default. To ignore additional noisy fields, pass comma-separated field names or dot paths, for example `--player-auth-input-delta-ignore=tick,position,delta`.
+The decoder always prints `player_auth_input` as deltas. By default it ignores tick and look/movement fields such as `camera_orientation`, `interact_rotation`, `pitch`, `yaw`, `position`, and `delta`, so semantic changes like flags and embedded requests remain visible. To replace the ignored field set, pass comma-separated field names or dot paths, for example `--player-auth-input-delta-ignore=tick,position,delta`.
 
 ## Feature-To-Recorded-Test Workflow
 
@@ -110,7 +124,7 @@ rg -n '"type":"(scenario_start|step_start|step_complete|scenario_complete|scenar
 9. Decode packets for analysis:
 
 ```powershell
-node scripts/decode-endstone-packet-recording.js .e2e-servers/endstone-bds/logs/packet-recorder.jsonl 1.21.130 > logs/decoded-endstone-recording.jsonl
+node scripts/decode-endstone-packet-recording.js .e2e-servers/endstone-bds/logs/packet-recorder.jsonl 1.26.10 > logs/decoded-endstone-recording.jsonl
 ```
 
 Keep decoded/raw recordings under `logs/` unless you intentionally distill them into a committed fixture or task note.

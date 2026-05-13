@@ -17,7 +17,7 @@ Legend:
   - Runnable demo code now lives under `examples/`.
   - `createBot(options)` and `BotState` are both exported; API stability/docs still need work.
 - `[~]` Document supported Bedrock versions.
-  - Current code and packet notes are centered on Bedrock `1.21.130`.
+  - Current code and packet notes are centered on Bedrock `1.26.10` protocol data for BDS 1.26.12.
   - Keep protocol notes linked to symlinked `minecraft-data` paths, not pnpm store internals.
 - `[~]` Keep plugin injection predictable.
   - Builtins currently auto-load from `src/builtins`.

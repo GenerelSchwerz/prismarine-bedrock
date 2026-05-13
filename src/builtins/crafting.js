@@ -13,6 +13,11 @@ const CONTAINER = {
 }
 
 const INVENTORY_CRAFTING_GRID_SLOTS = [30, 31, 28, 29]
+const CRAFTING_TABLE_OPEN_CLICK_POS = {
+  x: 0.8455779552459717,
+  y: 1,
+  z: 0.2944147288799286
+}
 
 const ACTION = {
   take: 'take',
@@ -470,7 +475,9 @@ async function openCraftingTable (botState, block) {
   return botState.openBlockContainer(block.position, {
     type: 'workbench',
     blockName: 'crafting_table',
-    face: block.face
+    face: block.face ?? 1,
+    clickPosition: block.clickPosition ?? CRAFTING_TABLE_OPEN_CLICK_POS,
+    preserveHeldSlot: true
   })
 }
 

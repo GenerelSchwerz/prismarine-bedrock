@@ -197,6 +197,31 @@ describe('chunk readiness helpers', function () {
     )
   })
 
+  it('requests chunk data around the player after server teleport', function () {
+    const botState = createBotState()
+    botState.client.entityId = 1n
+    botState.dimension = 0
+    injectChunks(botState)
+
+    botState.client.emit('move_player', {
+      runtime_id: 1,
+      position: { x: 17.5, y: 81.62, z: 16.5 },
+      mode: 'teleport'
+    })
+
+    const radiusRequest = botState.client.queued.find(packet => packet.name === 'request_chunk_radius')
+    const subchunkRequests = botState.client.queued.filter(packet => packet.name === 'subchunk_request')
+
+    assert.ok(radiusRequest)
+    assert.strictEqual(subchunkRequests.length > 0, true)
+    assert.deepStrictEqual(subchunkRequests[0].params.origin, { x: 0, y: 5, z: 0 })
+    assert.deepStrictEqual(subchunkRequests[0].params.requests, [
+      { dx: 0, dy: -1, dz: 0 },
+      { dx: 0, dy: 0, dz: 0 },
+      { dx: 0, dy: 1, dz: 0 }
+    ])
+  })
+
   it('applies update_subchunk_blocks using absolute block positions', async function () {
     const updates = []
     const botState = createBotState()

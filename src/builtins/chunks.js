@@ -1,6 +1,6 @@
 const Vec3 = require('vec3').Vec3;
 const nbt = require('prismarine-nbt');
-const { getStateId, normalizeBlockPos, withLayer } = require('../utils');
+const { getStateId, normalizeBlockPos, sameRuntimeId, withLayer } = require('../utils');
 
 // ── Helper types for blob store ──
 const BlobType = { ChunkSection: 0, Biomes: 1 };
@@ -296,6 +296,37 @@ module.exports = (botState, options = {}) => {
       missing,
       required
     };
+  }
+
+  function requestChunkRadius() {
+    client.queue('request_chunk_radius', {
+      chunk_radius: options.chunkRadius ?? 6,
+      max_radius: 0
+    });
+  }
+
+  function requestChunkDataAround(center, radius = options.chunkRefreshRadius ?? options.chunkRadius ?? 6, verticalSectionRadius = 1) {
+    if (!center) return;
+
+    requestChunkRadius();
+
+    const minCX = Math.floor((center.x - radius) / 16);
+    const maxCX = Math.floor((center.x + radius) / 16);
+    const minCZ = Math.floor((center.z - radius) / 16);
+    const maxCZ = Math.floor((center.z + radius) / 16);
+    const originSectionY = sectionYFromWorldY(center.y) ?? subchunkOriginSectionY();
+    const sectionYs = subchunkSectionYsAround(originSectionY, verticalSectionRadius);
+    const dimension = botState.dimension ?? 0;
+
+    for (let cx = minCX; cx <= maxCX; cx++) {
+      for (let cz = minCZ; cz <= maxCZ; cz++) {
+        const missingSectionYs = sectionYs.filter(sectionY => !isChunkBlockDataLoaded(cx, cz, [sectionY]));
+        if (missingSectionYs.length === 0) continue;
+
+        rememberSubchunkRequest(cx, cz, dimension, originSectionY, missingSectionYs);
+        queueSubchunkRequest(cx, cz, dimension, missingSectionYs, originSectionY);
+      }
+    }
   }
 
   // ── Apply blob data to a pending chunk or subchunk ──
@@ -688,6 +719,17 @@ module.exports = (botState, options = {}) => {
     botState.rawChunkPublisherCenter = packet.coordinates;
     botState.chunkPublisherCenter = normalizeNetworkChunkPublisherCoordinates(packet.coordinates);
     botState.chunkPublisherRadius = packet.radius;
+  });
+
+  client.on('move_player', (packet) => {
+    if (!sameRuntimeId(packet.runtime_id, client.entityId)) return;
+    if (!(packet.mode === 1 || packet.mode === 2 || packet.mode === 'reset' || packet.mode === 'teleport')) return;
+
+    requestChunkDataAround(new Vec3(
+      packet.position.x,
+      packet.position.y,
+      packet.position.z
+    ));
   });
 
   client.on('play_status', (packet) => {

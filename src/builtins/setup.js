@@ -55,6 +55,7 @@ module.exports = (botState, options) => {
     );
     botState.spawnRotation = pkt.rotation;
     botState.game.gameMode = pkt.player_gamemode;
+    botState.dimension = pkt.dimension;
     botState.playerHealth = 20;
     botState.isDead = false;
 
@@ -137,6 +138,10 @@ module.exports = (botState, options) => {
 
   client.on('game_rules_changed', (packet) => {
     botState.gamerules = packet.gamerules ?? packet.rules ?? packet;
+  });
+
+  client.on('change_dimension', (packet) => {
+    botState.dimension = packet.dimension;
   });
 
   client.on('update_attributes', (packet) => {

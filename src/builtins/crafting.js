@@ -4,13 +4,9 @@
 const { buildStatic } = require('mineflayer-crafting-util')
 const recipeLoader = require('prismarine-recipe')
 const registryLoader = require('prismarine-registry')
-const { inventoryRequestSlotInfo, logAction, requestSlotInfo } = require('../utils')
+const { inventoryRequestSlotInfo, logAction, requestSlotInfo, sleep } = require('../utils')
 
 const CONTAINER = {
-  hotbar: 'hotbar',
-  inventory: 'inventory',
-  cursor: 'cursor',
-  input: 'crafting_input',
   output: 'creative_output',
 }
 
@@ -359,19 +355,20 @@ async function openCraftingTable (botState, block) {
     throw new Error('containers builtin is required to open a crafting table')
   }
 
-  return botState.openBlockContainer(block.position, { type: 'workbench' })
+  const emptyHotbarSlot = botState.inventory?.slots
+    ?.slice(0, 9)
+    .findIndex(item => !item)
+
+  if (emptyHotbarSlot >= 0 && typeof botState.selectHotbarSlot === 'function') {
+    botState.selectHotbarSlot(emptyHotbarSlot)
+    await sleep(50)
+  }
+
+  return botState.openBlockContainer(block.position, { type: 'workbench', blockName: 'crafting_table' })
 }
 
-function buildActions (botState, craft) {
-  const actions = []
-
-  actions.push({
-    type_id: ACTION.craftRecipeAuto,
-    recipe_network_id: recipeNetworkId(craft.entry),
-    times_crafted_2: craft.times,
-    times_crafted: craft.times,
-    ingredients: craft.ingredients,
-  })
+function buildCraftActions (botState, craft, firstAction) {
+  const actions = [firstAction]
 
   actions.push({
     type_id: ACTION.resultsDeprecated,
@@ -403,6 +400,35 @@ function buildActions (botState, craft) {
 
   actions._craftEntry = craft.entry
   return actions
+}
+
+function buildAutoActions (botState, craft) {
+  return buildCraftActions(botState, craft, {
+    type_id: ACTION.craftRecipeAuto,
+    recipe_network_id: recipeNetworkId(craft.entry),
+    times_crafted_2: craft.times,
+    times_crafted: craft.times,
+    ingredients: craft.ingredients,
+  })
+}
+
+function buildNormalActions (botState, craft) {
+  return buildCraftActions(botState, craft, {
+    type_id: ACTION.craftRecipe,
+    recipe_network_id: recipeNetworkId(craft.entry),
+    times_crafted: craft.times,
+  })
+}
+
+function buildActions (botState, craft, mode = 'auto') {
+  switch (mode) {
+    case 'auto':
+      return buildAutoActions(botState, craft)
+    case 'normal':
+      return buildNormalActions(botState, craft)
+    default:
+      throw new Error(`Unknown crafting mode: ${mode}`)
+  }
 }
 
 function actionDebugSummary (actions) {
@@ -545,7 +571,7 @@ async function injectCrafting (botState, options = {}) {
   botState.planCraftInventoryWithUtil = botState.planCraftInventory
   botState.planCraft = botState.planCraftInventory
 
-  botState.craftPlan = async (plan, craftingTableBlock) => {
+  async function craftPlanWithMode (plan, craftingTableBlock, mode) {
     if (!plan?.success) throw new Error(plan?.error || 'Cannot craft unsuccessful plan')
 
     let openedCraftingContainer = null
@@ -558,7 +584,7 @@ async function injectCrafting (botState, options = {}) {
         const useStandaloneRequest = options.craftingStandaloneRequests || requiresCraftingTable
         if (requiresCraftingTable) openedCraftingContainer = await openCraftingTable(botState, craftingTableBlock)
         const beforeInventory = inventorySignature(botState)
-        await sendRequest(botState, buildActions(botState, craft), { standalone: useStandaloneRequest })
+        await sendRequest(botState, buildActions(botState, craft, mode), { standalone: useStandaloneRequest })
         await waitForInventoryChange(botState, beforeInventory)
       }
     } finally {
@@ -568,11 +594,25 @@ async function injectCrafting (botState, options = {}) {
     return plan
   }
 
-  botState.craftItem = async (itemId, count, craftingTableBlock) => {
+  botState.craftPlanAuto = (plan, craftingTableBlock) => craftPlanWithMode(plan, craftingTableBlock, 'auto')
+  botState.craftPlanNormal = (plan, craftingTableBlock) => craftPlanWithMode(plan, craftingTableBlock, 'normal')
+  botState.craftPlan = botState.craftPlanAuto
+
+  botState.craftItemAuto = async (itemId, count, craftingTableBlock) => {
     const plan = await botState.planCraftInventory({ id: itemId, count })
-    await botState.craftPlan(plan, craftingTableBlock)
+    await botState.craftPlanAuto(plan, craftingTableBlock)
     return plan
   }
+
+  botState.craftItemNormal = async (itemId, count, craftingTableBlock) => {
+    const plan = await botState.planCraftInventory({ id: itemId, count })
+    await botState.craftPlanNormal(plan, craftingTableBlock)
+    return plan
+  }
+
+  botState.craftItem = botState.craftItemAuto
+  botState.craftAuto = botState.craftItemAuto
+  botState.craftNormal = botState.craftItemNormal
 
   logAction('[craft]', 'crafting plugin loaded')
 }
@@ -581,4 +621,7 @@ module.exports = injectCrafting
 module.exports._craftingHelpers = {
   ingredientMatchesItem,
   ingredientMetadataMatchesItem,
+  buildAutoActions,
+  buildNormalActions,
+  buildActions,
 }

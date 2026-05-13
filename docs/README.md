@@ -8,6 +8,10 @@ Reference docs describe the current project shape and should stay useful to read
 
 - [Mineflayer feature comparison](reference/mineflayer-feature-comparison.md)
 
+## Agent Workflow
+
+Agent-facing workflow starts at the repository root [AGENTS.md](../AGENTS.md). Durable task logs live in [tasks](tasks/), with a reusable [task template](tasks/TEMPLATE.md).
+
 ## In-Dev Notes
 
 In-dev notes are working documents for implementation details, packet constraints, validation checklists, and roadmap checkpoints. These may mention unstable internals and active assumptions.

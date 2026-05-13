@@ -85,6 +85,8 @@ Live tests expect a local Bedrock/Geyser test server. See the in-development doc
 ## Documentation
 
 - [Docs index](docs/README.md)
+- [Agent workflow](AGENTS.md)
+- [Task logs](docs/tasks/README.md)
 - [Mineflayer feature comparison](docs/reference/mineflayer-feature-comparison.md)
 - [Mineflayer parity checkpoints](docs/in-dev/mineflayer-parity-checkpoints.md)
 - [Crafting implementation notes](docs/in-dev/crafting-util-implementation-notes.md)

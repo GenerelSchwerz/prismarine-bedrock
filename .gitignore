@@ -2,6 +2,7 @@ node_modules/
 .env/
 pnpm-lock.yaml
 temp-geyser-inspect
+temp-gophertunnel-inspect
 Boar
 .test-lock.json
 .e2e-servers/

@@ -101,7 +101,22 @@ function getStateId (registry, runtimeId) {
     (registry.blocksByStateId?.[runtimeId] ? runtimeId : undefined)
 }
 
-function getBlockRuntimeId (botState, pos) {
+function blockRuntimeIdByName (botState, name) {
+  if (!name) return undefined
+  const key = String(name).replace(/^minecraft:/, '')
+  const direct = botState.blockRuntimeIdsByName?.[key]
+  if (Number.isFinite(direct)) return direct
+
+  const block = botState.registry?.blocksByName?.[key]
+  const stateId = block?.defaultState ?? block?.minStateId
+  if (stateId != null) {
+    return botState.registry?.blockNetworkRuntimeIdsByStateId?.[stateId] ?? stateId
+  }
+
+  return undefined
+}
+
+function getBlockRuntimeId (botState, pos, fallback = {}) {
   try {
     const block = botState.world.getBlock(pos)
     if (block?.stateId != null) {
@@ -111,7 +126,9 @@ function getBlockRuntimeId (botState, pos) {
     logAction('[utils]', 'getBlockRuntimeId error', { pos: pos.toString(), msg: err.message })
   }
 
-  return 0
+  return fallback.blockRuntimeId ??
+    blockRuntimeIdByName(botState, fallback.blockName) ??
+    0
 }
 
 function clickPositionForFace (face) {
@@ -313,6 +330,7 @@ module.exports = {
   normalizeBlockPos,
   withLayer,
   getStateId,
+  blockRuntimeIdByName,
   getBlockRuntimeId,
   clickPositionForFace,
   rawStackId,

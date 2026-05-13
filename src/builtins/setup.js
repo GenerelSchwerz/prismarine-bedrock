@@ -18,6 +18,7 @@ module.exports = (botState, options) => {
   botState.experience = 0;
   botState.experienceLevel = 0;
   botState.bedrockCraftingRecipes = [];
+  botState.blockRuntimeIdsByName = {};
 
   // -- required because p-registry is bugged.
   function loadItemStates(itemStates) {
@@ -87,7 +88,16 @@ module.exports = (botState, options) => {
       groups: packet.groups.length,
       items: packet.items.length,
     });
-    // Store if needed: botState.creativeItems = packet.items;
+    botState.creativeItems = packet.items;
+    for (const entry of packet.items || []) {
+      const item = entry.item ?? entry;
+      const id = item?.network_id ?? item?.id;
+      const name = registry.items?.[id]?.name ?? item?.name;
+      const runtimeId = item?.block_runtime_id ?? item?.blockRuntimeId;
+      if (name && Number.isFinite(runtimeId) && runtimeId !== 0) {
+        botState.blockRuntimeIdsByName[String(name).replace(/^minecraft:/, '')] = runtimeId;
+      }
+    }
   });
 
   // ── Biome Definition List ──
@@ -100,7 +110,25 @@ module.exports = (botState, options) => {
 
   // Bedrock server-authoritative recipes used by crafting/trading packet senders.
   client.on('crafting_data', packet => {
-    botState.bedrockCraftingRecipes.push(...(packet.recipes || []));
+    const recipes = packet.recipes || [];
+    botState.bedrockCraftingRecipes.push(...recipes);
+    for (const entry of recipes) {
+      const recipe = entry?.recipe || entry;
+      const outputs = Array.isArray(recipe?.output)
+        ? recipe.output
+        : recipe?.output
+          ? [recipe.output]
+          : [];
+
+      for (const output of outputs) {
+        const id = output?.network_id ?? output?.id;
+        const name = registry.items?.[id]?.name ?? output?.name;
+        const runtimeId = output?.block_runtime_id ?? output?.blockRuntimeId;
+        if (name && Number.isFinite(runtimeId) && runtimeId !== 0) {
+          botState.blockRuntimeIdsByName[String(name).replace(/^minecraft:/, '')] = runtimeId;
+        }
+      }
+    }
     if (!options.quietCraftingDataLog) {
       logAction('[craft]', 'crafting_data', { recipes: botState.bedrockCraftingRecipes.length });
     }

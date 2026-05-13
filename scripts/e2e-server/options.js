@@ -16,6 +16,7 @@ function parseOptions(args) {
   const options = {
     target: "all",
     client: null,
+    clientArgs: null,
     exitAfterClient: false,
     clientTimeoutMs: null,
     clientStopDelayMs: 2000,
@@ -77,12 +78,14 @@ function parseOptions(args) {
     } else if (arg === "--no-auto-op") {
       options.autoOp = false;
     } else if (arg === "--client") {
-      options.client = args.slice(index + 1).join(" ");
+      options.clientArgs = normalizeClientArgs(args.slice(index + 1));
+      options.client = shellJoin(options.clientArgs);
       break;
     } else if (arg.startsWith("--client=")) {
       const first = arg.slice("--client=".length);
       const rest = args.slice(index + 1);
-      options.client = [first, ...rest].filter(Boolean).join(" ");
+      options.clientArgs = normalizeClientArgs([first, ...rest].filter(Boolean));
+      options.client = shellJoin(options.clientArgs);
       break;
     } else {
       throw new Error(`Unknown argument: ${arg}`);
@@ -91,6 +94,60 @@ function parseOptions(args) {
 
   options.world = normalizeWorld(options.world);
   return options;
+}
+
+function normalizeClientArgs(args) {
+  if (args.length === 1) return splitCommandLine(args[0]);
+  return args;
+}
+
+function splitCommandLine(input) {
+  const args = [];
+  let current = "";
+  let quote = null;
+  let escaping = false;
+
+  for (const char of String(input)) {
+    if (escaping) {
+      current += char;
+      escaping = false;
+      continue;
+    }
+
+    if (char === "\\" && quote === '"') {
+      escaping = true;
+      continue;
+    }
+
+    if ((char === '"' || char === "'") && (!quote || quote === char)) {
+      quote = quote ? null : char;
+      continue;
+    }
+
+    if (!quote && /\s/.test(char)) {
+      if (current) {
+        args.push(current);
+        current = "";
+      }
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (escaping) current += "\\";
+  if (current) args.push(current);
+  return args;
+}
+
+function shellJoin(args) {
+  return args.map(shellQuote).join(" ");
+}
+
+function shellQuote(arg) {
+  const text = String(arg);
+  if (text && !/[\s"']/.test(text)) return text;
+  return `"${text.replace(/(["\\])/g, "\\$1")}"`;
 }
 
 function defaultJavaBin() {
@@ -143,6 +200,9 @@ function parseTargets(raw) {
 
 module.exports = {
   parseCli,
+  parseOptions,
+  splitCommandLine,
+  shellJoin,
   normalizeWorld,
   parsePositiveInt,
   defaultJavaBin

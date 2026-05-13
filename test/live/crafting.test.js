@@ -158,7 +158,13 @@ function requireRegistryItem (botState, name) {
 function assertHasCraftingApi (botState) {
   assert.strictEqual(typeof botState.planCraftInventory, 'function', 'Expected botState.planCraftInventory')
   assert.strictEqual(typeof botState.craftItem, 'function', 'Expected botState.craftItem')
+  assert.strictEqual(typeof botState.craftItemAuto, 'function', 'Expected botState.craftItemAuto')
+  assert.strictEqual(typeof botState.craftItemNormal, 'function', 'Expected botState.craftItemNormal')
+  assert.strictEqual(typeof botState.craftAuto, 'function', 'Expected botState.craftAuto')
+  assert.strictEqual(typeof botState.craftNormal, 'function', 'Expected botState.craftNormal')
   assert.strictEqual(typeof botState.craftPlan, 'function', 'Expected botState.craftPlan')
+  assert.strictEqual(typeof botState.craftPlanAuto, 'function', 'Expected botState.craftPlanAuto')
+  assert.strictEqual(typeof botState.craftPlanNormal, 'function', 'Expected botState.craftPlanNormal')
 }
 
 describe('live crafting integration', function () {
@@ -192,7 +198,7 @@ describe('live crafting integration', function () {
     assertHasCraftingApi(botState)
   })
 
-  it('crafts oak planks from oak logs with the live server recipe data', async function () {
+  async function assertCraftsOakPlanks (craftMethodName) {
     await setupCraftingWorld(botState)
 
     const oakPlanks = requireRegistryItem(botState, 'oak_planks')
@@ -213,7 +219,7 @@ describe('live crafting integration', function () {
       JSON.stringify(inventorySummary(botState), null, 2)
     ].join('\n'))
 
-    await botState.craftItem(oakPlanks.id, 8, craftingTableRef())
+    await botState[craftMethodName](oakPlanks.id, 8)
 
     await waitForInventoryCounts(botState, {
       oak_log: logsBefore - 2,
@@ -222,6 +228,14 @@ describe('live crafting integration', function () {
 
     assert.strictEqual(countInventoryItem(botState, 'oak_log'), 0)
     assert.strictEqual(countInventoryItem(botState, 'oak_planks'), planksBefore + 8)
+  }
+
+  it('auto crafts oak planks from oak logs with the live server recipe data', async function () {
+    await assertCraftsOakPlanks('craftItemAuto')
+  })
+
+  it('normal crafts oak planks from oak logs with the live server recipe data', async function () {
+    await assertCraftsOakPlanks('craftItemNormal')
   })
 
   it('crafts a wooden pickaxe through recursive multi-step planning', async function () {

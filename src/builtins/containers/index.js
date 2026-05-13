@@ -101,7 +101,7 @@ module.exports = function containersPlugin (botState, options = {}) {
     })
   }
 
-  function sendOpenBlockContainer (pos, face) {
+  function sendOpenBlockContainer (pos, face, opts = {}) {
     const target = pos instanceof Vec3 ? pos : new Vec3(pos.x, pos.y, pos.z)
     const heldSlot = botState.heldItemSlot ?? 0
     const heldItem = botState.inventory?.slots?.[heldSlot] ?? null
@@ -121,7 +121,10 @@ module.exports = function containersPlugin (botState, options = {}) {
           held_item: itemToRaw(heldItem, botState.itemClass),
           player_pos: toVec3f(playerPos),
           click_pos: clickPositionForFace(face),
-          block_runtime_id: getBlockRuntimeId(botState, target),
+          block_runtime_id: getBlockRuntimeId(botState, target, {
+            blockName: opts.blockName,
+            blockRuntimeId: opts.blockRuntimeId
+          }),
           client_prediction: 'success',
           client_cooldown_state: 0
         }
@@ -174,7 +177,7 @@ module.exports = function containersPlugin (botState, options = {}) {
       await botState.lookAt(target.offset(0.5, 0.5, 0.5))
     }
 
-    sendOpenBlockContainer(target, face)
+    sendOpenBlockContainer(target, face, opts)
     const packet = await openPromise
     const container = wrapContainerWindow(packet)
     await waitForInventoryContent(container.id, opts.contentTimeoutMs ?? contentTimeoutMs)

@@ -275,6 +275,7 @@ describe('live entity state checks', function () {
     sendCommand(botState, `setblock ${ZOMBIE_POS.x} ${ZOMBIE_POS.y} ${ZOMBIE_POS.z} air`)
   })
 
+  // TODO: this is definitely bugged. I do not see these state changes live.
   it('updates local pose checks from control state for sneak, sprint, jump, and swim', async function () {
     botState.clearControlStates()
 

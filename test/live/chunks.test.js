@@ -14,6 +14,10 @@ const {
 
 const CHUNK_TEST_Y = Number(process.env.CHUNK_TEST_Y ?? -60)
 const READER_USERNAME = process.env.CHUNK_READER_USERNAME || 'ChunkReadBot'
+const SUPERFLAT_EXPECTED_BLOCKS = new Set(['air', 'grass_block', 'dirt', 'bedrock'])
+const SUPERFLAT_SCAN_RADIUS = Number(process.env.CHUNK_SCAN_RADIUS ?? 8)
+const SUPERFLAT_SCAN_MIN_Y = Number(process.env.CHUNK_SCAN_MIN_Y ?? -64)
+const SUPERFLAT_SCAN_MAX_Y = Number(process.env.CHUNK_SCAN_MAX_Y ?? -55)
 
 function waitForSpawn (botState, timeoutMs = 30000) {
   return new Promise((resolve, reject) => {
@@ -59,6 +63,63 @@ async function waitForBlockName (botState, pos, name, timeoutMs = 15000) {
   )
 }
 
+async function scanLoadedBlocks (botState, center, options = {}) {
+  const radius = options.radius ?? SUPERFLAT_SCAN_RADIUS
+  const minY = options.minY ?? SUPERFLAT_SCAN_MIN_Y
+  const maxY = options.maxY ?? SUPERFLAT_SCAN_MAX_Y
+  const counts = new Map()
+  const samples = new Map()
+
+  for (let y = minY; y <= maxY; y++) {
+    for (let z = center.z - radius; z <= center.z + radius; z++) {
+      for (let x = center.x - radius; x <= center.x + radius; x++) {
+        const pos = new Vec3(x, y, z)
+        const block = await botState.getBlockAt(pos)
+        const name = block?.name || 'missing'
+
+        counts.set(name, (counts.get(name) || 0) + 1)
+        if (!samples.has(name)) {
+          samples.set(name, {
+            pos: { x, y, z },
+            stateId: block?.stateId
+          })
+        }
+      }
+    }
+  }
+
+  return {
+    radius,
+    minY,
+    maxY,
+    counts: Object.fromEntries([...counts.entries()].sort((a, b) => b[1] - a[1])),
+    samples: Object.fromEntries(samples.entries())
+  }
+}
+
+function assertOnlyExpectedSuperflatBlocks (scan) {
+  const unexpected = Object.entries(scan.counts)
+    .filter(([name]) => !SUPERFLAT_EXPECTED_BLOCKS.has(name))
+    .map(([name, count]) => ({
+      name,
+      count,
+      sample: scan.samples[name]
+    }))
+
+  assert.deepStrictEqual(
+    unexpected,
+    [],
+    `Expected decoded superflat blocks to only contain ${[...SUPERFLAT_EXPECTED_BLOCKS].join(', ')}; ` +
+    `scan=${JSON.stringify({
+      radius: scan.radius,
+      minY: scan.minY,
+      maxY: scan.maxY,
+      counts: scan.counts,
+      unexpected
+    })}`
+  )
+}
+
 describe('live chunk loading', function () {
   this.timeout(90000)
 
@@ -79,6 +140,14 @@ describe('live chunk loading', function () {
 
     try {
       botState = await connectBot(USERNAME)
+      assert.strictEqual(typeof botState.waitForChunksToLoad, 'function')
+
+      await botState.waitForChunksToLoad(16, base, 30000, 1)
+      assert.strictEqual(botState.areChunksLoadedAround(16, base, 1), true)
+      assert(botState.networkChunks.size > 0, 'Expected at least one decoded chunk column')
+
+      const initialScan = await scanLoadedBlocks(botState, base)
+      assertOnlyExpectedSuperflatBlocks(initialScan)
 
       for (const probe of probes) {
         sendCommand(botState, `setblock ${probe.pos.x} ${probe.pos.y} ${probe.pos.z} ${probe.block}`)
@@ -93,7 +162,6 @@ describe('live chunk loading', function () {
       assert.strictEqual(typeof botState.waitForChunksToLoad, 'function')
 
       await botState.waitForChunksToLoad(16, base, 30000, 1)
-
       assert.strictEqual(botState.areChunksLoadedAround(16, base, 1), true)
       assert(botState.networkChunks.size > 0, 'Expected at least one decoded chunk column')
 

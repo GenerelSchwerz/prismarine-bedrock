@@ -2,6 +2,23 @@ const { logAction, sameRuntimeId } = require('../utils');
 const { Vec3 } = require('vec3');
 const buildIndexFromArray = require('prismarine-registry/lib/indexer');
 
+function plainNbtValue(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    if ('type' in value && 'value' in value) return plainNbtValue(value.value);
+    return Object.fromEntries(
+      Object.entries(value).map(([key, child]) => [key, plainNbtValue(child)])
+    );
+  }
+
+  return value;
+}
+
+function plainBlockStates(states = {}) {
+  return Object.fromEntries(
+    Object.entries(states).map(([key, value]) => [key, plainNbtValue(value)])
+  );
+}
+
 /**
  * Unified plugin: handles initial login sequence AND respawn after death.
  * @param {import('../state')} botState
@@ -34,13 +51,71 @@ module.exports = (botState, options) => {
 
   registry.loadItemStates = loadItemStates;
 
-  function loadBlockNetworkRuntimeIds() {
-    registry.blockNetworkRuntimeIdsByStateId = {};
-
-    for (const [runtimeId, block] of Object.entries(registry.blocksByRuntimeId || {})) {
-      if (block?.stateId == null) continue;
-      registry.blockNetworkRuntimeIdsByStateId[block.stateId] = Number(runtimeId);
+  function blockFromNetworkState(name, states) {
+    try {
+      const block = botState.blockClass.fromProperties(
+        String(name).replace(/^minecraft:/, ''),
+        plainBlockStates(states),
+        0
+      );
+      if (block?.stateId != null) return block;
+      if (block?.defaultState != null) return { ...block, stateId: block.defaultState };
+      return block;
+    } catch (err) {
+      return null;
     }
+  }
+
+  function setRuntimeBlock(runtimeId, block) {
+    if (!Number.isFinite(runtimeId) || block?.stateId == null) return;
+
+    const registryBlock = registry.blocksByStateId?.[block.stateId];
+    registry.blocksByRuntimeId[runtimeId] = {
+      ...registryBlock,
+      name: registryBlock?.name ?? block.name,
+      stateId: block.stateId
+    };
+    registry.blockNetworkRuntimeIdsByStateId[block.stateId] = runtimeId;
+  }
+
+  function loadVersionedBlockRuntimeIds(useHashes) {
+    for (let runtimeId = 0; runtimeId < (registry.blockStates?.length ?? 0); runtimeId++) {
+      const networkState = registry.blockStates[runtimeId];
+      if (!networkState?.name) continue;
+
+      const block = blockFromNetworkState(networkState.name, networkState.states);
+      const networkRuntimeId = useHashes
+        ? botState.blockClass.getHash(networkState.name, networkState.states ?? {})
+        : runtimeId;
+
+      setRuntimeBlock(networkRuntimeId, block);
+    }
+  }
+
+  function loadLiveBlockRuntimeIds(blockProperties, useHashes) {
+    if (!Array.isArray(blockProperties)) return;
+
+    for (let runtimeId = 0; runtimeId < blockProperties.length; runtimeId++) {
+      const entry = blockProperties[runtimeId];
+      if (!entry?.name) continue;
+
+      const states = entry.state?.value ?? entry.state ?? {};
+      const block = blockFromNetworkState(entry.name, states);
+      const networkRuntimeId = useHashes
+        ? botState.blockClass.getHash(entry.name, states)
+        : runtimeId;
+
+      setRuntimeBlock(networkRuntimeId, block);
+    }
+  }
+
+  function loadBlockNetworkRuntimeIds(packet) {
+    const useHashes = !!packet.block_network_ids_are_hashes;
+
+    registry.blocksByRuntimeId = {};
+    registry.blockNetworkRuntimeIdsByStateId = {};
+    loadVersionedBlockRuntimeIds(useHashes);
+    loadLiveBlockRuntimeIds(packet.block_properties, useHashes);
   }
 
   // ── Initial connection ──
@@ -63,7 +138,7 @@ module.exports = (botState, options) => {
 
     pkt.itemstates ??= [];
     registry.handleStartGame(pkt);
-    loadBlockNetworkRuntimeIds();
+    loadBlockNetworkRuntimeIds(pkt);
 
     logAction('[←]', 'start_game', {
       entity_id: String(pkt.entity_id),
@@ -72,6 +147,7 @@ module.exports = (botState, options) => {
       rotation: botState.spawnRotation,
       gamemode: botState.game.gameMode,
       block_network_ids_are_hashes: !!pkt.block_network_ids_are_hashes,
+      block_properties: pkt.block_properties?.length ?? 0,
       server_authoritative_inventory: !!pkt.server_authoritative_inventory,
     });
   });

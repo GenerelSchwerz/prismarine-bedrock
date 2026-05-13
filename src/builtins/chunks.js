@@ -199,6 +199,13 @@ module.exports = (botState, options = {}) => {
     };
   }
 
+  function signedBlockCoordinateY(value) {
+    if (typeof value === 'bigint') return Number(BigInt.asIntN(32, value));
+    if (!Number.isFinite(value)) return value;
+    if (value <= 0x7fffffff) return value;
+    return Number(BigInt.asIntN(32, BigInt(Math.trunc(value))));
+  }
+
   function chunkPublisherSectionY() {
     const y = botState.chunkPublisherCenter?.y;
     return sectionYFromWorldY(y);
@@ -633,7 +640,11 @@ module.exports = (botState, options = {}) => {
       return;
     }
 
-    const pos = withLayer(new Vec3(position.x, position.y, position.z));
+    const pos = withLayer(new Vec3(
+      position.x,
+      signedBlockCoordinateY(position.y),
+      position.z
+    ));
     const chunk = await world.getColumnAt(pos);
 
     if (!chunk) {
@@ -655,16 +666,8 @@ module.exports = (botState, options = {}) => {
   });
 
   client.on('update_subchunk_blocks', async (pkt) => {
-    const baseX = pkt.x * 16;
-    const baseY = pkt.y * 16;
-    const baseZ = pkt.z * 16;
-
     for (const entry of pkt.blocks) {
-      await applySingleBlockUpdate({
-        x: baseX + entry.position.x,
-        y: baseY + entry.position.y,
-        z: baseZ + entry.position.z
-      }, entry.runtime_id);
+      await applySingleBlockUpdate(entry.position, entry.runtime_id);
     }
   });
 

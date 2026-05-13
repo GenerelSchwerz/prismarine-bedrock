@@ -196,4 +196,42 @@ describe('chunk readiness helpers', function () {
       true
     )
   })
+
+  it('applies update_subchunk_blocks using absolute block positions', async function () {
+    const updates = []
+    const botState = createBotState()
+
+    botState.registry = {
+      blocksByRuntimeId: {
+        7: { stateId: 123 }
+      }
+    }
+    botState.world.getColumnAt = async () => ({})
+    botState.world.setBlockStateId = async (pos, stateId) => {
+      updates.push({ pos, stateId })
+    }
+
+    injectChunks(botState)
+
+    botState.client.emit('update_subchunk_blocks', {
+      x: 99,
+      y: 99,
+      z: 99,
+      blocks: [
+        {
+          position: { x: 5, y: 34359738307, z: -6 },
+          runtime_id: 7
+        }
+      ]
+    })
+
+    await waitImmediate()
+
+    assert.strictEqual(updates.length, 1)
+    assert.deepStrictEqual(
+      { x: updates[0].pos.x, y: updates[0].pos.y, z: updates[0].pos.z },
+      { x: 5, y: -61, z: -6 }
+    )
+    assert.strictEqual(updates[0].stateId, 123)
+  })
 })

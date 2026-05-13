@@ -541,6 +541,7 @@ function sendServerCommand(record, command, commands, combined, eventName) {
   };
   writeLine(commands, `${JSON.stringify(event)}\n`);
   writeLine(combined, `${JSON.stringify(event)}\n`);
+  console.log(`[${record.name}] <= ${command}`);
   record.child.stdin.write(`${command}\n`);
 }
 

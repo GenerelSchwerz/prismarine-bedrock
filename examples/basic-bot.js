@@ -3,13 +3,14 @@ process.env.DEBUG_PHYSICS = true
 const { BotState } = require('..')
 const Vec3 = require('vec3').Vec3
 const { logAction } = require('../src/utils')
+const { bedrockVersionFromEnv } = require('../src/version')
 
 const options = {
   host: 'localhost',
   port: 19132,
   username: 'MyBot',
   offline: true,
-  version: '1.21.130'
+  version: bedrockVersionFromEnv()
 }
 
 const bot = new BotState(options)

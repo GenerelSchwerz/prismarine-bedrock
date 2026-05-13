@@ -50,7 +50,7 @@ module.exports = (botState, options) => {
 
   // ── Start Game ──
   client.on('start_game', (pkt) => {
-    // 1.21.130: start_game carries spawn info but NOT itemstates/block_states
+    // Current Bedrock protocol: start_game carries spawn info but NOT itemstates/block_states.
     botState.spawnPosition = new Vec3(
       pkt.player_position.x, pkt.player_position.y, pkt.player_position.z
     );

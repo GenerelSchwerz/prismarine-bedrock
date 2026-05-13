@@ -3,6 +3,7 @@
 const fs = require('fs')
 const path = require('path')
 const { createSerializer, createDeserializer } = require('bedrock-protocol/src/transforms/serializer')
+const { bedrockVersionFromEnv, normalizeBedrockVersion } = require('../src/version')
 
 const EXAMPLES = {
   item_stack_swap: {
@@ -100,13 +101,13 @@ function readPacket () {
       usage()
       process.exit(1)
     }
-    return { packet, version: process.argv[4] || process.env.MC_VERSION || '1.21.130' }
+    return { packet, version: normalizeBedrockVersion(process.argv[4] || bedrockVersionFromEnv()) }
   }
 
   const file = path.resolve(first)
   return {
     packet: JSON.parse(fs.readFileSync(file, 'utf8')),
-    version: second || process.env.MC_VERSION || '1.21.130'
+    version: normalizeBedrockVersion(second || bedrockVersionFromEnv())
   }
 }
 

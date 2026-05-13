@@ -4,7 +4,7 @@
 // Generic packet state is handled in entities.js. This adapter only keeps
 // local movement/session state that is specific to the bot.
 //
-// Bedrock 1.21.130 specific:
+// Bedrock protocol specific:
 // - Attribute name mapping: 'movement' → 'minecraft:movement_speed'
 // - Effects by ID using the protocol constants
 // - Abilities from update_abilities packet (including flySpeed, walkSpeed)
@@ -111,7 +111,7 @@ function mapBedrockAttributeName(rawName) {
 }
 
 // ===================================================================
-// World settings tuned for Bedrock 1.21.130
+// World settings tuned for the current Bedrock protocol target.
 // ===================================================================
 const BEDROCK_WORLD_SETTINGS = {
   playerSpeed: 0.1,

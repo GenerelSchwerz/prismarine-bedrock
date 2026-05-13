@@ -2,14 +2,19 @@ const bedrock = require('bedrock-protocol');
 const Vec3 = require('vec3').Vec3;
 const { logAction } = require('./utils');
 const { EventEmitter } = require('stream');
+const { bedrockRegistryName, normalizeBedrockVersion } = require('./version');
 
 class BotState extends EventEmitter {
-  constructor (options) {
+  constructor (options = {}) {
     super();
-    this.options = { ...options };
-    const registry = require('prismarine-registry')(`bedrock_${options.version}`);
+    this.options = {
+      ...options,
+      version: normalizeBedrockVersion(options.version)
+    };
+    const registry = require('prismarine-registry')(bedrockRegistryName(this.options.version));
 
     this.registry = registry;
+    this.version = this.options.version;
 
     this.client = null;
 

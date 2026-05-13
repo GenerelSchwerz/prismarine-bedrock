@@ -47,7 +47,7 @@ const bot = createBot({
   port: 19132,
   username: 'MyBot',
   offline: true,
-  version: '1.21.130'
+  version: '1.26.10'
 })
 ```
 
@@ -73,6 +73,7 @@ pnpm run example:basic-bot
 ```
 
 Most examples accept `HOST`, `PORT`, `BOT_USERNAME`, `OFFLINE`, and `MC_VERSION` environment variables.
+The default Bedrock version is exported from `src/version.js`; `MC_VERSION=26.10` is accepted as shorthand for `1.26.10`.
 
 ## Test
 

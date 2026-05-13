@@ -4,6 +4,7 @@ const assert = require('assert')
 const fs = require('fs')
 const path = require('path')
 const { createSerializer, createDeserializer } = require('bedrock-protocol/src/transforms/serializer')
+const { DEFAULT_BEDROCK_VERSION, minecraftDataBedrockDir } = require('../../src/version')
 const {
   WINDOW_TYPE_INFO,
   containerSlotInfoFor,
@@ -12,18 +13,7 @@ const {
   windowInfoFor
 } = require('../../src/container-metadata')
 
-const TYPES_YML = path.join(
-  __dirname,
-  '..',
-  '..',
-  'node_modules',
-  'minecraft-data',
-  'minecraft-data',
-  'data',
-  'bedrock',
-  '1.21.130',
-  'types.yml'
-)
+const TYPES_YML = path.join(minecraftDataBedrockDir(DEFAULT_BEDROCK_VERSION), 'types.yml')
 
 function enumNames (name) {
   const source = fs.readFileSync(TYPES_YML, 'utf8')
@@ -112,8 +102,8 @@ describe('container metadata', function () {
   })
 
   it('round-trips representative item_stack_request slot identities', function () {
-    const serializer = createSerializer('1.21.130')
-    const deserializer = createDeserializer('1.21.130')
+    const serializer = createSerializer(DEFAULT_BEDROCK_VERSION)
+    const deserializer = createDeserializer(DEFAULT_BEDROCK_VERSION)
     const cases = [
       ['anvil_input', 1, 'anvil_result', 50],
       ['smithing_table_template', 53, 'smithing_table_result', 50],

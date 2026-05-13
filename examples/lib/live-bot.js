@@ -1,6 +1,7 @@
 "use strict";
 
 const { BotState } = require("../..");
+const { bedrockVersionFromEnv } = require("../../src/version");
 
 function envFlag(name, fallback) {
   const value = process.env[name];
@@ -27,7 +28,7 @@ function createLiveBot(defaults = {}) {
     port: Number(process.env.PORT || defaults.port || 19132),
     username,
     offline: envFlag("OFFLINE", defaults.offline ?? true),
-    version: process.env.MC_VERSION || defaults.version || "1.21.130",
+    version: bedrockVersionFromEnv(process.env, defaults.version),
     ...defaults.options
   };
 

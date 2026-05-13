@@ -5,10 +5,11 @@ const { EventEmitter } = require('events')
 const { Vec3 } = require('vec3')
 const { createSerializer, createDeserializer } = require('bedrock-protocol/src/transforms/serializer')
 const injectFood = require('../../src/builtins/food')
+const { DEFAULT_BEDROCK_VERSION } = require('../../src/version')
 
 function roundTrip (packet) {
-  const serializer = createSerializer('1.21.130')
-  const deserializer = createDeserializer('1.21.130')
+  const serializer = createSerializer(DEFAULT_BEDROCK_VERSION)
+  const deserializer = createDeserializer(DEFAULT_BEDROCK_VERSION)
   const buffer = serializer.createPacketBuffer(packet)
   return deserializer.parsePacketBuffer(buffer).data
 }

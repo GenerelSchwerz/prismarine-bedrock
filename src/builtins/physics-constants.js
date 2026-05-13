@@ -1,11 +1,10 @@
 // physics-constants.js
 // Game-physics constants for Minecraft Bedrock Edition.
-// The version-specific set can be selected by passing the protocol version
-// string (e.g. '1.21.130') or the major.minor version from bedrock-protocol
-// options.CURRENT_VERSION (e.g. '26.10').
+// The version-specific set can be selected by passing the normalized protocol
+// version string from src/version.js.
 
 /**
- * Default / latest constants (version 26.10 / 1.21.130).
+ * Default / latest constants for the current Bedrock protocol target.
  * Sources: vanilla Bedrock server deobfuscation, Minecraft wiki, and
  * the `player_auth_input` InputFlag bitflags from proto.yml.
  */
@@ -83,7 +82,7 @@ const LATEST = {
  * Returns constants for a given protocol version.
  * Currently returns the latest set; extend this map as newer versions arrive.
  *
- * @param {string} version  e.g. '1.21.130' or '26.10'
+ * @param {string} version  e.g. '1.26.10'
  * @returns {object}
  */
 function getConstants(version) {

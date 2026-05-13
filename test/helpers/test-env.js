@@ -1,8 +1,10 @@
+const { bedrockVersionFromEnv } = require("../../src/version");
+
 const HOST = process.env.HOST || "localhost";
 const PORT = parseInt(process.env.PORT, 10) || 19132;
 const USERNAME = effectiveUsername(process.env.BOT_USERNAME || "OpBot");
 const OFFLINE = process.env.OFFLINE !== "false";
-const VERSION = process.env.MC_VERSION || "1.21.130";
+const VERSION = bedrockVersionFromEnv();
 const SETUP_DELAY_MS = Number(process.env.SETUP_DELAY_MS || 500);
 
 function effectiveUsername(username) {

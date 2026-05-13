@@ -2,6 +2,7 @@ const { Vec3 } = require('vec3');
 const { performance } = require('perf_hooks');
 const { sameRuntimeId, sleep } = require('../../utils');
 const { getConstants } = require('../physics-constants');
+const { DEFAULT_BEDROCK_VERSION } = require('../../version');
 const { createBedrockWorldAdapter } = require('./bedrock-world-adapter');
 const { installBedrockMovementStateHandlers } = require('./nxg-physics-utils-adapter');
 const { createBedrockPhysicsEngine } = require('./bedrock-physics-engine');
@@ -10,7 +11,7 @@ const { createMovementPacketSender } = require('./movement-packets');
 
 module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
   const client = botState.client;
-  const C = getConstants(botState.version || '26.10');
+  const C = getConstants(botState.version || DEFAULT_BEDROCK_VERSION);
   const controls = installControls(botState, C);
   installBedrockMovementStateHandlers(botState);
   const world = createBedrockWorldAdapter(botState);

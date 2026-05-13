@@ -210,6 +210,7 @@ function parseTargets(raw) {
 }
 
 module.exports = {
+  DEFAULT_ENDSTONE_PACKAGE,
   parseCli,
   parseOptions,
   splitCommandLine,

@@ -6,21 +6,21 @@ This repo is optimized for long-running AI work where several agents may split a
 
 1. Read this file.
 2. Run `git status --short` and treat existing changes as user or peer-agent work. Do not revert them unless explicitly asked.
-3. Look for an existing task log under `docs/tasks/` that matches the work. Read its `Current State`, `Change Ledger`, `Resume Notes`, and `Final Summary` or `Failure Summary` before editing.
-4. Create or update a task log under `docs/tasks/` before making substantial code changes. Use `docs/tasks/TEMPLATE.md`.
+3. For core bot implementation, protocol/client-server behavior, live server interactions, packet schemas, inventory/crafting/trading flows, physics, or long-running investigations, look for an existing task log under `docs/tasks/` that matches the work. Read its `Current State`, `Change Ledger`, `Resume Notes`, and `Final Summary` or `Failure Summary` before editing.
+4. Create or update a task log under `docs/tasks/` before making substantial core bot or protocol changes. Use `docs/tasks/TEMPLATE.md`. Simple repo maintenance, documentation wording, examples, static helper cleanup, dependency metadata, or mechanical version/configuration cleanup does not require a task log unless the user asks for one.
 5. Identify owned files for the current task. If multiple agents are working, each agent must keep to disjoint write scopes or explicitly coordinate before touching shared files.
 6. Read the subsystem guide for the files you will edit.
 7. Keep runtime/debug artifacts in `logs/` or `scripts/tmp/`; both are gitignored. Commit only the distilled evidence in `docs/tasks/`.
 
 ## Task Logs
 
-Task logs are the source of truth for active and completed investigations. Each meaningful task should have one markdown file:
+Task logs are the source of truth for active and completed bot/protocol investigations. Each meaningful task should have one markdown file:
 
 ```text
 docs/tasks/TASK-NN-short-title.md
 ```
 
-Use a stable task number when one already exists. Otherwise choose the next available number. A task log should record:
+Use a stable task number when one already exists. Otherwise choose the next available number. Do not create task logs for simple maintenance that does not change core bot behavior or client-to-server interactions. A task log should record:
 
 - Status: `[ ] planned`, `[/] active`, `[x] complete`, `[!] blocked`, or `[-] abandoned`.
 - Owner and date.
@@ -75,6 +75,7 @@ Before stopping, even on failure:
 ## Repository Map
 
 - `src/index.js`, `src/state.js`: bot construction and shared state.
+- `src/version.js`: default Bedrock protocol version, `MC_VERSION` normalization, registry names, and versioned `minecraft-data` path helpers.
 - `src/builtins/setup.js`: login/start-game setup, registry/runtime setup, and packet listeners that feed shared state.
 - `src/builtins/inventory.js`: passive server-authoritative inventory mirror.
 - `src/builtins/inventory-actions.js`: active Bedrock `item_stack_request` inventory mutations.
@@ -104,11 +105,11 @@ Before stopping, even on failure:
 For packet shapes, verify the versioned `minecraft-data` sources before changing packet send/receive code:
 
 ```text
-node_modules/minecraft-data/minecraft-data/data/bedrock/1.21.130/proto.yml
-node_modules/minecraft-data/minecraft-data/data/bedrock/1.21.130/types.yml
+node_modules/minecraft-data/minecraft-data/data/bedrock/<MC_VERSION>/proto.yml
+node_modules/minecraft-data/minecraft-data/data/bedrock/<MC_VERSION>/types.yml
 ```
 
-The installed package is currently `minecraft-data@3.110.0` in the pnpm store. Do not hard-code older `.pnpm/minecraft-data@...` paths in notes or scripts.
+Use `src/version.js` for the default version and helpers such as `minecraftDataBedrockDir()`. The default client/protocol version is `1.26.10`; shorthand `26.10` is normalized to `1.26.10` before calling `bedrock-protocol` or `prismarine-registry`. Do not hard-code old version directories or older `.pnpm/minecraft-data@...` paths in notes or scripts.
 
 For crafting, inventory, or trading behavior, verify these schema entries:
 
@@ -148,7 +149,7 @@ Do not copy Gophertunnel structs into this JavaScript repo as a substitute for c
 
 When recording evidence in a task log, name the source class:
 
-- Protocol schema: `minecraft-data` files under `node_modules/minecraft-data/minecraft-data/data/bedrock/1.21.130/`.
+- Protocol schema: `minecraft-data` files under `node_modules/minecraft-data/minecraft-data/data/bedrock/<MC_VERSION>/`.
 - Protocol semantics: local Gophertunnel checkout under `temp-gophertunnel-inspect/`.
 - Proxy/server translation behavior: local Geyser checkout under `temp-geyser-inspect/`.
 - Runtime server data: packets observed from the active server, especially `crafting_data`, `item_registry`, `inventory_content`, `inventory_slot`, `item_stack_request`, and `item_stack_response`.

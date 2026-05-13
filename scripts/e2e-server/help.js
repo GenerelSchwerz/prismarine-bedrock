@@ -1,5 +1,7 @@
 "use strict";
 
+const { DEFAULT_ENDSTONE_PACKAGE } = require("./options");
+
 function printHelp() {
   console.log([
     "Usage:",
@@ -10,7 +12,7 @@ function printHelp() {
     "  node scripts/e2e-servers.js launch  --target=endstone --client pnpm run test:live",
     "  node scripts/e2e-servers.js launch  --target=endstone --world=superflat --endstone-packet-recorder",
     "  node scripts/e2e-servers.js launch  --target=endstone --world=superflat --endstone-scenario=craft-planks-and-place",
-    "  node scripts/e2e-servers.js launch  --target=endstone --endstone-package=endstone==0.10.18 --client pnpm run test:live",
+    `  node scripts/e2e-servers.js launch  --target=endstone --endstone-package=${DEFAULT_ENDSTONE_PACKAGE} --client pnpm run test:live`,
     "  node scripts/e2e-servers.js install --target=java --geyser-extension=astrox --geyser-extension=boar",
     "  node scripts/e2e-servers.js install --target=java --java-profiles=none,astrox,boar",
     "  node scripts/e2e-servers.js install --target=java --java-worlds=normal,superflat",
@@ -30,7 +32,7 @@ function printHelp() {
     "  E2E_JAVA_WORLDS         Comma-separated Java world types, e.g. normal,superflat",
     "  E2E_ENDSTONE_COUNT      Number of Endstone/BDS instances, default 1",
     "  E2E_ENDSTONE_WORLDS     Comma-separated Endstone world types, e.g. normal,superflat",
-    "  E2E_ENDSTONE_PACKAGE    uv package spec, default endstone==0.10.18 for Bedrock 1.21.130",
+    `  E2E_ENDSTONE_PACKAGE    uv package spec, default ${DEFAULT_ENDSTONE_PACKAGE}`,
     "  E2E_ENDSTONE_PACKET_RECORDER  Set 1 to install the Endstone packet hook recorder",
     "  E2E_ENDSTONE_SCENARIO         Scenario id or JSON path under test/recorded-bds/scenarios",
     "  E2E_PACKET_RECORD_FILE        Recorder JSONL path, default logs/packet-recorder.jsonl under server cwd",
@@ -55,7 +57,7 @@ function printHelp() {
     "  --client-stop-delay-ms=N Delay before stopping servers after client exit, default 2000",
     "  --server-ready-timeout-ms=N Delay before giving up on server readiness, default 120000",
     "  --client CMD            With multiple servers, runs one client process per server with scoped HOST/PORT/lock env",
-    "  --endstone-package=SPEC Pin Endstone package spec, e.g. endstone==0.10.18",
+    `  --endstone-package=SPEC Pin Endstone package spec, e.g. ${DEFAULT_ENDSTONE_PACKAGE}`,
     "  --endstone-packet-recorder Install an Endstone plugin that records PacketReceiveEvent/PacketSendEvent to JSONL",
     "  --endstone-scenario=ID_OR_PATH Run a stepped Endstone-only human recording scenario; enables recorder",
     "  --no-auto-op            Disable automatic Java/Geyser op-on-join",

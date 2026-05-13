@@ -4,6 +4,7 @@
 const fs = require("fs");
 const path = require("path");
 const { createDeserializer } = require("bedrock-protocol/src/transforms/serializer");
+const { bedrockVersionFromEnv, normalizeBedrockVersion } = require("../src/version");
 
 function usage() {
   const script = path.relative(process.cwd(), __filename);
@@ -20,7 +21,7 @@ if (!file || file === "--help" || file === "-h") {
   process.exit(file ? 0 : 1);
 }
 
-const version = process.argv[3] || process.env.MC_VERSION || "1.21.130";
+const version = normalizeBedrockVersion(process.argv[3] || bedrockVersionFromEnv());
 const deserializer = createDeserializer(version);
 const input = fs.readFileSync(path.resolve(file), "utf8");
 

@@ -4,9 +4,10 @@ const assert = require('assert')
 const { EventEmitter } = require('events')
 
 const injectInventory = require('../../src/builtins/inventory')
+const { bedrockRegistryName, DEFAULT_BEDROCK_VERSION } = require('../../src/version')
 
 function createBotState () {
-  const registry = require('prismarine-registry')('bedrock_1.21.130')
+  const registry = require('prismarine-registry')(bedrockRegistryName(DEFAULT_BEDROCK_VERSION))
   const botState = new EventEmitter()
 
   botState.client = new EventEmitter()

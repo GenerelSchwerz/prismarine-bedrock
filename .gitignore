@@ -9,3 +9,4 @@ Boar
 logs/
 scripts/tmp/
 superflat-scan-mismatches.json
+*.pyc

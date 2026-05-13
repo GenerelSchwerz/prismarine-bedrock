@@ -1,4 +1,5 @@
 const BotState = require('./state')
+const version = require('./version')
 
 function createBot (options) {
   const bot = new BotState(options)
@@ -8,5 +9,6 @@ function createBot (options) {
 
 module.exports = {
   BotState,
-  createBot
+  createBot,
+  ...version
 }

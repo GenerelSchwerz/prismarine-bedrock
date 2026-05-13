@@ -7,6 +7,7 @@ function printHelp() {
     "  node scripts/e2e-servers.js launch  [--target=all|java|endstone] [--java-count=2] [--endstone-count=2] [--client=\"pnpm run test:live\"]",
     "  node scripts/e2e-servers.js launch  --target=java --exit-after-client --client-timeout-ms=600000 --client pnpm run test:live",
     "  node scripts/e2e-servers.js launch  --target=endstone --client pnpm run test:live",
+    "  node scripts/e2e-servers.js launch  --target=endstone --endstone-package=endstone==0.10.18 --client pnpm run test:live",
     "  node scripts/e2e-servers.js install --target=java --geyser-extension=astrox --geyser-extension=boar",
     "  node scripts/e2e-servers.js install --target=java --java-profiles=none,astrox,boar",
     "  node scripts/e2e-servers.js install --target=java --java-worlds=normal,superflat",
@@ -44,6 +45,7 @@ function printHelp() {
     "  --client-timeout-ms=N    With --exit-after-client, stop servers and return 124 if the client times out",
     "  --client-stop-delay-ms=N Delay before stopping servers after client exit, default 2000",
     "  --server-ready-timeout-ms=N Delay before giving up on server readiness, default 120000",
+    "  --endstone-package=SPEC Pin Endstone package spec, e.g. endstone==0.10.18",
     "  --no-auto-op            Disable automatic Java/Geyser op-on-join",
     ""
   ].join("\n"));

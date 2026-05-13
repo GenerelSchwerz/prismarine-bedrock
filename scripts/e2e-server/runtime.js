@@ -18,6 +18,10 @@ async function createRuntime(targetInstances, options) {
   const activeRuns = new Map();
   const readyWaiters = [];
   let stopping = false;
+  let stopPromise = null;
+  let waitResolve = null;
+  let signalCount = 0;
+  let logsClosed = false;
   let stdinHandler = null;
   let clientRunCounter = 0;
   let clientTimeout = null;
@@ -82,9 +86,12 @@ async function createRuntime(targetInstances, options) {
         writeEvent(record, combined, "process_error", { message: err.message });
       });
       child.on("exit", (code, signal) => {
+        if (record.exited) return;
+        record.exited = true;
         stdoutHandler.flush();
         stderrHandler.flush();
         writeEvent(record, combined, "process_exit", { code, signal });
+        closeChildPipes(child);
         record.log.end();
         processes.delete(name);
         if (record.kind === "server" && !record.ready) {
@@ -92,13 +99,16 @@ async function createRuntime(targetInstances, options) {
         }
         if (record.run) {
           finishClientRun(record.run, activeRuns, combined);
-          if (options.exitAfterClient && runtime.clientExitCode === null) {
+          if (options.exitAfterClient) {
             if (clientTimeout) clearTimeout(clientTimeout);
-            runtime.clientExitCode = signal ? 1 : code || 0;
-            setTimeout(() => runtime.stopAll(), options.clientStopDelayMs).unref();
+            if (runtime.clientExitCode === null) {
+              runtime.clientExitCode = signal ? 1 : code || 0;
+            }
+            void runtime.stopAll("client_exit");
           }
         }
         console.log(`[${consoleLabel(record)}] exited ${signal || code}`);
+        maybeResolveWait();
       });
     },
     async startClientRun(command) {
@@ -108,7 +118,7 @@ async function createRuntime(targetInstances, options) {
         console.error(`Client not started: ${err.message}`);
         if (options.exitAfterClient && runtime.clientExitCode === null) {
           runtime.clientExitCode = 1;
-          runtime.stopAll();
+          void runtime.stopAll("client_start_failed");
         }
         return;
       }
@@ -119,10 +129,14 @@ async function createRuntime(targetInstances, options) {
       const run = {
         id,
         dir: runDir,
+        commandFile: path.join(runDir, "server-commands.jsonl"),
         combined: fs.createWriteStream(path.join(runDir, "combined.jsonl"), { flags: "a" }),
         clientLog: fs.createWriteStream(path.join(runDir, "client.jsonl"), { flags: "a" }),
-        serverLogs: new Map()
+        serverLogs: new Map(),
+        commandBridge: null
       };
+      fs.closeSync(fs.openSync(run.commandFile, "a"));
+      run.commandBridge = startServerCommandBridge(run.commandFile, runtime, commands, combined);
       const startEvent = { ts: new Date().toISOString(), event: "client_run_start", run: id, dir: runDir, command };
       combined.write(`${JSON.stringify(startEvent)}\n`);
       run.combined.write(`${JSON.stringify(startEvent)}\n`);
@@ -134,13 +148,16 @@ async function createRuntime(targetInstances, options) {
       }
       const name = `client-${id}`;
       console.log(`Client run logs: ${runDir}`);
-      runtime.launch(name, "client", command, [], ROOT, clientEnv(targetInstances), { shell: true, run });
+      runtime.launch(name, "client", command, [], ROOT, {
+        ...clientEnv(targetInstances),
+        E2E_SERVER_COMMAND_FILE: run.commandFile
+      }, { shell: true, run });
       if (options.exitAfterClient && options.clientTimeoutMs !== null) {
         if (clientTimeout) clearTimeout(clientTimeout);
         clientTimeout = setTimeout(() => {
           if (runtime.clientExitCode === null) runtime.clientExitCode = 124;
           console.error(`Client timed out after ${options.clientTimeoutMs}ms; stopping servers.`);
-          runtime.stopAll();
+          void runtime.stopAll("client_timeout");
         }, options.clientTimeoutMs);
         clientTimeout.unref();
       }
@@ -194,38 +211,91 @@ async function createRuntime(targetInstances, options) {
       };
       process.stdin.on("data", stdinHandler);
     },
-    stopAll() {
-      if (stopping) return;
-      stopping = true;
-      for (const record of processes.values()) {
-        writeEvent(record, combined, "process_stop_request", {});
-        if (record.external) {
-          record.log.end();
-          processes.delete(record.name);
-        } else if (!record.child.killed) {
-          record.child.kill(os.platform() === "win32" ? undefined : "SIGTERM");
-        }
-      }
+    stopAll(reason = "requested") {
+      if (stopPromise) return stopPromise;
+      stopPromise = stopAll(reason);
+      return stopPromise;
     },
     waitForExit() {
-      process.on("SIGINT", () => runtime.stopAll());
-      process.on("SIGTERM", () => runtime.stopAll());
+      const handleSignal = (signal) => {
+        signalCount += 1;
+        const code = signal === "SIGINT" ? 130 : 143;
+        if (runtime.clientExitCode === null) runtime.clientExitCode = code;
+        process.exitCode = code;
+
+        if (signalCount > 1) {
+          writeSessionEvent(combined, "shutdown_force", { signal });
+          forceKillProcesses(processes);
+          setTimeout(() => process.exit(code), 250).unref();
+          return;
+        }
+
+        console.error(`Received ${signal}; stopping servers and closing logs...`);
+        void runtime.stopAll(signal);
+      };
+
+      process.on("SIGINT", handleSignal);
+      process.on("SIGTERM", handleSignal);
+      if (process.platform !== "win32") process.on("SIGHUP", handleSignal);
 
       return new Promise((resolve) => {
-        const timer = setInterval(() => {
-          if (processes.size === 0) {
-            clearInterval(timer);
-            if (stdinHandler) process.stdin.off("data", stdinHandler);
-            process.stdin.pause();
-            if (clientTimeout) clearTimeout(clientTimeout);
-            commands.end();
-            combined.end();
-            resolve();
-          }
-        }, 250);
+        waitResolve = () => {
+          process.off("SIGINT", handleSignal);
+          process.off("SIGTERM", handleSignal);
+          if (process.platform !== "win32") process.off("SIGHUP", handleSignal);
+          resolve();
+        };
+        maybeResolveWait();
       });
     }
   };
+
+  async function stopAll(reason) {
+    if (stopping || logsClosed) return;
+    stopping = true;
+    writeSessionEvent(combined, "shutdown_start", { reason });
+    if (stdinHandler) process.stdin.off("data", stdinHandler);
+    process.stdin.pause();
+    if (clientTimeout) clearTimeout(clientTimeout);
+    rejectReadyWaiters(new Error(`Shutdown requested: ${reason}`));
+    for (const run of [...activeRuns.values()]) {
+      run.commandBridge?.stop();
+    }
+
+    const stops = [];
+    for (const record of processes.values()) {
+      writeEvent(record, combined, "process_stop_request", { reason });
+      if (record.external) {
+        record.log.end();
+        processes.delete(record.name);
+      } else if (!record.child.killed) {
+        stops.push(stopProcess(record).then(() => waitForRecordExit(record, processes, combined)));
+      }
+    }
+    await Promise.allSettled(stops);
+    maybeResolveWait();
+  }
+
+  function maybeResolveWait() {
+    if (processes.size !== 0 || !waitResolve) return;
+    const resolve = waitResolve;
+    waitResolve = null;
+    void closeLogs().then(resolve, resolve);
+  }
+
+  async function closeLogs() {
+    if (logsClosed) return;
+    logsClosed = true;
+    if (clientTimeout) clearTimeout(clientTimeout);
+    for (const run of [...activeRuns.values()]) {
+      finishClientRun(run, activeRuns, combined);
+    }
+    writeSessionEvent(combined, "shutdown_complete", {});
+    await Promise.all([
+      endStream(commands),
+      endStream(combined)
+    ]);
+  }
 
   function serversReady() {
     const serverRecords = [...processes.values()].filter((record) => record.kind === "server");
@@ -254,6 +324,76 @@ async function createRuntime(targetInstances, options) {
   }
 
   return runtime;
+}
+
+function closeChildPipes(child) {
+  child.stdin?.destroy();
+  child.stdout?.destroy();
+  child.stderr?.destroy();
+}
+
+function stopProcess(record) {
+  if (!record.child?.pid) return Promise.resolve();
+
+  if (os.platform() === "win32") {
+    return new Promise((resolve) => {
+      const killer = spawn("taskkill", ["/pid", String(record.child.pid), "/t", "/f"], {
+        stdio: "ignore",
+        windowsHide: true
+      });
+      killer.on("error", () => {
+        record.child.kill();
+        resolve();
+      });
+      killer.on("exit", () => resolve());
+    });
+  }
+
+  record.child.kill("SIGTERM");
+  return Promise.resolve();
+}
+
+function forceKillProcesses(processes) {
+  for (const record of processes.values()) {
+    if (!record.external) void stopProcess(record);
+  }
+}
+
+function waitForRecordExit(record, processes, combined) {
+  if (record.exited || !processes.has(record.name)) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      if (!processes.has(record.name) || record.exited) {
+        resolve();
+        return;
+      }
+      record.exited = true;
+      writeEvent(record, combined, "process_exit_missing", { reason: "timeout_after_stop" });
+      closeChildPipes(record.child);
+      record.log.end();
+      processes.delete(record.name);
+      resolve();
+    }, 5000);
+    timer.unref();
+    record.child.once("exit", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
+
+function writeSessionEvent(combined, event, data) {
+  writeLine(combined, `${JSON.stringify({ ts: new Date().toISOString(), event, ...data })}\n`);
+}
+
+function endStream(stream) {
+  if (stream.destroyed || stream.writableEnded) return Promise.resolve();
+  return new Promise((resolve) => stream.end(resolve));
+}
+
+function writeLine(stream, line) {
+  if (!stream || stream.destroyed || stream.writableEnded) return;
+  stream.write(line);
 }
 
 function createOutputHandler(record, combined, stream, runtime) {
@@ -302,10 +442,56 @@ function consoleLabel(record) {
 function finishClientRun(run, activeRuns, sessionCombined) {
   if (!activeRuns.has(run.id)) return;
   activeRuns.delete(run.id);
-  sessionCombined.write(`${JSON.stringify({ ts: new Date().toISOString(), event: "client_run_end", run: run.id, dir: run.dir })}\n`);
+  run.commandBridge?.stop();
+  writeLine(sessionCombined, `${JSON.stringify({ ts: new Date().toISOString(), event: "client_run_end", run: run.id, dir: run.dir })}\n`);
   run.combined.end();
   run.clientLog.end();
   for (const log of run.serverLogs.values()) log.end();
+}
+
+function startServerCommandBridge(commandFile, runtime, commands, combined) {
+  let offset = 0;
+  let stopped = false;
+
+  const pump = () => {
+    if (stopped) return;
+    let stat;
+    try {
+      stat = fs.statSync(commandFile);
+    } catch {
+      return;
+    }
+    if (stat.size <= offset) return;
+
+    const fd = fs.openSync(commandFile, "r");
+    try {
+      const length = stat.size - offset;
+      const buffer = Buffer.alloc(length);
+      fs.readSync(fd, buffer, 0, length, offset);
+      offset = stat.size;
+      for (const line of buffer.toString("utf8").split(/\r?\n/)) {
+        if (!line.trim()) continue;
+        const entry = JSON.parse(line);
+        const targets = [...runtime.processes.values()].filter((record) => record.kind === "server");
+        for (const record of targets) {
+          sendServerCommand(record, entry.command, commands, combined, "client_command_file");
+        }
+      }
+    } finally {
+      fs.closeSync(fd);
+    }
+  };
+
+  const timer = setInterval(pump, 50);
+  timer.unref();
+
+  return {
+    stop() {
+      pump();
+      stopped = true;
+      clearInterval(timer);
+    }
+  };
 }
 
 function handleConsoleLine(line, runtime, commands, combined, targetInstances) {
@@ -353,8 +539,8 @@ function sendServerCommand(record, command, commands, combined, eventName) {
     event: eventName,
     command
   };
-  commands.write(`${JSON.stringify(event)}\n`);
-  combined.write(`${JSON.stringify(event)}\n`);
+  writeLine(commands, `${JSON.stringify(event)}\n`);
+  writeLine(combined, `${JSON.stringify(event)}\n`);
   record.child.stdin.write(`${command}\n`);
 }
 
@@ -403,23 +589,23 @@ function writeEvent(record, combined, event, data) {
     ...data
   };
   const line = `${JSON.stringify(payload)}\n`;
-  record.log.write(line);
-  combined.write(line);
+  writeLine(record.log, line);
+  writeLine(combined, line);
   writeRunEvent(record, line, payload);
 }
 
 function writeRunEvent(record, line, payload) {
   if (record.kind === "client" && record.run) {
-    record.run.clientLog.write(line);
-    record.run.combined.write(line);
+    writeLine(record.run.clientLog, line);
+    writeLine(record.run.combined, line);
     return;
   }
 
   if (record.kind !== "server" || !record.activeRuns) return;
   for (const run of record.activeRuns.values()) {
     const serverLog = run.serverLogs.get(record.name);
-    if (serverLog) serverLog.write(line);
-    run.combined.write(`${JSON.stringify({ ...payload, run: run.id })}\n`);
+    if (serverLog) writeLine(serverLog, line);
+    writeLine(run.combined, `${JSON.stringify({ ...payload, run: run.id })}\n`);
   }
 }
 

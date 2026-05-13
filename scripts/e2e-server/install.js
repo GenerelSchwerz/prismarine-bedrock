@@ -4,9 +4,10 @@ const fs = require("fs");
 const fsp = require("fs/promises");
 const os = require("os");
 const path = require("path");
+const { spawn } = require("child_process");
 const { E2E_ROOT, CACHE_DIR, RUNS_DIR, ENDSTONE_TEMPLATE_DIR, ROOT } = require("./paths");
 const { mkdir, replaceDirectory, safeRemove, writeText, copyIfExists } = require("./fs-utils");
-const { runChecked, venvPythonBin, endstoneBin } = require("./process-utils");
+const { runChecked, venvPythonBin, endstoneBin, endstoneArgs, endstoneEnv } = require("./process-utils");
 const {
   javaServerProperties,
   paperGlobalConfig,
@@ -24,6 +25,8 @@ const {
   cacheJavaPlugin,
   downloadIfMissing
 } = require("./downloads");
+
+const ENDSTONE_PACKAGE_MARKER = ".e2e-endstone-package";
 
 async function installTargets(targetInstances, options) {
   await mkdir(E2E_ROOT);
@@ -80,7 +83,10 @@ async function installJavaGeyser(instance, options) {
 }
 
 async function installEndstone(instance, options) {
-  console.log(`Preparing ${instance.name}: uv-managed Endstone Bedrock server...`);
+  const source = options.endstonePackage || "endstone";
+  console.log(`Preparing ${instance.name}: uv-managed Endstone Bedrock server (${source})...`);
+
+  await resetEndstoneInstanceIfPackageChanged(instance, source);
   await mkdir(instance.dir);
 
   const venv = path.join(instance.dir, ".venv");
@@ -88,11 +94,13 @@ async function installEndstone(instance, options) {
     await runChecked("uv", ["venv", venv], instance.dir);
   }
 
-  const source = process.env.E2E_ENDSTONE_PACKAGE || "endstone";
   await runChecked("uv", ["pip", "install", "--python", venvPythonBin(instance), "--upgrade", source], instance.dir);
-  await ensureEndstoneTemplate(instance, options);
+  await copyEndstoneRuntimeDlls(instance, instance.dir);
+  await ensureEndstoneTemplate(instance, options, source);
   await copyEndstoneTemplate(instance);
+  await copyEndstoneRuntimeDlls(instance, instance.dir);
   await writeText(path.join(instance.dir, "server.properties"), endstoneServerProperties(instance, options));
+  await writeText(path.join(instance.dir, ENDSTONE_PACKAGE_MARKER), `${source}\n`);
 }
 
 async function installGeyserExtensions(instance, options) {
@@ -122,9 +130,58 @@ function extensionsForProfile(profile) {
   return profile.split("+").map((value) => value.trim()).filter(Boolean);
 }
 
-async function ensureEndstoneTemplate(instance, options) {
+async function resetEndstoneInstanceIfPackageChanged(instance, source) {
+  const marker = path.join(instance.dir, ENDSTONE_PACKAGE_MARKER);
+  if (!fs.existsSync(instance.dir)) return;
+
+  if (!fs.existsSync(marker)) {
+    console.log(`Endstone package for ${instance.name} is unknown; rebuilding instance for ${source}.`);
+    await safeRemove(instance.dir);
+    return;
+  }
+
+  const previous = (await fsp.readFile(marker, "utf8")).trim();
+  if (previous === source) {
+    const instanceVersion = await readOptionalText(path.join(instance.dir, "version.txt"));
+    const templateVersion = await readOptionalText(path.join(ENDSTONE_TEMPLATE_DIR, "version.txt"));
+
+    if (instanceVersion && templateVersion && instanceVersion.trim() !== templateVersion.trim()) {
+      console.log(`Endstone BDS version changed for ${instance.name}: ${instanceVersion.trim()} -> ${templateVersion.trim()}; rebuilding instance.`);
+      await safeRemove(instance.dir);
+    }
+    return;
+  }
+
+  console.log(`Endstone package changed for ${instance.name}: ${previous} -> ${source}; rebuilding instance.`);
+  await safeRemove(instance.dir);
+}
+
+async function readOptionalText(file) {
+  try {
+    return await fsp.readFile(file, "utf8");
+  } catch (err) {
+    if (err?.code === "ENOENT") return null;
+    throw err;
+  }
+}
+
+async function ensureEndstoneTemplate(instance, options, source) {
   const executable = os.platform() === "win32" ? "bedrock_server.exe" : "bedrock_server";
-  if (fs.existsSync(path.join(ENDSTONE_TEMPLATE_DIR, executable))) return;
+  const marker = path.join(ENDSTONE_TEMPLATE_DIR, ENDSTONE_PACKAGE_MARKER);
+
+  if (fs.existsSync(path.join(ENDSTONE_TEMPLATE_DIR, executable))) {
+    const previous = fs.existsSync(marker)
+      ? (await fsp.readFile(marker, "utf8")).trim()
+      : null;
+    if (previous === source) {
+      await copyEndstoneRuntimeDlls(instance, ENDSTONE_TEMPLATE_DIR);
+      return;
+    }
+
+    const label = previous ? `${previous} -> ${source}` : `unknown -> ${source}`;
+    console.log(`Endstone template package changed: ${label}; rebuilding template.`);
+    await safeRemove(ENDSTONE_TEMPLATE_DIR);
+  }
 
   await mkdir(ENDSTONE_TEMPLATE_DIR);
   console.log(`Warming Endstone BDS template in ${path.relative(ROOT, ENDSTONE_TEMPLATE_DIR)}...`);
@@ -135,12 +192,96 @@ async function ensureEndstoneTemplate(instance, options) {
     bedrockPort: 19132,
     world: "normal"
   }, options));
-  await runChecked(endstoneBin(instance), [
-    "--server-folder",
-    ENDSTONE_TEMPLATE_DIR,
-    "--no-confirm",
-    "--no-interactive"
-  ], instance.dir);
+  await copyEndstoneRuntimeDlls(instance, ENDSTONE_TEMPLATE_DIR);
+  await runEndstoneTemplateWarmup(endstoneBin(instance), endstoneArgs(instance, {
+    serverFolder: ENDSTONE_TEMPLATE_DIR,
+    interactive: false
+  }), instance.dir, endstoneEnv(instance, { serverFolder: ENDSTONE_TEMPLATE_DIR }));
+  await writeText(marker, `${source}\n`);
+}
+
+async function copyEndstoneRuntimeDlls(instance, targetDir) {
+  const sources = new Set();
+  const pythonDir = pythonHome(instance);
+  const internalDir = path.join(instance.dir, ".venv", "Lib", "site-packages", "endstone", "_internal");
+
+  for (const file of [
+    path.join(internalDir, "endstone_runtime.dll"),
+    path.join(internalDir, "endstone_runtime_loader.dll")
+  ]) {
+    sources.add(file);
+  }
+
+  if (pythonDir) {
+    for (const name of ["python3.dll", "python313.dll", "vcruntime140.dll", "vcruntime140_1.dll"]) {
+      sources.add(path.join(pythonDir, name));
+    }
+  }
+
+  for (const name of ["msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll"]) {
+    sources.add(path.join(process.env.SystemRoot || "C:\\Windows", "System32", name));
+  }
+
+  await mkdir(targetDir);
+  for (const source of sources) {
+    if (!source || !fs.existsSync(source)) continue;
+    await fsp.copyFile(source, path.join(targetDir, path.basename(source)));
+  }
+}
+
+function pythonHome(instance) {
+  const cfg = path.join(instance.dir, ".venv", "pyvenv.cfg");
+  try {
+    const text = fs.readFileSync(cfg, "utf8");
+    const match = text.match(/^home\s*=\s*(.+)$/m);
+    return match?.[1]?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+async function runEndstoneTemplateWarmup(bin, args, cwd, extraEnv = {}) {
+  console.log(`${bin} ${args.join(" ")}`);
+
+  await new Promise((resolve, reject) => {
+    const child = spawn(bin, args, {
+      cwd,
+      stdio: ["pipe", "pipe", "pipe"],
+      env: { ...process.env, ...extraEnv }
+    });
+    const timeout = setTimeout(() => {
+      child.kill(os.platform() === "win32" ? undefined : "SIGTERM");
+      reject(new Error(`${bin} ${args.join(" ")} timed out while warming Endstone template`));
+    }, 180000);
+    let pending = "";
+    let stopSent = false;
+
+    const handleOutput = (data, stream) => {
+      stream.write(data);
+      pending += data.toString();
+      const lines = pending.split(/\r?\n/);
+      pending = lines.pop();
+
+      for (const line of lines) {
+        if (!stopSent && /\b(Server started\.|IPv4 supported, port:)/.test(line)) {
+          stopSent = true;
+          child.stdin.write("stop\n");
+        }
+      }
+    };
+
+    child.stdout.on("data", data => handleOutput(data, process.stdout));
+    child.stderr.on("data", data => handleOutput(data, process.stderr));
+    child.on("error", err => {
+      clearTimeout(timeout);
+      reject(err);
+    });
+    child.on("exit", (code, signal) => {
+      clearTimeout(timeout);
+      if (code === 0) resolve();
+      else reject(new Error(`${bin} ${args.join(" ")} exited with ${signal || code}`));
+    });
+  });
 }
 
 async function copyEndstoneTemplate(instance) {
@@ -169,7 +310,8 @@ async function copyEndstoneTemplate(instance) {
     "permissions.json",
     "profanity_filter.wlist",
     "release-notes.txt",
-    "version.txt"
+    "version.txt",
+    ENDSTONE_PACKAGE_MARKER
   ]) {
     await copyIfExists(path.join(ENDSTONE_TEMPLATE_DIR, name), path.join(instance.dir, name));
   }

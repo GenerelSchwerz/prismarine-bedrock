@@ -6,4 +6,5 @@ Boar
 .test-lock.json
 .e2e-servers/
 logs/
+scripts/tmp/
 superflat-scan-mismatches.json

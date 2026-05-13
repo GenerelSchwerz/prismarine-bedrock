@@ -1,8 +1,13 @@
 'use strict'
 
 function bedrockPlayerName (username) {
-  if (username.startsWith('.')) return username
-  return `.${username}`
+  const prefix = process.env.E2E_BEDROCK_PLAYER_NAME_PREFIX ?? '.'
+  const name = String(username)
+  const unprefixed = name.replace(/^\.+/, '')
+
+  if (prefix === '') return unprefixed
+  if (name.startsWith(prefix)) return name
+  return `${prefix}${unprefixed}`
 }
 
 function sendCommand (botState, text) {

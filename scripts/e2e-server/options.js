@@ -1,5 +1,8 @@
 "use strict";
 
+const fs = require("fs");
+const path = require("path");
+
 function parseCli(argv) {
   const command = argv[2] || "help";
   const options = parseOptions(argv.slice(3));
@@ -22,8 +25,9 @@ function parseOptions(args) {
     world: process.env.E2E_WORLD || "normal",
     javaCount: null,
     endstoneCount: null,
+    endstonePackage: process.env.E2E_ENDSTONE_PACKAGE || "endstone",
     paperVersion: process.env.E2E_PAPER_VERSION || "latest",
-    javaBin: process.env.E2E_JAVA_BIN || "java",
+    javaBin: process.env.E2E_JAVA_BIN || defaultJavaBin(),
     geyserAuthType: process.env.E2E_GEYSER_AUTH_TYPE || "offline",
     autoOp: process.env.E2E_AUTO_OP !== "0"
   };
@@ -42,6 +46,12 @@ function parseOptions(args) {
       options.javaCount = parsePositiveInt(arg.slice("--java-count=".length), "--java-count");
     } else if (arg.startsWith("--endstone-count=")) {
       options.endstoneCount = parsePositiveInt(arg.slice("--endstone-count=".length), "--endstone-count");
+    } else if (arg === "--endstone-package") {
+      if (!args[index + 1]) throw new Error("--endstone-package requires a value.");
+      options.endstonePackage = args[index + 1];
+      index += 1;
+    } else if (arg.startsWith("--endstone-package=")) {
+      options.endstonePackage = arg.slice("--endstone-package=".length);
     } else if (arg.startsWith("--geyser-extension=")) {
       options.geyserExtensions.push(arg.slice("--geyser-extension=".length));
     } else if (arg.startsWith("--java-profiles=")) {
@@ -79,6 +89,16 @@ function parseOptions(args) {
 
   options.world = normalizeWorld(options.world);
   return options;
+}
+
+function defaultJavaBin() {
+  const javaHome = process.env.JAVA_HOME;
+  if (javaHome) {
+    const bin = path.join(javaHome, "bin", process.platform === "win32" ? "java.exe" : "java");
+    if (fs.existsSync(bin)) return bin;
+  }
+
+  return "java";
 }
 
 function splitCsv(raw) {
@@ -122,5 +142,6 @@ function parseTargets(raw) {
 module.exports = {
   parseCli,
   normalizeWorld,
-  parsePositiveInt
+  parsePositiveInt,
+  defaultJavaBin
 };

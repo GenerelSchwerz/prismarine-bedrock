@@ -3,6 +3,7 @@
 // Provides command helpers for Bedrock command_request and slash-chat commands.
 
 const crypto = require('crypto')
+const fs = require('fs')
 const { logAction } = require('../utils')
 
 module.exports = function commandsPlugin (botState, options = {}) {
@@ -10,6 +11,7 @@ module.exports = function commandsPlugin (botState, options = {}) {
 
   let commandVersion = options.commandVersion ?? '52'
   let commandTimeoutMs = options.commandTimeoutMs ?? 5000
+  let commandPacket = options.commandPacket ?? process.env.E2E_BEDROCK_COMMAND_PACKET ?? 'command_request'
   let seq = 0
 
   const pending = new Map()
@@ -24,21 +26,54 @@ module.exports = function commandsPlugin (botState, options = {}) {
     return `cmd:${Date.now()}:${seq}:${crypto.randomUUID()}`
   }
 
-  function commandOrigin (id, type = 'player') {
+  function commandOrigin (requestId = '', type = 'player') {
     return {
       type,
-      uuid: crypto.randomUUID(),
-      request_id: id,
+      uuid: client.profile?.uuid ?? crypto.randomUUID(),
+      request_id: requestId,
       player_entity_id: client.entityId ?? 0n
     }
   }
 
   function command (value, opts = {}) {
     const id = opts.requestId ?? requestId()
+    const packet = opts.packet ?? commandPacket
+
+    if (packet === 'settings_command') {
+      client.queue('settings_command', {
+        command_line: slash(value),
+        suppress_output: opts.suppressOutput ?? false
+      })
+
+      logAction('[command]', 'settings', {
+        command: slash(value),
+        requestId: id
+      })
+
+      return id
+    }
+
+    if (packet === 'server_command_file') {
+      const commandFile = opts.commandFile ?? process.env.E2E_SERVER_COMMAND_FILE
+      if (!commandFile) throw new Error('E2E_SERVER_COMMAND_FILE is required for server_command_file commands')
+      const command = slash(value)
+      fs.appendFileSync(commandFile, `${JSON.stringify({
+        ts: new Date().toISOString(),
+        requestId: id,
+        command: command.replace(/^\//, '')
+      })}\n`)
+
+      logAction('[command]', 'server_file', {
+        command,
+        requestId: id
+      })
+
+      return id
+    }
 
     client.queue('command_request', {
       command: slash(value),
-      origin: opts.origin ?? commandOrigin(id, opts.originType ?? 'player'),
+      origin: opts.origin ?? commandOrigin(opts.originRequestId ?? '', opts.originType ?? 'player'),
       internal: opts.internal ?? false,
       version: opts.version ?? commandVersion
     })
@@ -96,7 +131,8 @@ module.exports = function commandsPlugin (botState, options = {}) {
   }
 
   async function commandWithOutput (value, opts = {}) {
-    const id = command(value, opts)
+    const id = opts.requestId ?? requestId()
+    command(value, { ...opts, requestId: id, originRequestId: opts.originRequestId ?? id })
     return waitForCommandOutput(id, opts.timeoutMs ?? commandTimeoutMs)
   }
 
@@ -158,6 +194,10 @@ module.exports = function commandsPlugin (botState, options = {}) {
 
   botState.setCommandTimeout = (ms) => {
     commandTimeoutMs = ms
+  }
+
+  botState.setCommandPacket = (packet) => {
+    commandPacket = packet
   }
 
   botState.clearCommandWaiters = clearCommandWaiters

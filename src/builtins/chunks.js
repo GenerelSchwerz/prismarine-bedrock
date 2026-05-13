@@ -32,6 +32,8 @@ module.exports = (botState, options = {}) => {
     options.worldHeight ??
     botState.worldHeight ??
     384;
+  const WORLD_MIN_SECTION_Y = Math.floor(WORLD_MIN_Y / 16);
+  const WORLD_MAX_SECTION_Y = Math.floor((WORLD_MIN_Y + WORLD_HEIGHT - 1) / 16);
 
   botState.minY = WORLD_MIN_Y;
   botState.worldMinY = WORLD_MIN_Y;
@@ -122,6 +124,7 @@ module.exports = (botState, options = {}) => {
   if (!botState.blobCache) botState.blobCache = new Map(); // hash string → Buffer
   if (!botState.pendingBlobRequests) botState.pendingBlobRequests = new Map();
   if (!botState.networkChunks) botState.networkChunks = new Map();
+  if (!botState.pendingSubchunkRequests) botState.pendingSubchunkRequests = new Map();
 
   // These track actual decoded block data, not merely column existence.
   if (!botState.loadedChunks) botState.loadedChunks = new Set(); // "cx,cz" after full chunk decode
@@ -163,6 +166,55 @@ module.exports = (botState, options = {}) => {
     }
 
     set.add(sectionY);
+
+    const pending = botState.pendingSubchunkRequests.get(key);
+    if (!pending) return;
+
+    pending.sectionYs.delete(sectionY);
+    if (pending.sectionYs.size === 0) {
+      botState.pendingSubchunkRequests.delete(key);
+    }
+  }
+
+  function isSubChunkSuccess(result) {
+    return result === 1 || result === 'success';
+  }
+
+  function isSubChunkAllAir(result) {
+    return result === 6 || result === 'success_all_air';
+  }
+
+  function zigZagDecode(value) {
+    if (!Number.isInteger(value) || value < 0) return value;
+    return value % 2 === 0 ? value / 2 : -((value + 1) / 2);
+  }
+
+  function normalizeNetworkChunkPublisherCoordinates(coordinates) {
+    if (!coordinates) return coordinates;
+
+    return {
+      x: coordinates.x,
+      y: zigZagDecode(coordinates.y),
+      z: coordinates.z
+    };
+  }
+
+  function chunkPublisherSectionY() {
+    const y = botState.chunkPublisherCenter?.y;
+    return sectionYFromWorldY(y);
+  }
+
+  function readinessSectionY(center) {
+    return chunkPublisherSectionY() ?? sectionYFromWorldY(center?.y) ?? WORLD_MIN_SECTION_Y;
+  }
+
+  function sectionYFromWorldY(y) {
+    if (!Number.isFinite(y)) return undefined;
+
+    const sectionY = Math.floor(y / 16);
+    if (sectionY < WORLD_MIN_SECTION_Y || sectionY > WORLD_MAX_SECTION_Y) return undefined;
+
+    return sectionY;
   }
 
   function isChunkBlockDataLoaded(cx, cz, requiredSectionYs = undefined) {
@@ -201,11 +253,15 @@ module.exports = (botState, options = {}) => {
     const minCZ = Math.floor((pos.z - radius) / 16);
     const maxCZ = Math.floor((pos.z + radius) / 16);
 
-    const centerSectionY = Math.floor(pos.y / 16);
+    const centerSectionY = readinessSectionY(pos);
     const requiredSectionYs = [];
 
     for (let dy = -verticalSectionRadius; dy <= verticalSectionRadius; dy++) {
-      requiredSectionYs.push(centerSectionY + dy);
+      const sectionY = centerSectionY + dy;
+
+      if (sectionY >= WORLD_MIN_SECTION_Y && sectionY <= WORLD_MAX_SECTION_Y) {
+        requiredSectionYs.push(sectionY);
+      }
     }
 
     const required = new Set();
@@ -326,6 +382,75 @@ module.exports = (botState, options = {}) => {
     });
   }
 
+  function subchunkOriginSectionY() {
+    return (
+      chunkPublisherSectionY() ??
+      sectionYFromWorldY(botState.self?.position?.y) ??
+      WORLD_MIN_SECTION_Y
+    );
+  }
+
+  function subchunkSectionYsAround(originSectionY, verticalSectionRadius = 1) {
+    const sectionYs = [];
+
+    for (let dy = -verticalSectionRadius; dy <= verticalSectionRadius; dy++) {
+      const sectionY = originSectionY + dy;
+
+      if (sectionY >= WORLD_MIN_SECTION_Y && sectionY <= WORLD_MAX_SECTION_Y) {
+        sectionYs.push(sectionY);
+      }
+    }
+
+    return sectionYs;
+  }
+
+  function queueSubchunkRequest(cx, cz, dimension, sectionYs = undefined, originSectionY = undefined) {
+    originSectionY ??= subchunkOriginSectionY();
+    const requestOffsets = [];
+
+    const requestedSectionYs = sectionYs?.length
+      ? sectionYs
+      : subchunkSectionYsAround(originSectionY);
+
+    for (const sectionY of requestedSectionYs) {
+      requestOffsets.push({ dx: 0, dy: sectionY - originSectionY, dz: 0 });
+    }
+
+    client.queue('subchunk_request', {
+      dimension,
+      origin: {
+        x: cx,
+        y: originSectionY,
+        z: cz
+      },
+      requests: requestOffsets
+    });
+  }
+
+  function rememberSubchunkRequest(cx, cz, dimension, originSectionY, sectionYs) {
+    botState.pendingSubchunkRequests.set(chunkKey(cx, cz), {
+      cx,
+      cz,
+      dimension,
+      originSectionY,
+      sectionYs: new Set(sectionYs)
+    });
+  }
+
+  function retryPendingSubchunkRequests() {
+    for (const request of botState.pendingSubchunkRequests.values()) {
+      const missingSectionYs = [...request.sectionYs]
+        .filter(sectionY => !isChunkBlockDataLoaded(request.cx, request.cz, [sectionY]));
+
+      if (missingSectionYs.length === 0) {
+        botState.pendingSubchunkRequests.delete(chunkKey(request.cx, request.cz));
+        continue;
+      }
+
+      queueSubchunkRequest(request.cx, request.cz, request.dimension, missingSectionYs, request.originSectionY);
+    }
+  }
+
   // ── level_chunk (0x3a) ──
   client.on('level_chunk', async (packet) => {
     const cx = packet.x;
@@ -392,42 +517,11 @@ module.exports = (botState, options = {}) => {
           await world.setColumn(cx, cz, chunk);
         }
 
-        const origin = botState.chunkPublisherCenter
-          ? {
-              x: botState.chunkPublisherCenter.x,
-              y: botState.chunkPublisherCenter.y,
-              z: botState.chunkPublisherCenter.z
-            }
-          : {
-              x: cx * 16 + 8,
-              y: WORLD_MIN_Y,
-              z: cz * 16 + 8
-            };
-
         const dimension = packet.dimension;
-        const originSectionX = Math.floor(origin.x / 16);
-        const originSectionY = Math.floor(origin.y / 16);
-        const originSectionZ = Math.floor(origin.z / 16);
-
-        const requestOffsets = [];
-
-        for (let dx = -1; dx <= 1; dx++) {
-          for (let dz = -1; dz <= 1; dz++) {
-            for (let dy = -1; dy <= 1; dy++) {
-              requestOffsets.push({ dx, dy, dz });
-            }
-          }
-        }
-
-        client.queue('subchunk_request', {
-          dimension,
-          origin: {
-            x: originSectionX * 16,
-            y: originSectionY * 16,
-            z: originSectionZ * 16
-          },
-          requests: requestOffsets
-        });
+        const originSectionY = subchunkOriginSectionY();
+        const sectionYs = subchunkSectionYsAround(originSectionY);
+        rememberSubchunkRequest(cx, cz, dimension, originSectionY, sectionYs);
+        queueSubchunkRequest(cx, cz, dimension, sectionYs, originSectionY);
 
         botState.networkChunks.set(chunkKey(cx, cz), chunk);
       } else {
@@ -442,12 +536,12 @@ module.exports = (botState, options = {}) => {
 
   // ── subchunk (0xae) ──
   client.on('subchunk', async (pkt) => {
-    const originSectionX = Math.floor(pkt.origin.x / 16);
-    const originSectionY = Math.floor(pkt.origin.y / 16);
-    const originSectionZ = Math.floor(pkt.origin.z / 16);
+    const originSectionX = pkt.origin.x;
+    const originSectionY = pkt.origin.y;
+    const originSectionZ = pkt.origin.z;
 
     for (const entry of pkt.entries) {
-      if (entry.result !== 1) continue;
+      if (!isSubChunkSuccess(entry.result) && !isSubChunkAllAir(entry.result)) continue;
 
       const cx = originSectionX + entry.dx;
       const sectionY = originSectionY + entry.dy;
@@ -459,6 +553,11 @@ module.exports = (botState, options = {}) => {
         chunk = createChunkColumn(cx, cz);
         await world.setColumn(cx, cz, chunk);
         botState.networkChunks.set(chunkKey(cx, cz), chunk);
+      }
+
+      if (isSubChunkAllAir(entry.result)) {
+        markChunkSectionLoaded(cx, cz, sectionY);
+        continue;
       }
 
       if (!pkt.cache_enabled) {
@@ -583,8 +682,23 @@ module.exports = (botState, options = {}) => {
 
   // ── network_chunk_publisher_update (0x79) ──
   client.on('network_chunk_publisher_update', (packet) => {
-    botState.chunkPublisherCenter = packet.coordinates;
+    botState.rawChunkPublisherCenter = packet.coordinates;
+    botState.chunkPublisherCenter = normalizeNetworkChunkPublisherCoordinates(packet.coordinates);
     botState.chunkPublisherRadius = packet.radius;
+  });
+
+  client.on('play_status', (packet) => {
+    if (packet.status === 'player_spawn') {
+      setTimeout(retryPendingSubchunkRequests, 250);
+      setTimeout(retryPendingSubchunkRequests, 1000);
+    }
+  });
+
+  const subchunkRetryInterval = setInterval(retryPendingSubchunkRequests, 1000);
+  subchunkRetryInterval.unref?.();
+
+  client.on('close', () => {
+    clearInterval(subchunkRetryInterval);
   });
 
   // ── waitForChunksToLoad ──

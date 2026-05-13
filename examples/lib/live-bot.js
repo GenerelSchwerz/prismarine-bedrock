@@ -8,11 +8,24 @@ function envFlag(name, fallback) {
   return value !== "false" && value !== "0";
 }
 
+function effectiveUsername(username) {
+  const name = String(username);
+  const prefix = process.env.E2E_BEDROCK_PLAYER_NAME_PREFIX || "";
+  const configuredMax = process.env.E2E_BEDROCK_USERNAME_MAX;
+  const max = configuredMax != null && configuredMax !== ""
+    ? Number(configuredMax)
+    : (prefix ? 16 - prefix.length : null);
+
+  if (max == null || !Number.isInteger(max) || max <= 0 || name.length <= max) return name;
+  return name.slice(0, max);
+}
+
 function createLiveBot(defaults = {}) {
+  const username = effectiveUsername(process.env.BOT_USERNAME || process.env.USERNAME || defaults.username || "ExampleBot");
   const options = {
     host: process.env.HOST || defaults.host || "localhost",
     port: Number(process.env.PORT || defaults.port || 19132),
-    username: process.env.BOT_USERNAME || process.env.USERNAME || defaults.username || "ExampleBot",
+    username,
     offline: envFlag("OFFLINE", defaults.offline ?? true),
     version: process.env.MC_VERSION || defaults.version || "1.21.130",
     ...defaults.options
@@ -52,6 +65,7 @@ async function connectLiveBot(defaults = {}) {
 module.exports = {
   connectLiveBot,
   createLiveBot,
+  effectiveUsername,
   sleep,
   waitForSpawn
 };

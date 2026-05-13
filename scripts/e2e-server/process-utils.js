@@ -1,8 +1,9 @@
 "use strict";
 
 const os = require("os");
+const fs = require("fs");
 const path = require("path");
-const { spawn } = require("child_process");
+const { execFileSync, spawn } = require("child_process");
 
 async function runChecked(bin, args, cwd) {
   console.log(`${bin} ${args.join(" ")}`);
@@ -29,8 +30,61 @@ function endstoneBin(instance) {
     : path.join(instance.dir, ".venv", "bin", "endstone");
 }
 
-function endstoneEnv(instance) {
-  return os.platform() === "win32" ? {} : { LD_LIBRARY_PATH: instance.dir };
+function endstoneArgs(instance, options = {}) {
+  const args = [
+    "--server-folder",
+    options.serverFolder || instance.dir,
+    "--no-confirm"
+  ];
+
+  if (endstoneSupportsInteractive(instance)) {
+    args.push(options.interactive === false ? "--no-interactive" : "--interactive");
+  }
+
+  return args;
+}
+
+function endstoneSupportsInteractive(instance) {
+  try {
+    const output = execFileSync(endstoneBin(instance), ["--help"], {
+      cwd: instance.dir,
+      encoding: "utf8",
+      timeout: 10000
+    });
+    return output.includes("--interactive");
+  } catch {
+    return true;
+  }
+}
+
+function endstoneEnv(instance, options = {}) {
+  if (os.platform() !== "win32") return { LD_LIBRARY_PATH: instance.dir };
+
+  const pathEntries = [
+    options.serverFolder || instance.dir,
+    endstoneInternalDir(instance),
+    path.join(instance.dir, ".venv", "Scripts"),
+    pythonHome(instance),
+    path.join(instance.dir, ".venv", "Lib", "site-packages", "numpy.libs"),
+    process.env.PATH || ""
+  ].filter(Boolean);
+
+  return { PATH: pathEntries.join(path.delimiter) };
+}
+
+function endstoneInternalDir(instance) {
+  return path.join(instance.dir, ".venv", "Lib", "site-packages", "endstone", "_internal");
+}
+
+function pythonHome(instance) {
+  const cfg = path.join(instance.dir, ".venv", "pyvenv.cfg");
+  try {
+    const text = fs.readFileSync(cfg, "utf8");
+    const match = text.match(/^home\s*=\s*(.+)$/m);
+    return match?.[1]?.trim() || null;
+  } catch {
+    return null;
+  }
 }
 
 function clientEnv(targetInstances) {
@@ -39,7 +93,9 @@ function clientEnv(targetInstances) {
   return {
     HOST: process.env.HOST || "127.0.0.1",
     PORT: String(instance.bedrockPort),
-    E2E_SERVER_TARGET: instance.name
+    E2E_SERVER_TARGET: instance.name,
+    E2E_BEDROCK_PLAYER_NAME_PREFIX: instance.type === "java" ? "." : "",
+    E2E_BEDROCK_COMMAND_PACKET: instance.type === "endstone" ? "server_command_file" : "command_request"
   };
 }
 
@@ -47,6 +103,7 @@ module.exports = {
   runChecked,
   venvPythonBin,
   endstoneBin,
+  endstoneArgs,
   endstoneEnv,
   clientEnv
 };

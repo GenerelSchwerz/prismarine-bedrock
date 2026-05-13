@@ -4,7 +4,7 @@ const path = require("path");
 const { createRuntime } = require("./runtime");
 const { ROOT } = require("./paths");
 const { resolvePaperVersion } = require("./downloads");
-const { endstoneBin, endstoneEnv } = require("./process-utils");
+const { endstoneBin, endstoneArgs, endstoneEnv } = require("./process-utils");
 const { isUdpPortInUse, waitForBedrockPing } = require("./network");
 
 async function launchTargets(targetInstances, options) {
@@ -34,12 +34,10 @@ async function launchTargets(targetInstances, options) {
     }
 
     if (instance.type === "endstone") {
-      runtime.launch(instance.name, "server", endstoneBin(instance), [
-        "--server-folder",
-        instance.dir,
-        "--no-confirm",
-        "--interactive"
-      ], instance.dir, endstoneEnv(instance), { readyPattern: serverReadyPattern(instance) });
+      runtime.launch(instance.name, "server", endstoneBin(instance), endstoneArgs(instance, {
+        serverFolder: instance.dir,
+        interactive: true
+      }), instance.dir, endstoneEnv(instance, { serverFolder: instance.dir }), { readyPattern: serverReadyPattern(instance) });
     }
   }
 

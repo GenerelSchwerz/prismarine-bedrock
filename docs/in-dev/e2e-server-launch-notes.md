@@ -295,7 +295,15 @@ To avoid paying the BDS download/setup cost for every Endstone instance, the lau
 
 The template is created by running Endstone once against that cache folder. Instance installs then copy the static BDS and Endstone support files from the template into `.e2e-servers/endstone-bds*`. Mutable folders such as `worlds/` and `logs/` are intentionally not copied, so each instance still creates its own world from its own `server.properties`.
 
-By default, Endstone installs the published `endstone` package through `uv pip`. To install directly from the GitHub repository instead:
+By default, Endstone installs the published `endstone` package through `uv pip`. Pin an older Endstone package when you need the BDS version bundled by that Endstone release:
+
+```powershell
+node scripts/e2e-servers.js launch --target=endstone --endstone-package=endstone==0.10.18
+```
+
+The launcher records the selected package in the Endstone instance and shared BDS template. If the package spec changes, it rebuilds the generated Endstone instance and template so the existing BDS executable is not silently reused.
+
+To install directly from the GitHub repository instead:
 
 ```powershell
 $env:E2E_ENDSTONE_PACKAGE='git+https://github.com/EndstoneMC/endstone.git'
@@ -404,7 +412,7 @@ For iterative work, keep the launcher open and start new client/test runs from t
 
 The servers stay up between these runs. Each `/client ...` command creates a new `client-runs/<run-id>/` directory, so test logs are scoped to the test run while server uptime continues uninterrupted.
 
-For a single selected instance, the launcher injects `HOST`, `PORT`, and `E2E_SERVER_TARGET` into the client environment. With multiple selected instances, set the client target explicitly because there is no single unambiguous port.
+For a single selected instance, the launcher injects `HOST`, `PORT`, `E2E_SERVER_TARGET`, `E2E_BEDROCK_PLAYER_NAME_PREFIX`, `E2E_BEDROCK_COMMAND_PACKET`, and `E2E_SERVER_COMMAND_FILE` into the client environment. Java/Geyser runs use `.` so command helpers target `.OpBot` and send `command_request`. Endstone/BDS runs use an empty prefix so command helpers target `OpBot` and write setup commands to `E2E_SERVER_COMMAND_FILE`; the launcher forwards that file to the server console because native BDS rejects the current `command_request` shape with `bad_packet`. With multiple selected instances, set the client target explicitly because there is no single unambiguous port.
 
 ## Pointing Tests At A Server
 

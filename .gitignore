@@ -8,5 +8,6 @@ Boar
 .e2e-servers/
 logs/
 scripts/tmp/
+prismarine-chunk-fork/
 superflat-scan-mismatches.json
 *.pyc

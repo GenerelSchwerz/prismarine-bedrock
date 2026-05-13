@@ -3,7 +3,7 @@
 const assert = require('assert')
 const registry = require('prismarine-registry')('bedrock_1.26.10')
 const Block = require('prismarine-block')(registry)
-const SubChunk = require('prismarine-chunk/src/bedrock/1.18/SubChunk')
+const SubChunk = require('prismarine-chunk/src/bedrock/1.26/SubChunk')
 const Stream = require('prismarine-chunk/src/bedrock/common/Stream')
 const { StorageType } = require('prismarine-chunk/src/bedrock/common/constants')
 
@@ -17,7 +17,7 @@ function singleValueSubchunk (networkRuntimeId) {
   return stream.getBuffer()
 }
 
-describe('Bedrock subchunk runtime palette decoding', function () {
+describe('Bedrock 1.26 subchunk runtime palette decoding', function () {
   it('translates network runtime IDs to Prismarine block state IDs', function () {
     const subchunk = new SubChunk(registry, Block, { y: 0 })
     subchunk.decode(StorageType.Runtime, singleValueSubchunk(3610))

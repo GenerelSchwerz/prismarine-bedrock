@@ -30,6 +30,7 @@ function parseOptions(args) {
     endstoneCount: null,
     endstonePackage: process.env.E2E_ENDSTONE_PACKAGE || DEFAULT_ENDSTONE_PACKAGE,
     endstonePacketRecorder: process.env.E2E_ENDSTONE_PACKET_RECORDER === "1",
+    endstoneScenario: process.env.E2E_ENDSTONE_SCENARIO || null,
     paperVersion: process.env.E2E_PAPER_VERSION || "latest",
     javaBin: process.env.E2E_JAVA_BIN || defaultJavaBin(),
     geyserAuthType: process.env.E2E_GEYSER_AUTH_TYPE || "offline",
@@ -58,6 +59,12 @@ function parseOptions(args) {
       options.endstonePackage = arg.slice("--endstone-package=".length);
     } else if (arg === "--endstone-packet-recorder") {
       options.endstonePacketRecorder = true;
+    } else if (arg === "--endstone-scenario") {
+      if (!args[index + 1]) throw new Error("--endstone-scenario requires a value.");
+      options.endstoneScenario = args[index + 1];
+      index += 1;
+    } else if (arg.startsWith("--endstone-scenario=")) {
+      options.endstoneScenario = arg.slice("--endstone-scenario=".length);
     } else if (arg.startsWith("--geyser-extension=")) {
       options.geyserExtensions.push(arg.slice("--geyser-extension=".length));
     } else if (arg.startsWith("--java-profiles=")) {
@@ -96,6 +103,7 @@ function parseOptions(args) {
   }
 
   options.world = normalizeWorld(options.world);
+  if (options.endstoneScenario) options.endstonePacketRecorder = true;
   return options;
 }
 

@@ -1,0 +1,61 @@
+{
+  "id": "craft-planks-and-place",
+  "autoOp": true,
+  "gamemode": "survival",
+  "spawn": [0, 65, 0, 0, 0],
+  "setupCommands": [
+    "clear {player}",
+    "gamerule doDaylightCycle false",
+    "time set day",
+    "fill -2 64 -2 2 68 2 air",
+    "fill -2 63 -2 2 63 2 grass",
+    "setblock 1 64 0 gold_block",
+    "give {player} oak_log 1"
+  ],
+  "completeTitle": "Recording complete",
+  "completeMessage": "All steps are complete. You can leave the game.",
+  "steps": [
+    {
+      "id": "craft-planks",
+      "instructions": [
+        "Open your inventory.",
+        "Craft oak planks from the oak log."
+      ],
+      "clearance": {
+        "all": [
+          {
+            "type": "packet_seen",
+            "direction": "receive",
+            "packet_id": 147,
+            "count": 1
+          },
+          {
+            "type": "inventory_contains",
+            "item": "minecraft:planks",
+            "count": 4
+          }
+        ]
+      }
+    },
+    {
+      "id": "place-plank-on-marker",
+      "instructions": [
+        "Place one plank on the gold block in front of you."
+      ],
+      "clearance": {
+        "any": [
+          {
+            "type": "block_is",
+            "position": [1, 65, 0],
+            "block": "minecraft:planks"
+          },
+          {
+            "type": "block_is",
+            "position": [1, 64, 0],
+            "block": "minecraft:planks"
+          }
+        ]
+      }
+    }
+  ]
+}

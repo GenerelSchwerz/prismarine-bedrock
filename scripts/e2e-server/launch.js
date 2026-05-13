@@ -39,7 +39,9 @@ async function launchTargets(targetInstances, options) {
         interactive: true
       }), instance.dir, endstoneEnv(instance, {
         serverFolder: instance.dir,
-        packetRecorder: options.endstonePacketRecorder
+        packetRecorder: options.endstonePacketRecorder,
+        scenario: options.endstoneScenario,
+        repoRoot: ROOT
       }), { readyPattern: serverReadyPattern(instance) });
     }
   }

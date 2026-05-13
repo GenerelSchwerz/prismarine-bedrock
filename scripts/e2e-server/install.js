@@ -100,7 +100,7 @@ async function installEndstone(instance, options) {
   await copyEndstoneTemplate(instance);
   await copyEndstoneRuntimeDlls(instance, instance.dir);
   await writeText(path.join(instance.dir, "server.properties"), endstoneServerProperties(instance, options));
-  if (options.endstonePacketRecorder) await installEndstonePacketRecorder(instance);
+  if (options.endstonePacketRecorder || options.endstoneScenario) await installEndstonePacketRecorder(instance);
   await writeText(path.join(instance.dir, ENDSTONE_PACKAGE_MARKER), `${source}\n`);
 }
 

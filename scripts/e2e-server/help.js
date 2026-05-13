@@ -9,6 +9,7 @@ function printHelp() {
     "  node scripts/e2e-servers.js launch  --target=java --exit-after-client --client-timeout-ms=600000 --client pnpm run test:live",
     "  node scripts/e2e-servers.js launch  --target=endstone --client pnpm run test:live",
     "  node scripts/e2e-servers.js launch  --target=endstone --world=superflat --endstone-packet-recorder",
+    "  node scripts/e2e-servers.js launch  --target=endstone --world=superflat --endstone-scenario=craft-planks-and-place",
     "  node scripts/e2e-servers.js launch  --target=endstone --endstone-package=endstone==0.10.18 --client pnpm run test:live",
     "  node scripts/e2e-servers.js install --target=java --geyser-extension=astrox --geyser-extension=boar",
     "  node scripts/e2e-servers.js install --target=java --java-profiles=none,astrox,boar",
@@ -31,6 +32,7 @@ function printHelp() {
     "  E2E_ENDSTONE_WORLDS     Comma-separated Endstone world types, e.g. normal,superflat",
     "  E2E_ENDSTONE_PACKAGE    uv package spec, default endstone==0.10.18 for Bedrock 1.21.130",
     "  E2E_ENDSTONE_PACKET_RECORDER  Set 1 to install the Endstone packet hook recorder",
+    "  E2E_ENDSTONE_SCENARIO         Scenario id or JSON path under test/recorded-bds/scenarios",
     "  E2E_PACKET_RECORD_FILE        Recorder JSONL path, default logs/packet-recorder.jsonl under server cwd",
     "  E2E_PACKET_RECORDER_PACKET_IDS Comma-separated numeric packet IDs to record; empty records all",
     "  E2E_GEYSER_EXTENSIONS   Comma-separated Geyser extensions: astrox, boar, github:owner/repo, or URL",
@@ -55,6 +57,7 @@ function printHelp() {
     "  --client CMD            With multiple servers, runs one client process per server with scoped HOST/PORT/lock env",
     "  --endstone-package=SPEC Pin Endstone package spec, e.g. endstone==0.10.18",
     "  --endstone-packet-recorder Install an Endstone plugin that records PacketReceiveEvent/PacketSendEvent to JSONL",
+    "  --endstone-scenario=ID_OR_PATH Run a stepped Endstone-only human recording scenario; enables recorder",
     "  --no-auto-op            Disable automatic Java/Geyser op-on-join",
     ""
   ].join("\n"));

@@ -16,6 +16,7 @@
     "test:all": "pnpm run test:static && pnpm run test:live",
     "e2e:servers:install": "node scripts/e2e-servers.js install",
     "e2e:servers:launch": "node scripts/e2e-servers.js launch",
+    "e2e:servers:cleanup-orphans": "node scripts/e2e-servers.js cleanup-orphans",
     "example:basic-bot": "node examples/basic-bot.js",
     "example:block-access": "node examples/block-access.js",
     "example:crafting": "node examples/crafting.js",

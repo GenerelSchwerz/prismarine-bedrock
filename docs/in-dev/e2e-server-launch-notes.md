@@ -104,6 +104,21 @@ node scripts/e2e-servers.js clean --scope=all
 
 World cleanup removes generated Java world folders matching e2e naming patterns and generated Endstone worlds/logs. It does not remove downloaded server jars, plugin caches, Endstone virtualenvs, or the Endstone BDS template.
 
+Stop orphaned e2e server processes from crashed or abandoned launcher sessions:
+
+```powershell
+node scripts/e2e-servers.js cleanup-orphans
+node scripts/e2e-servers.js cleanup-orphans --dry-run
+```
+
+Or via package script:
+
+```powershell
+pnpm run e2e:servers:cleanup-orphans
+```
+
+Orphan cleanup scans local processes for command lines or executable paths under `.e2e-servers/`, skips instances that still have a live `scripts/e2e-servers.js launch` parent, stops orphaned process trees, and removes stale `.test-lock.<scope>.json` files whose recorded same-host PID is no longer alive. It keeps active test locks.
+
 ## Install
 
 Run this once to download/install both server families:

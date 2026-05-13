@@ -18,6 +18,7 @@ function printHelp() {
     "  node scripts/e2e-servers.js install --target=java --java-worlds=normal,superflat",
     "  node scripts/e2e-servers.js clean --scope=worlds",
     "  node scripts/e2e-servers.js clean --scope=logs",
+    "  node scripts/e2e-servers.js cleanup-orphans [--dry-run]",
     "",
     "Environment:",
     "  E2E_PAPER_VERSION       Paper Minecraft version, default latest",
@@ -61,6 +62,9 @@ function printHelp() {
     "  --endstone-packet-recorder Install an Endstone plugin that records PacketReceiveEvent/PacketSendEvent to JSONL",
     "  --endstone-scenario=ID_OR_PATH Run a stepped Endstone-only human recording scenario; enables recorder",
     "  --no-auto-op            Disable automatic Java/Geyser op-on-join",
+    "",
+    "Cleanup options:",
+    "  --dry-run               For cleanup-orphans, report matching processes and stale locks without deleting",
     ""
   ].join("\n"));
 }

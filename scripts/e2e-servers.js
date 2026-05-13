@@ -5,6 +5,7 @@ const { parseCli } = require("./e2e-server/options");
 const { buildInstances } = require("./e2e-server/instances");
 const { installTargets, cleanTargets } = require("./e2e-server/install");
 const { launchTargets } = require("./e2e-server/launch");
+const { cleanupOrphans } = require("./e2e-server/orphans");
 const { printHelp } = require("./e2e-server/help");
 
 const { command, options } = parseCli(process.argv);
@@ -29,6 +30,11 @@ async function main() {
 
   if (command === "clean") {
     await cleanTargets(instances, options);
+    return;
+  }
+
+  if (command === "cleanup-orphans" || command === "clean-orphans") {
+    await cleanupOrphans(options);
     return;
   }
 

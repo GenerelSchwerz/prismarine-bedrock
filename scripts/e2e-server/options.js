@@ -29,6 +29,7 @@ function parseOptions(args) {
     javaCount: null,
     endstoneCount: null,
     endstonePackage: process.env.E2E_ENDSTONE_PACKAGE || DEFAULT_ENDSTONE_PACKAGE,
+    endstonePacketRecorder: process.env.E2E_ENDSTONE_PACKET_RECORDER === "1",
     paperVersion: process.env.E2E_PAPER_VERSION || "latest",
     javaBin: process.env.E2E_JAVA_BIN || defaultJavaBin(),
     geyserAuthType: process.env.E2E_GEYSER_AUTH_TYPE || "offline",
@@ -55,6 +56,8 @@ function parseOptions(args) {
       index += 1;
     } else if (arg.startsWith("--endstone-package=")) {
       options.endstonePackage = arg.slice("--endstone-package=".length);
+    } else if (arg === "--endstone-packet-recorder") {
+      options.endstonePacketRecorder = true;
     } else if (arg.startsWith("--geyser-extension=")) {
       options.geyserExtensions.push(arg.slice("--geyser-extension=".length));
     } else if (arg.startsWith("--java-profiles=")) {

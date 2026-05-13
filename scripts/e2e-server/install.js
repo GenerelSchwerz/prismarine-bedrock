@@ -100,7 +100,14 @@ async function installEndstone(instance, options) {
   await copyEndstoneTemplate(instance);
   await copyEndstoneRuntimeDlls(instance, instance.dir);
   await writeText(path.join(instance.dir, "server.properties"), endstoneServerProperties(instance, options));
+  if (options.endstonePacketRecorder) await installEndstonePacketRecorder(instance);
   await writeText(path.join(instance.dir, ENDSTONE_PACKAGE_MARKER), `${source}\n`);
+}
+
+async function installEndstonePacketRecorder(instance) {
+  const pluginDir = path.join(ROOT, "scripts", "endstone-packet-recorder");
+  console.log(`Installing Endstone packet recorder into ${instance.name}...`);
+  await runChecked("uv", ["pip", "install", "--python", venvPythonBin(instance), "--editable", pluginDir], instance.dir);
 }
 
 async function installGeyserExtensions(instance, options) {

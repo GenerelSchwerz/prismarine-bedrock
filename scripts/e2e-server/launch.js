@@ -37,7 +37,10 @@ async function launchTargets(targetInstances, options) {
       runtime.launch(instance.name, "server", endstoneBin(instance), endstoneArgs(instance, {
         serverFolder: instance.dir,
         interactive: true
-      }), instance.dir, endstoneEnv(instance, { serverFolder: instance.dir }), { readyPattern: serverReadyPattern(instance) });
+      }), instance.dir, endstoneEnv(instance, {
+        serverFolder: instance.dir,
+        packetRecorder: options.endstonePacketRecorder
+      }), { readyPattern: serverReadyPattern(instance) });
     }
   }
 

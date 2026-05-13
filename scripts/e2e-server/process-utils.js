@@ -58,7 +58,8 @@ function endstoneSupportsInteractive(instance) {
 }
 
 function endstoneEnv(instance, options = {}) {
-  if (os.platform() !== "win32") return { LD_LIBRARY_PATH: instance.dir };
+  const extra = options.packetRecorder ? { E2E_ENDSTONE_PACKET_RECORDER: "1" } : {};
+  if (os.platform() !== "win32") return { LD_LIBRARY_PATH: instance.dir, ...extra };
 
   const pathEntries = [
     options.serverFolder || instance.dir,
@@ -69,7 +70,7 @@ function endstoneEnv(instance, options = {}) {
     process.env.PATH || ""
   ].filter(Boolean);
 
-  return { PATH: pathEntries.join(path.delimiter) };
+  return { PATH: pathEntries.join(path.delimiter), ...extra };
 }
 
 function endstoneInternalDir(instance) {

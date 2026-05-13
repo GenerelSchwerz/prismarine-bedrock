@@ -1,0 +1,23 @@
+{
+  "id": "capture-item-stack-request",
+  "setupCommands": [
+    "clear {player}",
+    "give {player} oak_log 1"
+  ],
+  "completeMessage": "Relay capture complete. You can leave the server.",
+  "steps": [
+    {
+      "id": "send-item-stack-request",
+      "instructions": [
+        "Open your inventory.",
+        "Perform an inventory action that sends an item stack request, such as crafting planks from the oak log."
+      ],
+      "clearance": {
+        "type": "packet_seen",
+        "direction": "serverbound",
+        "name": "item_stack_request",
+        "count": 1
+      }
+    }
+  ]
+}

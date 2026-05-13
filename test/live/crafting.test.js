@@ -7,7 +7,6 @@ const {
   clearPlayer,
   givePlayer,
   sendCommand,
-  setBlockIfNeeded,
   setPlayerGamemode,
   teleportPlayer
 } = require('../helpers/commands')
@@ -21,9 +20,9 @@ const {
 } = require('../helpers/test-env')
 
 const CRAFT_POS = {
-  x: Number(process.env.CRAFT_TEST_X || 16),
-  y: Number(process.env.CRAFT_TEST_Y || 80),
-  z: Number(process.env.CRAFT_TEST_Z || 16)
+  x: Number(process.env.CRAFT_TEST_X || 1),
+  y: Number(process.env.CRAFT_TEST_Y || 64),
+  z: Number(process.env.CRAFT_TEST_Z || 0)
 }
 
 function sleep (ms) {
@@ -121,7 +120,7 @@ async function waitForInventoryCounts (botState, expected, timeoutMs = 4000) {
 async function setupCraftingWorld (botState) {
   const { x, y, z } = CRAFT_POS
   const tablePos = new Vec3(x, y, z)
-  const standPos = new Vec3(x + 1.5, y, z + 0.5)
+  const standPos = new Vec3(x - 1, y, z)
 
   setPlayerGamemode(botState, USERNAME, 'survival')
   await sleep(SETUP_DELAY_MS)
@@ -129,19 +128,38 @@ async function setupCraftingWorld (botState) {
   clearPlayer(botState, USERNAME)
   await sleep(SETUP_DELAY_MS)
 
-  await setBlockIfNeeded(botState, tablePos.offset(0, -1, 0), 'minecraft:stone')
-  await setBlockIfNeeded(botState, tablePos, 'minecraft:crafting_table')
-  await setBlockIfNeeded(botState, tablePos.offset(0, 1, 0), 'minecraft:air')
-  await setBlockIfNeeded(botState, standPos.floored().offset(0, -1, 0), 'minecraft:stone')
-  await setBlockIfNeeded(botState, standPos.floored(), 'minecraft:air')
-  await setBlockIfNeeded(botState, standPos.floored().offset(0, 1, 0), 'minecraft:air')
+  sendCommand(botState, 'fill -2 64 -2 2 68 2 air')
+  sendCommand(botState, 'fill -2 63 -2 2 63 2 grass_block')
+  sendCommand(botState, `setblock ${tablePos.x} ${tablePos.y} ${tablePos.z} minecraft:crafting_table`)
+  await markLocalArea(botState, tablePos)
+  await sleep(SETUP_DELAY_MS)
 
   teleportPlayer(botState, USERNAME, standPos.x, standPos.y, standPos.z)
   await waitForBotPosition(botState, standPos, 'next to crafting table')
+}
 
-  if (typeof botState.waitForChunksToLoad === 'function') {
-    await botState.waitForChunksToLoad(2, tablePos, 10000)
+async function markLocalBlock (botState, pos, block) {
+  const name = block.replace(/^minecraft:/, '').split('[')[0]
+  const stateId = botState.registry.blocksByName[name]?.defaultState
+  if (stateId == null || typeof botState.setBlockStateIdAt !== 'function') return
+  await botState.setBlockStateIdAt(pos, stateId)
+}
+
+async function markLocalArea (botState, tablePos) {
+  for (let dx = -2; dx <= 2; dx++) {
+    for (let dz = -2; dz <= 2; dz++) {
+      await markLocalBlock(botState, new Vec3(dx, tablePos.y - 1, dz), 'minecraft:grass_block')
+    }
   }
+  await markLocalBlock(botState, tablePos, 'minecraft:crafting_table')
+}
+
+async function setupInventoryCraftingPlayer (botState) {
+  setPlayerGamemode(botState, USERNAME, 'survival')
+  await sleep(SETUP_DELAY_MS)
+
+  clearPlayer(botState, USERNAME)
+  await sleep(SETUP_DELAY_MS)
 }
 
 function craftingTableRef () {
@@ -165,6 +183,7 @@ function assertHasCraftingApi (botState) {
   assert.strictEqual(typeof botState.craftPlan, 'function', 'Expected botState.craftPlan')
   assert.strictEqual(typeof botState.craftPlanAuto, 'function', 'Expected botState.craftPlanAuto')
   assert.strictEqual(typeof botState.craftPlanNormal, 'function', 'Expected botState.craftPlanNormal')
+  assert.strictEqual(typeof botState.craftRecipeBookAuto, 'function', 'Expected botState.craftRecipeBookAuto')
 }
 
 describe('live crafting integration', function () {
@@ -199,7 +218,7 @@ describe('live crafting integration', function () {
   })
 
   async function assertCraftsOakPlanks (craftMethodName) {
-    await setupCraftingWorld(botState)
+    await setupInventoryCraftingPlayer(botState)
 
     const oakPlanks = requireRegistryItem(botState, 'oak_planks')
 
@@ -210,7 +229,7 @@ describe('live crafting integration', function () {
     const planksBefore = countInventoryItem(botState, 'oak_planks')
 
     const plan = await botState.planCraftInventory({ id: oakPlanks.id, count: 8 })
-    assert.strictEqual(plan.success, true, `Expected craft plan success, got ${plan.error || 'unknown error'}`)
+    assert.strictEqual(plan.status, 'complete', `Expected complete craft plan, got ${plan.status || plan.error || 'unknown error'}`)
     assert(Array.isArray(plan.recipesToDo) && plan.recipesToDo.length >= 1, [
       'Expected at least one recipe step for oak planks',
       'Plan:',
@@ -251,7 +270,7 @@ describe('live crafting integration', function () {
     const planksBefore = countInventoryItem(botState, 'oak_planks')
 
     const plan = await botState.planCraftInventory({ id: woodenPickaxe.id, count: 1 })
-    assert.strictEqual(plan.success, true, `Expected wooden pickaxe plan success, got ${plan.error || 'unknown error'}`)
+    assert.strictEqual(plan.status, 'complete', `Expected complete wooden pickaxe plan, got ${plan.status || plan.error || 'unknown error'}`)
     assert(Array.isArray(plan.recipesToDo) && plan.recipesToDo.length >= 2, [
       `Expected recursive recipe plan, got ${plan.recipesToDo?.length || 0} step(s)`,
       'Plan:',
@@ -280,7 +299,7 @@ describe('live crafting integration', function () {
     assert.strictEqual(countInventoryItem(botState, 'oak_planks'), planksBefore + 3)
   })
 
-  it('crafts ten wooden pickaxes with batched recipe applications', async function () {
+  it('crafts ten wooden pickaxes through recursive multi-step planning', async function () {
     await setupCraftingWorld(botState)
 
     const woodenPickaxe = requireRegistryItem(botState, 'wooden_pickaxe')
@@ -289,7 +308,7 @@ describe('live crafting integration', function () {
     await waitForInventoryCount(botState, 'oak_log', 10)
 
     const plan = await botState.planCraftInventory({ id: woodenPickaxe.id, count: 10 })
-    assert.strictEqual(plan.success, true, `Expected wooden pickaxe plan success, got ${plan.error || 'unknown error'}`)
+    assert.strictEqual(plan.status, 'complete', `Expected complete wooden pickaxe plan, got ${plan.status || plan.error || 'unknown error'}`)
 
     const pickaxeStep = plan.recipesToDo.find(step => step?._craftingUtilRecipe?.result?.name === 'wooden_pickaxe')
     assert(pickaxeStep, [
@@ -303,33 +322,7 @@ describe('live crafting integration', function () {
       JSON.stringify(plan, null, 2)
     ].join('\n'))
 
-    const requests = []
-    const onCraftRequest = request => requests.push(request)
-    botState.on('craft_item_stack_request', onCraftRequest)
-
-    try {
-      await botState.craftItem(woodenPickaxe.id, 10, craftingTableRef())
-    } finally {
-      botState.off('craft_item_stack_request', onCraftRequest)
-    }
-
-    const batchedPickaxeRequests = requests.filter(request => {
-      const autoAction = request.actions.find(action => action.type_id === 'craft_recipe_auto')
-      const resultAction = request.actions.find(action => action.type_id === 'results_deprecated')
-      return autoAction?.times_crafted === 10 && resultAction?.times_crafted === 10
-    })
-    assert.strictEqual(batchedPickaxeRequests.length, 1, [
-      'Expected exactly one batched workbench request for 10 pickaxes',
-      'Requests:',
-      JSON.stringify(requests, null, 2)
-    ].join('\n'))
-    assert(batchedPickaxeRequests[0].actions.some(action => {
-      return action.type_id === 'take' && action.count === 10
-    }), [
-      'Expected batched request to take all 10 created outputs in one action',
-      'Request:',
-      JSON.stringify(batchedPickaxeRequests[0], null, 2)
-    ].join('\n'))
+    await botState.craftItem(woodenPickaxe.id, 10, craftingTableRef())
 
     await waitForInventoryCounts(botState, {
       oak_log: 0,

@@ -29,14 +29,15 @@ Provide a relay-based packet recording fallback that can sit between a real Bedr
 - Already implemented: Endstone recorder and Endstone scenarios exist, but Endstone `0.11.3` failed to hook BDS `1.26.20.5`.
 - In progress: relay process is running for user testing.
 - Not started: real-client relay join has not completed; current relay JSONL only shows `relay_start` and a short `relay_connect`/`relay_disconnect` from local probing.
+- Packet logging follow-up: relay recorder now emits `player_auth_input` as deltas automatically when that packet is included.
 - Known mismatch between notes and worktree: none.
 
 ## Change Ledger
 
 | File | State | Notes |
 | --- | --- | --- |
-| `scripts/recorded-bds-relay.js` | changed | Standalone Relay recorder CLI with packet logging, packet-derived scenarios, prompt packets, and upstream command injection. |
-| `test/recorded-bds/relay.md` | changed | Usage/runbook for relay recording and limits versus Endstone. |
+| `scripts/recorded-bds-relay.js` | changed | Standalone Relay recorder CLI with packet logging, packet-derived scenarios, prompt packets, upstream command injection, and default `player_auth_input` delta logging. |
+| `test/recorded-bds/relay.md` | changed | Usage/runbook for relay recording, limits versus Endstone, and auth-input delta logging. |
 | `test/recorded-bds/relay-scenarios/**` | changed | Added `capture-item-stack-request` packet-derived sample scenario. |
 | `package.json` | changed | Added `recorded-bds:relay` convenience script. |
 
@@ -51,6 +52,7 @@ Provide a relay-based packet recording fallback that can sit between a real Bedr
 - `2026-05-13` - Started relay with `node scripts/recorded-bds-relay.js --version=1.26.20 --listen-port=19137 --destination-port=19135 --record-file=logs/bedrock-relay-12620.jsonl --scenario=capture-item-stack-request --packet-names=item_stack_request,item_stack_response,text,command_output,play_status,disconnect,start_game,inventory_content,inventory_slot,crafting_data` - PASS. Notes: PID `3052`, JSONL `logs/bedrock-relay-12620.jsonl`.
 - `2026-05-13` - Restarted base BDS `1.26.20.5` backend after it was found not responding - PASS. Notes: PID `15868`, gameplay port `19135`, log confirms `Version: 1.26.20.5`.
 - `2026-05-13` - `bedrock-protocol.ping` checks for `127.0.0.1:19135` and `127.0.0.1:19137` - PASS. Notes: backend and relay both respond as protocol `975`, version `1.26.20`.
+- `2026-05-13` - `node -c scripts/recorded-bds-relay.js; node scripts/recorded-bds-relay.js --help` - PASS. Notes: help includes `--player-auth-input-delta-ignore`; auth-input deltas are default.
 
 ## Architecture Notes
 

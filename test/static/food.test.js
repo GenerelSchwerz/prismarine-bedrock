@@ -56,12 +56,7 @@ function createBotState () {
     packet.input_data[flag] = enabled
   }
   botState.flushPlayerAuthInput = () => {
-    const packet = {}
-    botState.authHook?.(packet)
-    botState.lastAuthPacket = packet
-    botState.authPackets ??= []
-    botState.authPackets.push(packet)
-    return true
+    return !!botState.authHook
   }
   botState.equipItem = async slot => {
     botState.heldItemSlot = slot
@@ -116,6 +111,14 @@ describe('food builtin', function () {
   it('exposes botState.eat and sends start/release use packets', async function () {
     const botState = createBotState()
     const eatPromise = botState.eat(0, { force: true })
+
+    setTimeout(() => {
+      const packet = {}
+      botState.authHook?.(packet)
+      botState.lastAuthPacket = packet
+      botState.authPackets ??= []
+      botState.authPackets.push(packet)
+    }, 0)
 
     setTimeout(() => {
       botState.client.emit('completed_using_item', {

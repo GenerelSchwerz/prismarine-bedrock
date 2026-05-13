@@ -107,20 +107,22 @@ describe('crafting builtin', function () {
     assert.deepStrictEqual(gridPlace.map(action => action.type_id), ['place'])
     assert.strictEqual(gridPlace[0].source.slot_type.container_id, 'cursor')
     assert.strictEqual(gridPlace[0].destination.slot_type.container_id, 'crafting_input')
-    assert.strictEqual(gridPlace[0].destination.slot, 28)
+    assert.strictEqual(gridPlace[0].destination.slot, 30)
 
     assert.deepStrictEqual(normal.map(action => action.type_id), [
       'craft_recipe',
       'results_deprecated',
       'consume',
-      'take'
+      'place'
     ])
     assert.strictEqual(normal[0].times_crafted, 2)
     assert.strictEqual(normal[0].ingredients, undefined)
     assert.strictEqual(normal[2].source.slot_type.container_id, 'crafting_input')
-    assert.strictEqual(normal[2].source.slot, 28)
+    assert.strictEqual(normal[2].source.slot, 30)
     assert.strictEqual(normal[3].source.slot_type.container_id, 'creative_output')
     assert.strictEqual(normal[3].source.slot, 50)
+    assert.strictEqual(normal[3].destination.slot_type.container_id, 'hotbar_and_inventory')
+    assert.strictEqual(normal[3].destination.slot, 1)
   })
 
   it('uses native BDS inventory slot identities for normal craft transfers in hash mode', function () {
@@ -131,9 +133,42 @@ describe('crafting builtin', function () {
     const gridTake = buildGridTakeActions(botState, craft.placements[0])
     const normal = buildNormalActions(botState, craft)
 
-    assert.strictEqual(gridTake[0].source.slot_type.container_id, 'inventory')
+    assert.strictEqual(gridTake[0].source.slot_type.container_id, 'hotbar')
     assert.strictEqual(gridTake[0].source.slot, 0)
-    assert.strictEqual(normal[3].destination.slot_type.container_id, 'inventory')
+    assert.strictEqual(normal[3].destination.slot_type.container_id, 'hotbar_and_inventory')
     assert.strictEqual(normal[3].destination.slot, 1)
+  })
+
+  it('keeps blank cells when mapping shaped table recipe grid slots', function () {
+    const { buildGridPlaceActions } = injectCrafting._craftingHelpers
+    const craft = {
+      entry: {
+        type: 'shaped',
+        recipe: {
+          width: 3,
+          height: 3
+        }
+      }
+    }
+
+    const topMiddle = buildGridPlaceActions(craft, { gridSlot: 1, count: 1 }, 10)
+    const center = buildGridPlaceActions(craft, { gridSlot: 4, count: 1 }, 11)
+    const bottomMiddle = buildGridPlaceActions(craft, { gridSlot: 7, count: 1 }, 12)
+
+    assert.strictEqual(topMiddle[0].destination.slot, 33)
+    assert.strictEqual(center[0].destination.slot, 36)
+    assert.strictEqual(bottomMiddle[0].destination.slot, 39)
+  })
+
+  it('normalizes current and legacy crafting-util plan status values', function () {
+    const { isCompleteCraftingPlan, normalizeCraftingPlanStatus } = injectCrafting._craftingHelpers
+
+    assert.strictEqual(normalizeCraftingPlanStatus({ status: 'complete' }), 'complete')
+    assert.strictEqual(normalizeCraftingPlanStatus({ status: 'partial_complete' }), 'partial_complete')
+    assert.strictEqual(normalizeCraftingPlanStatus({ success: true }), 'complete')
+    assert.strictEqual(normalizeCraftingPlanStatus({ success: false }), 'failure')
+    assert.strictEqual(normalizeCraftingPlanStatus({}), 'unknown')
+    assert.strictEqual(isCompleteCraftingPlan({ status: 'complete' }), true)
+    assert.strictEqual(isCompleteCraftingPlan({ status: 'partial_complete' }), false)
   })
 })

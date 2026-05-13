@@ -11,6 +11,30 @@ This repo is optimized for long-running AI work where several agents may split a
 5. Identify owned files for the current task. If multiple agents are working, each agent must keep to disjoint write scopes or explicitly coordinate before touching shared files.
 6. Read the subsystem guide for the files you will edit.
 7. Keep runtime/debug artifacts in `logs/` or `scripts/tmp/`; both are gitignored. Commit only the distilled evidence in `docs/tasks/`.
+8. For feature requests that need real Bedrock client behavior, follow `test/recorded-bds/README.md` under `Feature-To-Recorded-Test Workflow`: design a live-client scenario, capture/decode logs, distill the evidence into tests, and continue the same loop when later feature requests compound on the active work.
+
+## Explicit Workflow Triggers
+
+When the user says any of these phrases, run the full workflow in `test/recorded-bds/README.md` under `Feature-To-Recorded-Test Workflow`:
+
+- `Feature request workflow`
+- `Use the feature-to-recorded-test workflow`
+- `Recorded-test workflow`
+- `Scenario-to-test workflow`
+- `Capture-driven feature workflow`
+
+This means:
+
+1. Create or update the matching task log.
+2. Design the live Bedrock client scenario.
+3. Add or update the scenario JSON.
+4. Ask the user to perform the live client steps when needed.
+5. Decode the captured Endstone/BDS logs.
+6. Implement the bot behavior.
+7. Add static and live tests for Endstone and Geyser.
+8. Keep iterating until the feature is complete or the blocker is recorded.
+
+If the triggered feature compounds on active work, integrate it into the current task log and scenario/test cycle unless the new work has a distinct ownership boundary.
 
 ## Task Logs
 

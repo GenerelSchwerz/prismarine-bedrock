@@ -32,6 +32,43 @@ Decode packet records:
 node scripts/decode-endstone-packet-recording.js .e2e-servers/endstone-bds/logs/packet-recorder.jsonl 1.21.130
 ```
 
+The default decoded output is intentionally compact for agent and human inspection. It omits raw payload bytes and summarizes large packet bodies. Use `--full` only when the full decoded params are needed for a specific packet, and write that output to a file:
+
+```powershell
+node scripts/decode-endstone-packet-recording.js .e2e-servers/endstone-bds/logs/packet-recorder.jsonl 1.21.130 --packet-ids=147 --full --out=logs/decoded-item-stack-requests.jsonl
+```
+
+Then search the decoded file:
+
+```powershell
+rg -n "craft_recipe|crafting_input|creative_output" logs/decoded-item-stack-requests.jsonl
+```
+
+Do not inspect raw recorder JSONL with broad `Get-Content`/`cat` during analysis. Use packet-id filters, compact decoder output, `--out`, and `rg` against decoded summaries. The decoder streams input line-by-line, so filtered decoded files can be generated without loading the whole recording into chat.
+
+Decode only `player_auth_input` changes:
+
+```powershell
+node scripts/decode-endstone-packet-recording.js .e2e-servers/endstone-bds/logs/packet-recorder.jsonl 1.21.130 --packet-ids=144
+```
+
+The decoder always prints `player_auth_input` as deltas and ignores `tick` by default. To ignore additional noisy fields, pass comma-separated field names or dot paths, for example `--player-auth-input-delta-ignore=tick,position,delta`.
+
+## Feature-To-Recorded-Test Workflow
+
+Use this loop when a requested bot feature should be grounded in real Bedrock client behavior before implementation:
+
+1. Capture the requested feature in the matching `docs/tasks/TASK-NN-*.md` file. If the request compounds on active work, keep the same task log and append the new scenario, owned files, and resume step instead of starting a disconnected task.
+2. Design the smallest real-client scenario that demonstrates the feature. Prefer deterministic setup commands, one visible player action per step, and clearance checks that prove the action happened through server state plus relevant packets.
+3. Add or update a data-only scenario under `test/recorded-bds/scenarios/`. Run JSON parsing or other cheap static checks before asking for a live client run.
+4. Launch Endstone/BDS with the scenario and give the human tester the connection prompt from this README. Keep raw packet JSONL and decoded traces under `logs/` or `.e2e-servers/`.
+5. Decode the recording, identify the packet shapes, slot/container ids, request ids, and response status behavior needed by the bot, then summarize that evidence in the task log. Do not commit full packet dumps.
+6. Implement the bot behavior and create tests from the distilled evidence. Use static tests for packet builders, planners, and pure helpers; use live tests for actual bot behavior against both Java/Geyser and Endstone/BDS when the feature crosses client-server behavior.
+7. Verify locally in this order when applicable: packet round-trip, focused static tests, focused live Endstone test, focused live Geyser test, then the broader relevant test script.
+8. Update the task log after each scenario run, packet conclusion, code change, and test result. Mark the feature complete only after the test evidence covers both recorded BDS behavior and bot behavior on the target servers, or record the exact blocker.
+
+When the next requested feature builds on the current one, fold it into the same cycle: extend the scenario or add a neighboring scenario, reuse existing decoded evidence when it still applies, and keep the implementation/test plan in the same task log unless the new work has a separate ownership boundary.
+
 ## Human Test Runbook
 
 These scenarios require a real Bedrock client. The server-side harness can prepare the world and detect completion, but the actual user action is manual.

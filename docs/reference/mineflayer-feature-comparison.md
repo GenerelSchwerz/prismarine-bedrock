@@ -126,7 +126,7 @@ This repo:
 
 - Implements Bedrock movement in `src/builtins/physics/`.
 - Sends `player_auth_input` and `move_player` packets.
-- Exposes `setControlState`, `getControlState`, `clearControlStates`, `setFlag`, `look`, `lookAt`, `waitForLookComplete`, `applyMovement`, `sendPlayerAuthInputNow`, and `setPosition`.
+- Exposes `setControlState`, `getControlState`, `clearControlStates`, `setFlag`, `look`, `lookAt`, `waitForLookComplete`, `applyMovement`, and `setPosition`.
 - Integrates `@nxg-org/mineflayer-physics-util` through an adapter layer.
 - Tracks Bedrock movement authority, prediction corrections, attributes, abilities, effects, entity motion, game mode, dimension changes, respawn, health, spawn position, and game rules.
 

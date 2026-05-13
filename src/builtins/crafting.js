@@ -4,13 +4,15 @@
 const { buildStatic } = require('mineflayer-crafting-util')
 const recipeLoader = require('prismarine-recipe')
 const registryLoader = require('prismarine-registry')
-const { inventoryRequestSlotInfo, logAction, requestSlotInfo, sleep } = require('../utils')
+const { logAction, sleep } = require('../utils')
 
 const CONTAINER = {
   output: 'creative_output',
   cursor: 'cursor',
   craftingInput: 'crafting_input',
 }
+
+const INVENTORY_CRAFTING_GRID_SLOTS = [30, 31, 28, 29]
 
 const ACTION = {
   take: 'take',
@@ -24,7 +26,7 @@ const ACTION = {
 
 function nextRequestId (botState) {
   botState._craftRequestId = (botState._craftRequestId || 0) + 1
-  return botState._craftRequestId
+  return -(botState._craftRequestId * 2 + 23)
 }
 
 function recipeBody (entry) {
@@ -91,12 +93,32 @@ function ingredientMatchesItem (botState, ingredient, item) {
 }
 
 function flattenIngredients (entry) {
+  return positionedIngredients(entry).map(position => position.ingredient)
+}
+
+function validRecipeIngredient (ingredient) {
+  return ingredient && ingredient.type !== 'invalid'
+}
+
+function positionedIngredients (entry) {
   const recipe = recipeBody(entry)
   if (!recipe) return []
 
   if (Array.isArray(recipe.input)) {
-    return recipe.input.flatMap(part => Array.isArray(part) ? part : [part])
-      .filter(ingredient => ingredient && ingredient.type !== 'invalid')
+    const positions = []
+    let gridSlot = 0
+
+    for (const part of recipe.input) {
+      const row = Array.isArray(part) ? part : [part]
+      for (const ingredient of row) {
+        if (validRecipeIngredient(ingredient)) {
+          positions.push({ gridSlot, ingredient })
+        }
+        gridSlot++
+      }
+    }
+
+    return positions
   }
 
   return []
@@ -109,12 +131,12 @@ function isTableRecipe (entry) {
   return (entry.type === 'shaped' || entry.type === 1) && (recipe.width > 2 || recipe.height > 2)
 }
 
-function reserveIngredients (botState, ingredients, times) {
+function reserveIngredients (botState, ingredientPositions, times) {
   const used = new Map()
   const placements = []
 
-  for (let gridSlot = 0; gridSlot < ingredients.length; gridSlot++) {
-    const ingredient = ingredients[gridSlot]
+  for (const position of ingredientPositions) {
+    const { gridSlot, ingredient } = position
     let remaining = ingredientCount(ingredient) * times
 
     for (let slot = 0; slot < botState.inventory.slots.length && remaining > 0; slot++) {
@@ -180,17 +202,41 @@ function responseStackId (response, containerId, slot, fallback = 0) {
 }
 
 function craftingGridProtocolSlot (craft, gridSlot) {
-  return isTableRecipe(craft.entry) ? 32 + gridSlot : 28 + gridSlot
+  const table = craft.usingCraftingTable || isTableRecipe(craft.entry)
+  const gridWidth = table ? 3 : 2
+  const recipe = recipeBody(craft.entry)
+  const recipeWidth = Number.isInteger(recipe?.width) && recipe.width > 0
+    ? recipe.width
+    : Math.min(gridWidth, Math.max(1, flattenIngredients(craft.entry).length))
+  const recipeHeight = Number.isInteger(recipe?.height) && recipe.height > 0
+    ? recipe.height
+    : Math.max(1, Math.ceil(flattenIngredients(craft.entry).length / recipeWidth))
+  const x = gridSlot % recipeWidth
+  const y = Math.floor(gridSlot / recipeWidth)
+  const tableYOffset = table && recipeHeight < 3 ? 1 : 0
+  const protocolGridSlot = (y + tableYOffset) * gridWidth + x
+
+  return table
+    ? 32 + protocolGridSlot
+    : INVENTORY_CRAFTING_GRID_SLOTS[protocolGridSlot] ?? (30 + protocolGridSlot)
+}
+
+function craftRequestSlotInfo (containerId, slot, stackId = 0) {
+  return {
+    slot_type: { container_id: containerId },
+    slot,
+    stack_id: stackId || 0
+  }
+}
+
+function craftInventoryRequestSlotInfo (slot, stackId = 0) {
+  return slot < 9
+    ? craftRequestSlotInfo('hotbar', slot, stackId)
+    : craftRequestSlotInfo('inventory', slot - 9, stackId)
 }
 
 function craftingGridSlotInfo (craft, gridSlot, stackId = 0) {
-  return requestSlotInfo(CONTAINER.craftingInput, craftingGridProtocolSlot(craft, gridSlot), stackId)
-}
-
-function normalPlayerSlotInfo (botState, slot, stackId = 0) {
-  return botState.blockNetworkIdsAreHashes
-    ? requestSlotInfo('inventory', slot, stackId)
-    : inventoryRequestSlotInfo(slot, stackId)
+  return craftRequestSlotInfo(CONTAINER.craftingInput, craftingGridProtocolSlot(craft, gridSlot), stackId)
 }
 
 function makeCraftFromEntry (botState, entry, itemId, count) {
@@ -200,10 +246,11 @@ function makeCraftFromEntry (botState, entry, itemId, count) {
   const times = Math.ceil(count / result.count)
   if (times > 255) return null
 
-  const ingredients = flattenIngredients(entry)
+  const ingredientPositions = positionedIngredients(entry)
+  const ingredients = ingredientPositions.map(position => position.ingredient)
   if (ingredients.length === 0) return null
 
-  const placements = reserveIngredients(botState, ingredients, times)
+  const placements = reserveIngredients(botState, ingredientPositions, times)
   if (!placements) return null
 
   const used = new Map()
@@ -382,6 +429,28 @@ function unresolvedCraftStepError (botState, step) {
   ].join('\n'))
 }
 
+function normalizeCraftingPlanStatus (plan) {
+  if (typeof plan?.status === 'string') return plan.status
+  if (plan?.success === true) return 'complete'
+  if (plan?.success === false) return 'failure'
+  return 'unknown'
+}
+
+function isCompleteCraftingPlan (plan) {
+  return normalizeCraftingPlanStatus(plan) === 'complete'
+}
+
+function unsuccessfulPlanError (plan) {
+  const status = normalizeCraftingPlanStatus(plan)
+  return new Error([
+    `Cannot craft a plan with status "${status}"`,
+    plan?.error ? `error=${plan.error}` : null,
+    plan?.utilityError ? `utilityError=${plan.utilityError}` : null,
+    Array.isArray(plan?.itemsRemaining) ? `itemsRemaining=${JSON.stringify(plan.itemsRemaining)}` : null,
+    Array.isArray(plan?.itemsRequiredImmediate) ? `itemsRequiredImmediate=${JSON.stringify(plan.itemsRequiredImmediate)}` : null
+  ].filter(Boolean).join('\n'))
+}
+
 async function openCraftingTable (botState, block) {
   if (!block?.position) throw new Error('Recipe requires a crafting table position')
 
@@ -398,7 +467,80 @@ async function openCraftingTable (botState, block) {
     await sleep(50)
   }
 
-  return botState.openBlockContainer(block.position, { type: 'workbench', blockName: 'crafting_table' })
+  return botState.openBlockContainer(block.position, {
+    type: 'workbench',
+    blockName: 'crafting_table',
+    face: block.face
+  })
+}
+
+function openPlayerInventoryForCrafting (botState, timeoutMs = 5000) {
+  const client = botState.client
+  const runtimeId = client?.entityId ?? botState.self?.runtimeId ?? 0n
+  const activeWindow = typeof botState.getWindow === 'function'
+    ? botState.getWindow(botState.activeWindowId)
+    : null
+
+  if (activeWindow?.windowType === 'inventory') return Promise.resolve(activeWindow)
+
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      cleanup()
+      reject(new Error('Timed out waiting for inventory container_open'))
+    }, timeoutMs)
+
+    function onOpen (packet) {
+      if (packet.window_type !== 'inventory') return
+      cleanup()
+      resolve(packet)
+    }
+
+    function cleanup () {
+      clearTimeout(timeout)
+      client.off('container_open', onOpen)
+    }
+
+    client.on('container_open', onOpen)
+    client.queue('interact', {
+      action_id: 'open_inventory',
+      target_entity_id: runtimeId,
+      has_position: false
+    })
+  })
+}
+
+async function closePlayerInventoryForCrafting (botState, timeoutMs = 1000) {
+  const client = botState.client
+  const windowId = botState.activeWindowId
+  const activeWindow = typeof botState.getWindow === 'function'
+    ? botState.getWindow(windowId)
+    : null
+
+  if (!activeWindow || activeWindow.windowType !== 'inventory') return
+
+  await new Promise(resolve => {
+    const timeout = setTimeout(() => cleanup(), timeoutMs)
+
+    function onClose (packet) {
+      if (packet.window_id !== windowId) return
+      cleanup()
+    }
+
+    function cleanup () {
+      clearTimeout(timeout)
+      client.off('container_close', onClose)
+      resolve()
+    }
+
+    client.on('container_close', onClose)
+    client.queue('container_close', {
+      window_id: windowId,
+      window_type: 'inventory',
+      server: false
+    })
+  })
+
+  await sleep(50)
 }
 
 function buildCraftActions (botState, craft, firstAction) {
@@ -414,7 +556,7 @@ function buildCraftActions (botState, craft, firstAction) {
     actions.push({
       type_id: ACTION.consume,
       count: placement.count,
-      source: inventoryRequestSlotInfo(placement.slot, placement.stackId),
+      source: craftInventoryRequestSlotInfo(placement.slot, placement.stackId),
     })
   }
 
@@ -428,8 +570,8 @@ function buildCraftActions (botState, craft, firstAction) {
   actions.push({
     type_id: ACTION.take,
     count: craft.result.count,
-    source: requestSlotInfo(CONTAINER.output, 0, outputStackId),
-    destination: inventoryRequestSlotInfo(craft.outSlot, destinationStackId),
+    source: craftRequestSlotInfo(CONTAINER.output, 0, outputStackId),
+    destination: craftInventoryRequestSlotInfo(craft.outSlot, destinationStackId),
   })
 
   actions._craftEntry = craft.entry
@@ -470,8 +612,8 @@ function buildGridTakeActions (botState, placement) {
   return [{
     type_id: ACTION.take,
     count: placement.count,
-    source: normalPlayerSlotInfo(botState, placement.slot, itemStackId(item)),
-    destination: requestSlotInfo(CONTAINER.cursor, 0, 0),
+    source: craftInventoryRequestSlotInfo(placement.slot, itemStackId(item)),
+    destination: craftRequestSlotInfo(CONTAINER.cursor, 0, 0),
   }]
 }
 
@@ -479,7 +621,7 @@ function buildGridPlaceActions (craft, placement, cursorStackId, gridStackId = 0
   return [{
     type_id: ACTION.place,
     count: placement.count,
-    source: requestSlotInfo(CONTAINER.cursor, 0, cursorStackId),
+    source: craftRequestSlotInfo(CONTAINER.cursor, 0, cursorStackId),
     destination: craftingGridSlotInfo(craft, placement.gridSlot, gridStackId),
   }]
 }
@@ -518,10 +660,10 @@ function buildNormalResultActions (botState, craft, gridStackIds = new Map()) {
     : 0
 
   actions.push({
-    type_id: ACTION.take,
+    type_id: ACTION.place,
     count: craft.result.count,
-    source: requestSlotInfo(CONTAINER.output, 50, outputStackId),
-    destination: normalPlayerSlotInfo(botState, craft.outSlot, destinationStackId),
+    source: craftRequestSlotInfo(CONTAINER.output, 50, outputStackId),
+    destination: craftRequestSlotInfo('hotbar_and_inventory', craft.outSlot, destinationStackId),
   })
 
   actions._craftEntry = craft.entry
@@ -542,13 +684,83 @@ function actionDebugSummary (actions) {
   })
 }
 
+function inventorySlotForCraftDestination (slotInfo) {
+  const containerId = slotInfo?.slot_type?.container_id
+  if (containerId === 'hotbar_and_inventory' || containerId === 'hotbar') return slotInfo.slot
+  if (containerId === 'inventory') return slotInfo.slot + 9
+  return null
+}
+
+function itemFromCraftResult (botState, rawItem, serverSlot) {
+  if (!rawItem || !serverSlot || serverSlot.count === 0) return null
+
+  const stackId = serverSlot.item_stack_id ?? rawItem.stack_id ?? rawItem.stackId ?? 0
+  const raw = {
+    ...rawItem,
+    count: serverSlot.count,
+    stack_id: stackId,
+  }
+  const item = botState.itemClass.fromNotch(raw, stackId)
+  item.stackId = stackId
+  item.stack_id = stackId
+  item.networkId = raw.network_id
+  item.network_id = raw.network_id
+  item.blockRuntimeId = raw.block_runtime_id
+  item.block_runtime_id = raw.block_runtime_id
+  item.raw = raw
+  return item
+}
+
+function applyCraftResultResponseToInventory (botState, actions, response) {
+  const resultAction = actions.find(action => action.type_id === ACTION.resultsDeprecated)
+  const resultItem = resultAction?.result_items?.[0]
+  if (!resultItem) return
+
+  for (const action of actions) {
+    const source = action.source
+    if (
+      action.type_id !== ACTION.place ||
+      source?.slot_type?.container_id !== CONTAINER.output ||
+      source.slot !== 50
+    ) continue
+
+    const inventorySlot = inventorySlotForCraftDestination(action.destination)
+    if (inventorySlot == null) continue
+
+    const containerId = action.destination.slot_type?.container_id
+    const serverSlot = responseSlot(response, containerId, action.destination.slot)
+    if (!serverSlot) continue
+
+    const item = itemFromCraftResult(botState, resultItem, serverSlot)
+    botState.inventory.updateSlot(inventorySlot, item)
+  }
+}
+
 function sendRequest (botState, actions, options = {}) {
   const requestId = nextRequestId(botState)
-  const request = { request_id: requestId, actions, custom_names: [], cause: 'chat_public' }
+  const requestActions = actions.map(action => {
+    const source = action.source
+    if (
+      source?.slot_type?.container_id === CONTAINER.output &&
+      (action.type_id === ACTION.place || action.type_id === ACTION.take)
+    ) {
+      return {
+        ...action,
+        source: {
+          ...source,
+          stack_id: requestId
+        }
+      }
+    }
+
+    return action
+  })
+  const request = { request_id: requestId, actions: requestActions, custom_names: [], cause: -1 }
 
   logAction('[craft]', 'item_stack_request', {
     requestId,
-    actions: actions.map(action => action.type_id),
+    actions: requestActions.map(action => action.type_id),
+    actionDetails: actionDebugSummary(requestActions),
   })
   botState.emit('craft_item_stack_request', request)
 
@@ -567,11 +779,12 @@ function sendRequest (botState, actions, options = {}) {
         done(new Error([
           `Craft rejected: status=${response.status}`,
           `response=${JSON.stringify(response)}`,
-          `actions=${JSON.stringify(actionDebugSummary(actions))}`,
+          `actions=${JSON.stringify(actionDebugSummary(requestActions))}`,
           `inventory=${JSON.stringify(inventoryDebugSummary(botState))}`
         ].join('\n')))
         return
       }
+      applyCraftResultResponseToInventory(botState, requestActions, response)
       done(null, response)
     }
 
@@ -629,7 +842,7 @@ async function planWithCraftingUtil (botState, wantedItem) {
       multipleRecipes: true,
     })
   } catch (err) {
-    return { success: false, error: err.message }
+    return { status: 'failure', error: err.message }
   }
 }
 
@@ -650,9 +863,11 @@ async function injectCrafting (botState, options = {}) {
 
   botState.planCraftInventory = async (wantedItem) => {
     const utilPlan = await planWithCraftingUtil(botState, wantedItem)
-    if (utilPlan.success && Array.isArray(utilPlan.recipesToDo)) {
+    const status = normalizeCraftingPlanStatus(utilPlan)
+    if (status === 'complete' && Array.isArray(utilPlan.recipesToDo)) {
       return {
         ...utilPlan,
+        status,
         source: 'mineflayer-crafting-util',
         recipesToDo: utilPlan.recipesToDo.map(simplifyUtilityStep),
       }
@@ -660,6 +875,7 @@ async function injectCrafting (botState, options = {}) {
 
     return {
       ...utilPlan,
+      status,
       source: 'mineflayer-crafting-util',
       utilityError: utilPlan.error,
     }
@@ -669,22 +885,39 @@ async function injectCrafting (botState, options = {}) {
   botState.planCraft = botState.planCraftInventory
 
   async function craftPlanWithMode (plan, craftingTableBlock, mode) {
-    if (!plan?.success) throw new Error(plan?.error || 'Cannot craft unsuccessful plan')
+    if (!isCompleteCraftingPlan(plan)) throw unsuccessfulPlanError(plan)
 
     let openedCraftingContainer = null
+    let openedPlayerInventory = false
+    const preferCraftingTable = mode === 'normal' && !!craftingTableBlock?.position
 
     try {
       for (const step of plan.recipesToDo) {
-        const craft = resolveCraftStep(botState, step)
-        if (!craft) throw unresolvedCraftStepError(botState, step)
-        const requiresCraftingTable = isTableRecipe(craft.entry)
-        const useStandaloneRequest = options.craftingStandaloneRequests || requiresCraftingTable || mode === 'normal'
-        if (requiresCraftingTable) openedCraftingContainer = await openCraftingTable(botState, craftingTableBlock)
+        const applications = mode === 'normal' ? Math.max(1, step.recipeApplications || 1) : 1
 
-        if (mode === 'normal') {
-          await executeNormalCraft(craft, useStandaloneRequest)
-        } else {
-          await executeAutoCraft(craft, useStandaloneRequest)
+        for (let application = 0; application < applications; application++) {
+          const stepToResolve = applications > 1 ? { ...step, recipeApplications: 1 } : step
+          const craft = resolveCraftStep(botState, stepToResolve)
+          if (!craft) throw unresolvedCraftStepError(botState, stepToResolve)
+          const requiresCraftingTable = isTableRecipe(craft.entry)
+          const useStandaloneRequest = options.craftingStandaloneRequests !== false
+          if ((requiresCraftingTable || preferCraftingTable) && !openedCraftingContainer) {
+            await closePlayerInventoryForCrafting(botState)
+            openedPlayerInventory = false
+            openedCraftingContainer = await openCraftingTable(botState, craftingTableBlock)
+          }
+          craft.usingCraftingTable = !!openedCraftingContainer
+
+          if (!craft.usingCraftingTable && !openedPlayerInventory) {
+            await openPlayerInventoryForCrafting(botState)
+            openedPlayerInventory = true
+          }
+
+          if (mode === 'normal') {
+            await executeNormalCraft(craft, useStandaloneRequest)
+          } else {
+            await executeAutoCraft(craft, useStandaloneRequest)
+          }
         }
       }
     } finally {
@@ -738,13 +971,23 @@ async function injectCrafting (botState, options = {}) {
     await waitForInventoryChange(botState, beforeInventory)
   }
 
-  botState.craftPlanAuto = (plan, craftingTableBlock) => craftPlanWithMode(plan, craftingTableBlock, 'auto')
+  botState.craftPlanRecipeBookAuto = (plan, craftingTableBlock) => craftPlanWithMode(plan, craftingTableBlock, 'auto')
+  botState.craftPlanAuto = (plan, craftingTableBlock) => {
+    const mode = options.craftingRecipeBookAuto === true ? 'auto' : 'normal'
+    return craftPlanWithMode(plan, craftingTableBlock, mode)
+  }
   botState.craftPlanNormal = (plan, craftingTableBlock) => craftPlanWithMode(plan, craftingTableBlock, 'normal')
-  botState.craftPlan = botState.craftPlanAuto
+  botState.craftPlan = botState.craftPlanNormal
 
   botState.craftItemAuto = async (itemId, count, craftingTableBlock) => {
     const plan = await botState.planCraftInventory({ id: itemId, count })
     await botState.craftPlanAuto(plan, craftingTableBlock)
+    return plan
+  }
+
+  botState.craftItemRecipeBookAuto = async (itemId, count, craftingTableBlock) => {
+    const plan = await botState.planCraftInventory({ id: itemId, count })
+    await botState.craftPlanRecipeBookAuto(plan, craftingTableBlock)
     return plan
   }
 
@@ -754,8 +997,9 @@ async function injectCrafting (botState, options = {}) {
     return plan
   }
 
-  botState.craftItem = botState.craftItemAuto
+  botState.craftItem = botState.craftItemNormal
   botState.craftAuto = botState.craftItemAuto
+  botState.craftRecipeBookAuto = botState.craftItemRecipeBookAuto
   botState.craftNormal = botState.craftItemNormal
 
   logAction('[craft]', 'crafting plugin loaded')
@@ -771,4 +1015,8 @@ module.exports._craftingHelpers = {
   buildGridPlaceActions,
   buildNormalResultActions,
   buildActions,
+  craftRequestSlotInfo,
+  craftInventoryRequestSlotInfo,
+  normalizeCraftingPlanStatus,
+  isCompleteCraftingPlan,
 }

@@ -173,7 +173,6 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
   }
 
   botState.applyMovement = tickSimulation;
-  botState.sendPlayerAuthInputNow = () => movementPackets.sendPlayerAuthInput(0.05);
 
   botState.setPosition = (x, y, z) => {
     if (botState.self) botState.self.position.set(x, y, z);
@@ -182,6 +181,7 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
   botState.look = movementPackets.look;
   botState.lookAt = movementPackets.lookAt;
   botState.waitForLookComplete = movementPackets.waitForLookComplete;
+  botState.syncLook = movementPackets.syncLook;
 
   client.on('start_game', (pkt) => {
     if (!botState.self) return;

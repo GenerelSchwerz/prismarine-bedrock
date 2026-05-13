@@ -259,7 +259,7 @@ function inject (botState, options = {}) {
 
     for (const container of response?.containers || []) {
       const containerId = container.slot_type?.container_id
-      if (containerId !== 'hotbar' && containerId !== 'inventory') continue
+      if (containerId !== 'hotbar' && containerId !== 'inventory' && containerId !== 'hotbar_and_inventory') continue
 
       for (const slot of container.slots || []) {
         slots.set(slot.slot, slot)
@@ -277,10 +277,11 @@ function inject (botState, options = {}) {
       const serverSlot = serverSlots.get(slot)
 
       if (serverSlot) {
-        if (!item || serverSlot.count === 0) {
+        if (serverSlot.count === 0) {
           inv.updateSlot(slot, null)
           continue
         }
+        if (!item) continue
 
         const updated = cloneItem(item, serverSlot.count)
         updated.stackId = serverSlot.item_stack_id

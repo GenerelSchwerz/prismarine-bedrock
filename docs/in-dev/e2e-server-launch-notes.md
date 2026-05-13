@@ -109,6 +109,7 @@ Stop orphaned e2e server processes from crashed or abandoned launcher sessions:
 ```powershell
 node scripts/e2e-servers.js cleanup-orphans
 node scripts/e2e-servers.js cleanup-orphans --dry-run
+node scripts/e2e-servers.js cleanup-orphans --include-managed
 ```
 
 Or via package script:
@@ -117,7 +118,7 @@ Or via package script:
 pnpm run e2e:servers:cleanup-orphans
 ```
 
-Orphan cleanup scans local processes for command lines or executable paths under `.e2e-servers/`, skips instances that still have a live `scripts/e2e-servers.js launch` parent, stops orphaned process trees, and removes stale `.test-lock.<scope>.json` files whose recorded same-host PID is no longer alive. It keeps active test locks.
+Orphan cleanup scans local processes for command lines or executable paths under `.e2e-servers/`, skips instances that still have a live `scripts/e2e-servers.js launch` parent, reports those active managed processes with their launcher PID, stops orphaned process trees, and removes stale `.test-lock.<scope>.json` files whose recorded same-host PID is no longer alive. It keeps active test locks. Use `--include-managed` when a launcher-backed server tree is known to be abandoned and should be stopped anyway.
 
 ## Install
 

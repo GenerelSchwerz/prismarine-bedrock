@@ -25,6 +25,8 @@ Options:
   --packet-names=a,b          Only record these packet names
   --directions=a,b            Only record serverbound/clientbound directions
   --no-packet-params          Record packet names and summaries without decoded params
+  --player-auth-input-delta-ignore=a,b
+                             Delta fields or dot paths to ignore, default tick
   --include-binary            Include base64 for Buffer/Uint8Array fields
   --online                    Verify downstream login and use online upstream auth
   --help                      Show this help
@@ -43,6 +45,7 @@ function parseArgs (argv) {
     packetNames: parseCsv(process.env.RELAY_PACKET_NAMES || ''),
     directions: parseCsv(process.env.RELAY_DIRECTIONS || ''),
     packetParams: process.env.RELAY_NO_PACKET_PARAMS !== '1',
+    playerAuthInputDeltaIgnore: parseCsv(process.env.RELAY_PLAYER_AUTH_INPUT_DELTA_IGNORE || 'tick'),
     includeBinary: process.env.RELAY_INCLUDE_BINARY === '1',
     offline: process.env.RELAY_ONLINE !== '1',
     motd: process.env.RELAY_MOTD || 'bedrock-test relay recorder',
@@ -73,6 +76,8 @@ function parseArgs (argv) {
       options.directions = parseCsv(arg.slice('--directions='.length))
     } else if (arg === '--no-packet-params') {
       options.packetParams = false
+    } else if (arg.startsWith('--player-auth-input-delta-ignore=')) {
+      options.playerAuthInputDeltaIgnore = parseCsv(arg.slice('--player-auth-input-delta-ignore='.length))
     } else if (arg === '--include-binary') {
       options.includeBinary = true
     } else if (arg === '--online') {
@@ -419,6 +424,7 @@ async function main () {
     packet_names: options.packetNames,
     directions: options.directions,
     packet_params: options.packetParams,
+    player_auth_input_delta_ignore: options.playerAuthInputDeltaIgnore,
     include_binary: options.includeBinary
   })
 
@@ -447,14 +453,16 @@ async function main () {
     player.on('clientbound', (packet) => {
       if (runner) runner.observePacket(player, 'clientbound', packet)
       if (shouldRecordPacket(options, 'clientbound', packet.name)) {
-        recorder.write(packetRecord('clientbound', packet, options))
+        const record = packetRecord('clientbound', packet, options, player)
+        if (record) recorder.write(record)
       }
     })
 
     player.on('serverbound', (packet) => {
       if (runner) runner.observePacket(player, 'serverbound', packet)
       if (shouldRecordPacket(options, 'serverbound', packet.name)) {
-        recorder.write(packetRecord('serverbound', packet, options))
+        const record = packetRecord('serverbound', packet, options, player)
+        if (record) recorder.write(record)
       }
     })
 
@@ -506,14 +514,94 @@ async function main () {
   process.on('SIGTERM', shutdown)
 }
 
-function packetRecord (direction, packet, options) {
+const playerAuthInputDeltaState = new Map()
+
+function packetRecord (direction, packet, options, player) {
   const record = {
     type: 'packet',
     direction,
     name: packet.name
   }
+  if (packet.name === 'player_auth_input') {
+    const delta = playerAuthInputDelta(direction, packet, options, player)
+    if (!delta) return null
+    record.player_auth_input_delta = delta
+    return record
+  }
   if (options.packetParams) record.params = packet.params
   return record
+}
+
+function playerAuthInputDelta (direction, packet, options, player) {
+  const key = [
+    direction,
+    player.profile?.name || player.profile?.xuid || player.connection?.address || ''
+  ].join(':')
+  const ignored = new Set(options.playerAuthInputDeltaIgnore || ['tick'])
+  const current = normalizeForDelta(packet.params || {}, ignored)
+  const previous = playerAuthInputDeltaState.get(key)
+  playerAuthInputDeltaState.set(key, current)
+
+  if (previous === undefined) {
+    return {
+      initial: true,
+      ignored: Array.from(ignored).sort(),
+      changes: current
+    }
+  }
+
+  const changes = diffValues(previous, current)
+  if (changes === undefined) return null
+  return {
+    initial: false,
+    ignored: Array.from(ignored).sort(),
+    changes
+  }
+}
+
+function normalizeForDelta (value, ignored, pathParts = []) {
+  const path = pathParts.join('.')
+  const key = pathParts[pathParts.length - 1] || ''
+  if (ignored.has(path) || ignored.has(key)) return undefined
+  if (typeof value === 'bigint') return String(value)
+  if (Array.isArray(value)) {
+    return value.map((entry, index) => normalizeForDelta(entry, ignored, pathParts.concat(String(index))))
+  }
+  if (!value || typeof value !== 'object') return value
+
+  const output = {}
+  for (const entryKey of Object.keys(value).sort()) {
+    const normalized = normalizeForDelta(value[entryKey], ignored, pathParts.concat(entryKey))
+    if (normalized !== undefined) output[entryKey] = normalized
+  }
+  return output
+}
+
+function diffValues (previous, current) {
+  if (JSON.stringify(previous) === JSON.stringify(current)) return undefined
+  if (!isPlainObject(previous) || !isPlainObject(current)) {
+    return { from: previous, to: current }
+  }
+
+  const keys = new Set([...Object.keys(previous), ...Object.keys(current)])
+  const output = {}
+  for (const key of Array.from(keys).sort()) {
+    if (!Object.prototype.hasOwnProperty.call(current, key)) {
+      output[key] = { from: previous[key], to: null }
+      continue
+    }
+    if (!Object.prototype.hasOwnProperty.call(previous, key)) {
+      output[key] = { from: null, to: current[key] }
+      continue
+    }
+    const diff = diffValues(previous[key], current[key])
+    if (diff !== undefined) output[key] = diff
+  }
+  return Object.keys(output).length ? output : undefined
+}
+
+function isPlainObject (value) {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
 main().catch(err => {

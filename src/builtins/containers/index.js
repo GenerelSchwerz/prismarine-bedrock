@@ -8,6 +8,7 @@ const {
   getBlockRuntimeId,
   itemToRaw,
   logAction,
+  sleep,
   toVec3f
 } = require('../../utils')
 const {
@@ -27,10 +28,106 @@ function blockFace (botState, pos) {
   const dx = eye.x - center.x
   const dy = eye.y - center.y
   const dz = eye.z - center.z
+  const horizontalDistance = Math.hypot(dx, dz)
 
-  if (Math.abs(dy) >= Math.abs(dx) && Math.abs(dy) >= Math.abs(dz)) return dy > 0 ? 1 : 0
+  if (horizontalDistance < 0.25 && Math.abs(dy) >= 0.25) return dy > 0 ? 1 : 0
   if (Math.abs(dx) >= Math.abs(dz)) return dx > 0 ? 5 : 4
   return dz > 0 ? 3 : 2
+}
+
+function resultPositionForFace (pos, face) {
+  const target = pos instanceof Vec3 ? pos : new Vec3(pos.x, pos.y, pos.z)
+  switch (face) {
+    case 0: return target.offset(0, -1, 0)
+    case 1: return target.offset(0, 1, 0)
+    case 2: return target.offset(0, 0, -1)
+    case 3: return target.offset(0, 0, 1)
+    case 4: return target.offset(-1, 0, 0)
+    case 5: return target.offset(1, 0, 0)
+    default: return target
+  }
+}
+
+function lookPositionForFace (pos, face) {
+  const target = pos instanceof Vec3 ? pos : new Vec3(pos.x, pos.y, pos.z)
+  switch (face) {
+    case 0: return target.offset(0.5, 0, 0.5)
+    case 1: return target.offset(0.5, 1, 0.5)
+    case 2: return target.offset(0.5, 0.5, 0)
+    case 3: return target.offset(0.5, 0.5, 1)
+    case 4: return target.offset(0, 0.5, 0.5)
+    case 5: return target.offset(1, 0.5, 0.5)
+    default: return target.offset(0.5, 0.5, 0.5)
+  }
+}
+
+function openHeldItemRaw (item, itemClass) {
+  const raw = { ...itemToRaw(item, itemClass) }
+  delete raw.stack_id
+  delete raw.stackId
+  delete raw.stack_network_id
+  delete raw.network_stack_id
+  raw.has_stack_id = 0
+  return raw
+}
+
+function degreesToRadians (degrees) {
+  return (degrees * Math.PI) / 180
+}
+
+function viewDirectionFromRotation (yaw, pitch) {
+  const yawRad = degreesToRadians(yaw || 0)
+  const pitchRad = degreesToRadians(pitch || 0)
+  const cosPitch = Math.cos(pitchRad)
+
+  return {
+    x: -Math.sin(yawRad) * cosPitch,
+    y: -Math.sin(pitchRad),
+    z: Math.cos(yawRad) * cosPitch
+  }
+}
+
+function rayClickPositionForFace (eye, target, face, yaw, pitch) {
+  const direction = viewDirectionFromRotation(yaw, pitch)
+  const planes = {
+    0: ['y', target.y],
+    1: ['y', target.y + 1],
+    2: ['z', target.z],
+    3: ['z', target.z + 1],
+    4: ['x', target.x],
+    5: ['x', target.x + 1]
+  }
+  const plane = planes[face]
+  if (!plane) return null
+
+  const [axis, value] = plane
+  if (Math.abs(direction[axis]) < 1e-6) return null
+
+  const t = (value - eye[axis]) / direction[axis]
+  if (!Number.isFinite(t) || t < 0) return null
+
+  const hit = {
+    x: eye.x + direction.x * t,
+    y: eye.y + direction.y * t,
+    z: eye.z + direction.z * t
+  }
+  const click = {
+    x: hit.x - target.x,
+    y: hit.y - target.y,
+    z: hit.z - target.z
+  }
+
+  if (
+    click.x < -0.001 || click.x > 1.001 ||
+    click.y < -0.001 || click.y > 1.001 ||
+    click.z < -0.001 || click.z > 1.001
+  ) return null
+
+  return {
+    x: Math.max(0, Math.min(1, click.x)),
+    y: Math.max(0, Math.min(1, click.y)),
+    z: Math.max(0, Math.min(1, click.z))
+  }
 }
 
 module.exports = function containersPlugin (botState, options = {}) {
@@ -103,9 +200,42 @@ module.exports = function containersPlugin (botState, options = {}) {
 
   function sendOpenBlockContainer (pos, face, opts = {}) {
     const target = pos instanceof Vec3 ? pos : new Vec3(pos.x, pos.y, pos.z)
+    const resultPosition = resultPositionForFace(target, face)
     const heldSlot = botState.heldItemSlot ?? 0
     const heldItem = botState.inventory?.slots?.[heldSlot] ?? null
-    const playerPos = botState.self?.position ?? botState.spawnPosition
+    const playerPos = botState.self?.position?.offset?.(0, 1.62, 0) ??
+      botState.self?.position ??
+      botState.spawnPosition
+    const clickPos = rayClickPositionForFace(
+      playerPos,
+      target,
+      face,
+      botState.self?.yaw ?? 0,
+      botState.self?.pitch ?? 0
+    ) ?? clickPositionForFace(face)
+    const runtimeEntityId = client.entityId ?? botState.self?.runtimeId ?? 0n
+
+    client.queue('interact', {
+      action_id: 'mouse_over_entity',
+      target_entity_id: 0n,
+      has_position: false
+    })
+
+    client.queue('player_action', {
+      runtime_entity_id: runtimeEntityId,
+      action: 'start_item_use_on',
+      position: { x: target.x, y: target.y, z: target.z },
+      result_position: { x: resultPosition.x, y: resultPosition.y, z: resultPosition.z },
+      face
+    })
+
+    client.queue('animate', {
+      action_id: 'swing_arm',
+      runtime_entity_id: runtimeEntityId,
+      data: 0,
+      has_swing_source: true,
+      swing_source: 'interact'
+    })
 
     client.queue('inventory_transaction', {
       transaction: {
@@ -118,9 +248,9 @@ module.exports = function containersPlugin (botState, options = {}) {
           block_position: { x: target.x, y: target.y, z: target.z },
           face,
           hotbar_slot: heldSlot,
-          held_item: itemToRaw(heldItem, botState.itemClass),
+          held_item: openHeldItemRaw(heldItem, botState.itemClass),
           player_pos: toVec3f(playerPos),
-          click_pos: clickPositionForFace(face),
+          click_pos: clickPos,
           block_runtime_id: getBlockRuntimeId(botState, target, {
             blockName: opts.blockName,
             blockRuntimeId: opts.blockRuntimeId
@@ -132,6 +262,29 @@ module.exports = function containersPlugin (botState, options = {}) {
     })
 
     logAction('[containers]', 'open block container', { pos: target, face })
+
+    return () => {
+      client.queue('player_action', {
+        runtime_entity_id: runtimeEntityId,
+        action: 'stop_item_use_on',
+        position: { x: resultPosition.x, y: resultPosition.y, z: resultPosition.z },
+        result_position: { x: 0, y: 0, z: 0 },
+        face: 0
+      })
+    }
+  }
+
+  async function ensureContainerOpenHeldSlot (opts = {}) {
+    const heldSlot = botState.heldItemSlot ?? 0
+    if (opts.preserveHeldSlot || botState.inventory?.slots?.[heldSlot]) return
+    if (typeof botState.setHeldItemSlot !== 'function') return
+
+    for (let slot = 0; slot < 9; slot++) {
+      if (!botState.inventory?.slots?.[slot]) continue
+      botState.setHeldItemSlot(slot)
+      await sleep(opts.heldSlotSettleMs ?? 50)
+      return
+    }
   }
 
   function wrapContainerWindow (packet) {
@@ -174,11 +327,22 @@ module.exports = function containersPlugin (botState, options = {}) {
     }, opts.timeoutMs ?? openTimeoutMs)
 
     if (typeof botState.lookAt === 'function' && opts.look !== false) {
-      await botState.lookAt(target.offset(0.5, 0.5, 0.5))
+      botState.lookAt(lookPositionForFace(target, face), true)
+      await sleep(opts.lookSettleMs ?? 100)
+      botState.syncLook?.()
+      await sleep(opts.lookSyncSettleMs ?? 50)
     }
 
-    sendOpenBlockContainer(target, face, opts)
-    const packet = await openPromise
+    await ensureContainerOpenHeldSlot(opts)
+
+    const stopItemUse = sendOpenBlockContainer(target, face, opts)
+    let packet
+    try {
+      packet = await openPromise
+    } finally {
+      stopItemUse?.()
+    }
+
     const container = wrapContainerWindow(packet)
     await waitForInventoryContent(container.id, opts.contentTimeoutMs ?? contentTimeoutMs)
     return container

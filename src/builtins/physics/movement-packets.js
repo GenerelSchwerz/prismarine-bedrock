@@ -1,6 +1,22 @@
 const { Vec3 } = require('vec3')
 const { deltaDeg, logAction, numberOrZero } = require('../../utils')
 
+function degreesToRadians (degrees) {
+  return (degrees * Math.PI) / 180
+}
+
+function cameraOrientationFromRotation (yaw, pitch) {
+  const yawRad = degreesToRadians(numberOrZero(yaw))
+  const pitchRad = degreesToRadians(numberOrZero(pitch))
+  const cosPitch = Math.cos(pitchRad)
+
+  return {
+    x: numberOrZero(-Math.sin(yawRad) * cosPitch),
+    y: numberOrZero(-Math.sin(pitchRad)),
+    z: numberOrZero(Math.cos(yawRad) * cosPitch),
+  }
+}
+
 function createMovementPacketSender (botState, C) {
   const client = botState.client
 
@@ -52,9 +68,13 @@ function createMovementPacketSender (botState, C) {
     const analogueMoveVector = self.analogueMoveVector || moveVector
     const rawMoveVector = self.rawMoveVector || moveVector
 
+    const sentPitch = numberOrZero(lastSentPitch)
+    const sentYaw = numberOrZero(lastSentYaw)
+    const cameraOrientation = cameraOrientationFromRotation(sentYaw, sentPitch)
+
     const packet = {
-      pitch: numberOrZero(lastSentPitch),
-      yaw: numberOrZero(lastSentYaw),
+      pitch: sentPitch,
+      yaw: sentYaw,
       position: {
         x: numberOrZero(self.position.x),
         y: numberOrZero(self.position.y) + C.EYE_HEIGHT,
@@ -69,14 +89,14 @@ function createMovementPacketSender (botState, C) {
       input_mode: 1,
       play_mode: 0,
       interaction_model: 1,
-      interact_rotation: { x: 0, z: 0 },
+      interact_rotation: { x: sentPitch, z: sentYaw },
       tick: self.tick || 0n,
       delta: self.delta || { x: 0, y: 0, z: 0 },
       analogue_move_vector: {
         x: numberOrZero(analogueMoveVector.x),
         z: numberOrZero(analogueMoveVector.z),
       },
-      camera_orientation: { x: 0, y: 0, z: 0 },
+      camera_orientation: cameraOrientation,
       raw_move_vector: {
         x: numberOrZero(rawMoveVector.x),
         z: numberOrZero(rawMoveVector.z),
@@ -166,6 +186,7 @@ function createMovementPacketSender (botState, C) {
   return {
     sendPlayerAuthInput,
     sendMovePlayer,
+    syncLook: () => sendMovePlayer(0, 0),
     resetRotation,
     look,
     lookAt,

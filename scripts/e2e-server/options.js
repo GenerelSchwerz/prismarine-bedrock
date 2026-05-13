@@ -35,7 +35,8 @@ function parseOptions(args) {
     javaBin: process.env.E2E_JAVA_BIN || defaultJavaBin(),
     geyserAuthType: process.env.E2E_GEYSER_AUTH_TYPE || "offline",
     autoOp: process.env.E2E_AUTO_OP !== "0",
-    dryRun: false
+    dryRun: false,
+    includeManaged: false
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -90,6 +91,8 @@ function parseOptions(args) {
       options.autoOp = false;
     } else if (arg === "--dry-run") {
       options.dryRun = true;
+    } else if (arg === "--include-managed") {
+      options.includeManaged = true;
     } else if (arg === "--client") {
       options.clientArgs = normalizeClientArgs(args.slice(index + 1));
       options.client = shellJoin(options.clientArgs);

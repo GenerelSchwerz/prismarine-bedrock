@@ -73,6 +73,14 @@ For a smaller trace without decoded packet params:
 node scripts/recorded-bds-relay.js --no-packet-params
 ```
 
+To inspect `player_auth_input` without one record per tick, include the packet name. The relay records auth input as deltas automatically:
+
+```powershell
+node scripts/recorded-bds-relay.js --packet-names=player_auth_input
+```
+
+Delta mode ignores `tick` by default. Add noisy fields or dot paths with `--player-auth-input-delta-ignore=tick,position,delta`.
+
 ## Scenario Limits
 
 Relay scenarios are packet-derived. Unlike Endstone scenarios, Relay cannot directly inspect BDS world blocks or player inventory.

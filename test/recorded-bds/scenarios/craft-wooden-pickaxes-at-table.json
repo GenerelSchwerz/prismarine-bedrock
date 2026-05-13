@@ -1,0 +1,53 @@
+{
+  "id": "craft-wooden-pickaxes-at-table",
+  "autoOp": true,
+  "gamemode": "survival",
+  "spawn": [0, 65, 0, 0, 0],
+  "setupCommands": [
+    "clear {player}",
+    "gamerule doDaylightCycle false",
+    "time set day",
+    "fill -2 64 -2 2 68 2 air",
+    "fill -2 63 -2 2 63 2 grass",
+    "setblock 1 64 0 crafting_table",
+    "give {player} oak_log 4"
+  ],
+  "completeTitle": "Recording complete",
+  "completeMessage": "The wooden pickaxe crafting recording is complete. You can leave the game.",
+  "steps": [
+    {
+      "id": "open-crafting-table",
+      "instructions": [
+        "Open the crafting table in front of you."
+      ],
+      "clearance": {
+        "type": "packet_seen",
+        "direction": "send",
+        "packet_id": 46,
+        "count": 1
+      }
+    },
+    {
+      "id": "craft-wooden-pickaxes",
+      "instructions": [
+        "Using the crafting table UI, craft three wooden pickaxes from the oak logs.",
+        "Leave the pickaxes in your inventory."
+      ],
+      "clearance": {
+        "all": [
+          {
+            "type": "packet_seen",
+            "direction": "receive",
+            "packet_id": 147,
+            "count": 1
+          },
+          {
+            "type": "inventory_contains",
+            "item": "minecraft:wooden_pickaxe",
+            "count": 3
+          }
+        ]
+      }
+    }
+  ]
+}

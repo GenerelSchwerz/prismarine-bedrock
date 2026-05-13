@@ -18,7 +18,7 @@ function printHelp() {
     "  node scripts/e2e-servers.js install --target=java --java-worlds=normal,superflat",
     "  node scripts/e2e-servers.js clean --scope=worlds",
     "  node scripts/e2e-servers.js clean --scope=logs",
-    "  node scripts/e2e-servers.js cleanup-orphans [--dry-run]",
+    "  node scripts/e2e-servers.js cleanup-orphans [--dry-run] [--include-managed]",
     "",
     "Environment:",
     "  E2E_PAPER_VERSION       Paper Minecraft version, default latest",
@@ -65,6 +65,7 @@ function printHelp() {
     "",
     "Cleanup options:",
     "  --dry-run               For cleanup-orphans, report matching processes and stale locks without deleting",
+    "  --include-managed       Also stop e2e server trees still owned by a launcher process",
     ""
   ].join("\n"));
 }

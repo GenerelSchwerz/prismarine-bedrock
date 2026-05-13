@@ -42,6 +42,7 @@ Make it easy for future agents to define real-user BDS recording scenarios with 
 | `scripts/e2e-server/help.js` | changed | Documents scenario option and env variable. |
 | `scripts/endstone-packet-recorder/**` | changed | Added scenario loading/state machine/clearance checks and JSONL markers. |
 | `test/recorded-bds/**` | changed | Added scenario authoring README, human tester runbook, copy-paste tester prompt, evidence checklist, and `craft-planks-and-place` sample. |
+| `test/recorded-bds/scenarios/craft-wooden-pickaxes-at-table.json` | added | Human-driven workbench scenario that opens a crafting table and records crafting three wooden pickaxes from oak logs. |
 
 ## Evidence Log
 
@@ -61,6 +62,17 @@ Make it easy for future agents to define real-user BDS recording scenarios with 
 - `2026-05-13` - `E2E_ENDSTONE_PACKAGE=endstone MC_VERSION=1.26.10 node scripts/e2e-servers.js launch --target=endstone --world=superflat --endstone-scenario=craft-planks-and-place` - IN PROGRESS. Notes: started as a background launcher for a real Bedrock client session; Endstone 0.11.3 / BDS 1.26.12.2, world `endstone-1-superflat`, UDP `0.0.0.0:19132`, packet recorder active at `.e2e-servers/endstone-bds/logs/packet-recorder.jsonl`; initial markers include `recorder_start` and `scenario_loaded`.
 - `2026-05-13` - Manual Endstone 0.11.3 + BDS 1.26.20.5 probe - FAIL. Notes: downloaded official `bedrock-server-1.26.20.5.zip`, extracted to ignored `.e2e-servers/manual-endstone-12620`, bypassed Endstone's supported-version updater with `version.txt=26.12`, and launched on port `19135` with packet-recorder/scenario env enabled. BDS printed `Version: 1.26.20.5`, but Endstone failed native hook installation with `FUNCHOOK_ERROR_FOUND_BACK_JUMP` for `RepositorySources::initializePackSource`, then exited with code `3221225501`; plugins/recording did not load. Raw logs: `logs/manual-endstone-12620-20260513-153711.out.log`, `logs/manual-endstone-12620-20260513-153711.err.log`.
 - `2026-05-13` - PyPI package check for Endstone - PASS investigation. Notes: `https://pypi.org/pypi/endstone/json` reported latest published Endstone version `0.11.3`, so no newer published package is currently available to support BDS 1.26.20.5.
+- `2026-05-13` - Fresh scenario run for real 1.26.12 client - IN PROGRESS. Command: `E2E_ENDSTONE_PACKAGE=endstone MC_VERSION=1.26.10 node scripts/e2e-servers.js launch --target=endstone --world=superflat --endstone-scenario=craft-planks-and-place`. Notes: Endstone 0.11.3 / BDS 1.26.12.2, UDP `0.0.0.0:19132`, world `endstone-1-superflat`; packet recorder active at `.e2e-servers/endstone-bds/logs/packet-recorder.jsonl` with fresh `recorder_start` and `scenario_loaded` markers. Launcher log: `logs/recorded-bds-scenario-20260513-161049.out.log`.
+- `2026-05-13` - First 1.26.12 client scenario attempt - FAIL/INCOMPLETE. Notes: player `Generel7050` joined and `step_start` for `craft-planks` was recorded, but no `step_complete`; the item/block clearance used legacy `minecraft:planks` instead of `minecraft:oak_planks`.
+- `2026-05-13` - Scenario JSON corrected and relaunched - IN PROGRESS. Notes: `test/recorded-bds/scenarios/craft-planks-and-place.json` now expects inventory item `minecraft:oak_planks` and placed block `minecraft:oak_planks`; fresh Endstone 0.11.3 / BDS 1.26.12.2 server is live on UDP `0.0.0.0:19132`. Launcher log: `logs/recorded-bds-scenario-20260513-161421.out.log`; recorder has fresh `recorder_start` and `scenario_loaded`.
+- `2026-05-13` - Inventory-gated scenario retry - PASS. Notes: fresh run `logs/recorded-bds-scenario-20260513-161635.out.log` on Endstone 0.11.3 / BDS 1.26.12.2 recorded `step_complete` for `craft-planks` at sequence 615, `step_start` for `place-plank-on-marker` at sequence 621, `step_complete` for placement at sequence 727 with actual block `minecraft:oak_planks`, and `scenario_complete` at sequence 733. Remaining action: player should leave to write `scenario_end` / `player_quit`.
+- `2026-05-13` - Decoded real-client normal craft packets from `.e2e-servers/endstone-bds/logs/packet-recorder.jsonl` - PASS investigation. Notes: `minecraft-data` 1.26.10 defines `packet_item_stack_request` as `!id: 0x93` / decimal `147`, and the real client emitted standalone `item_stack_request` packets at sequences 565, 585, and 605. The normal craft shape was: `take` hotbar slot 0 to cursor, `place` cursor to `crafting_input` slot 30, then `craft_recipe` + `results_deprecated` + `consume` from `crafting_input` slot 30 + `place` from `creative_output` slot 50 to `hotbar_and_inventory` slot 0.
+- `2026-05-13` - `npx mocha test/static/crafting.test.js` - PASS. Notes: normal craft packet builder now asserts hotbar source, `place` result action, and `hotbar_and_inventory` destination.
+- `2026-05-13` - `node scripts/roundtrip-packet.js scripts/tmp/craft-normal-roundtrip.json` - PASS. Notes: updated local temp packet round-trips with `place` from `creative_output` slot 50 to `hotbar_and_inventory`.
+- `2026-05-13` - `node` JSON parse of `test/recorded-bds/scenarios/craft-planks-and-place.json` - PASS. Notes: printed `craft-planks-and-place:2`.
+- `2026-05-13` - Focused live normal crafting verification against running `endstone-1` - BLOCKED/ENVIRONMENT. Notes: direct Mocha run connected to the existing human scenario server on BDS 1.26.12, but command targeting still used `.OpBot`, the bot was disconnected, and setup timed out before crafting. Attempting to launch a clean `endstone-2` with `--endstone-count=2` failed because the launcher tried to refresh the busy running `endstone-1` install and hit locked `python3.dll`. Static and round-trip checks passed; live verification needs the existing scenario server stopped or a launcher path that starts only a non-busy instance.
+- `2026-05-13` - Temp focused live runner prepared - PASS. Notes: `scripts/tmp/run-live-normal-crafting.js` invokes Mocha through Node argv with `--grep "normal crafts oak planks from oak logs with the live server recipe data"` so launcher client command quoting cannot split the grep string. Syntax check `node -c scripts/tmp/run-live-normal-crafting.js` passed. Because Endstone command forwarding depends on launcher-injected `E2E_SERVER_COMMAND_FILE`, run it from the launcher console as `/client node scripts/tmp/run-live-normal-crafting.js`.
+- `2026-05-13` - Added `craft-wooden-pickaxes-at-table` real-client scenario - PASS. Notes: JSON parse printed `craft-wooden-pickaxes-at-table:2:7`; the scenario clears when BDS sends `container_open` packet `46` for the opened table and when the player's inventory contains at least three `minecraft:wooden_pickaxe` items after receiving `item_stack_request` packet `147`.
 
 ## Architecture Notes
 
@@ -80,9 +92,19 @@ node scripts/e2e-servers.js launch --target=endstone --world=superflat --endston
 
 Connect with a real Bedrock client, follow the step prompts, then decode `.e2e-servers/endstone-bds/logs/packet-recorder.jsonl`.
 
+For workbench crafting packet capture, run:
+
+```powershell
+$env:E2E_ENDSTONE_PACKAGE='endstone'
+$env:MC_VERSION='1.26.10'
+$env:E2E_PACKET_RECORD_FILE='logs/human-craft-wooden-pickaxes.jsonl'
+node scripts/e2e-servers.js launch --target=endstone --world=superflat --endstone-scenario=craft-wooden-pickaxes-at-table
+```
+
 ## Resume Notes
 
-- Next step: live-run the sample with a real Bedrock client using the runbook in `test/recorded-bds/README.md`; verify the JSONL includes `scenario_start`, `step_start`, `step_complete`, `scenario_complete`, and `scenario_end`.
+- Next step: live-run `craft-wooden-pickaxes-at-table` with a real Bedrock client using the runbook in `test/recorded-bds/README.md`; verify the JSONL includes `scenario_start`, `step_start`, `step_complete`, `scenario_complete`, and `scenario_end`.
+- For focused normal-crafting verification against a running Endstone launcher, use `/client node scripts/tmp/run-live-normal-crafting.js` from the launcher console instead of passing a quoted Mocha `--grep` string directly.
 - Do not repeat: Endstone API docs lookup.
 - Raw logs: none.
 

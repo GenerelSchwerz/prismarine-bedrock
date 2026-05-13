@@ -31,7 +31,7 @@
           },
           {
             "type": "inventory_contains",
-            "item": "minecraft:planks",
+            "item": "minecraft:oak_planks",
             "count": 4
           }
         ]
@@ -40,19 +40,19 @@
     {
       "id": "place-plank-on-marker",
       "instructions": [
-        "Place one plank on the gold block in front of you."
+        "Place one plank on top of the gold block in front of you."
       ],
       "clearance": {
         "any": [
           {
             "type": "block_is",
             "position": [1, 65, 0],
-            "block": "minecraft:planks"
+            "block": "minecraft:oak_planks"
           },
           {
             "type": "block_is",
             "position": [1, 64, 0],
-            "block": "minecraft:planks"
+            "block": "minecraft:oak_planks"
           }
         ]
       }

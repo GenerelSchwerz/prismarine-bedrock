@@ -108,9 +108,7 @@ module.exports = function authInputPlugin (botState) {
   }
 
   botState.flushPlayerAuthInput = () => {
-    if (typeof botState.sendPlayerAuthInputNow !== 'function') return false
-    botState.sendPlayerAuthInputNow()
-    return true
+    return queuedEdits.length > 0 || hooks.size > 0
   }
 
   botState._applyPlayerAuthInputHooks = (packet, context = {}) => {

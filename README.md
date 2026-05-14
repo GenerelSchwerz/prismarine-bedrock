@@ -64,7 +64,7 @@ Runtime world and movement options:
 - `physicsEnabled: true | false` selects whether the bot installs Bedrock physics and movement controls.
 - `worldDecodeEnabled: true | false` controls whether incoming chunk, subchunk, and block update packets are decoded into `bot.world`.
 - Physics requires decoded world data. `worldDecodeEnabled: false` defaults `physicsEnabled` to `false`, and explicitly combining it with `physicsEnabled: true` throws.
-- `world` may be an externally supplied Prismarine-compatible world instance. When provided, decoded world data is written to that object instead of a private world instance.
+- The decoded world is owned by the bot. On dimension change, decoded world and chunk readiness state are dropped and rebuilt for the active dimension.
 
 ## Examples
 

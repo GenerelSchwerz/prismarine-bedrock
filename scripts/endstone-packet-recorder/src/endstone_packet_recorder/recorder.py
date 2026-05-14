@@ -13,6 +13,14 @@ from endstone.plugin import Plugin
 
 
 DEFAULT_CHECK_PERIOD_TICKS = 10
+TICKS_PER_SECOND = 20
+SUPPORTED_COMMAND_HOOKS = {
+    "player_join",
+    "scenario_start",
+    "step_start",
+    "step_complete",
+    "scenario_complete"
+}
 
 
 class PacketRecorderPlugin(Plugin):
@@ -35,6 +43,7 @@ class PacketRecorderPlugin(Plugin):
         self._scenario = self._load_scenario()
         self._sessions = {}
         self._check_task = None
+        self._scheduled_command_tasks = []
 
         self.register_events(self)
         self._write({
@@ -60,6 +69,12 @@ class PacketRecorderPlugin(Plugin):
         if getattr(self, "_check_task", None) is not None:
             self._check_task.cancel()
             self._check_task = None
+        for task in getattr(self, "_scheduled_command_tasks", []):
+            try:
+                task.cancel()
+            except Exception:
+                pass
+        self._scheduled_command_tasks = []
 
         handle = getattr(self, "_handle", None)
         if handle is None:
@@ -185,6 +200,7 @@ class PacketRecorderPlugin(Plugin):
             "packet_counts": {}
         }
         self._sessions[player_name] = session
+        self._run_hook_commands("player_join", player, session)
 
         if self._scenario.get("autoOp", True):
             self._op_player(player)
@@ -206,6 +222,7 @@ class PacketRecorderPlugin(Plugin):
             "player": player_name,
             "path": self._scenario.get("_path")
         })
+        self._run_hook_commands("scenario_start", player, session)
         self._start_next_step(player, session)
 
     def _start_next_step(self, player: Any, session: Dict[str, Any]) -> None:
@@ -233,6 +250,7 @@ class PacketRecorderPlugin(Plugin):
             "instructions": instructions,
             "clearance": step.get("clearance")
         })
+        self._run_hook_commands("step_start", player, session, step)
         self._send_step_instructions(player, next_index, len(steps), instructions)
         self._check_player_session(player, session)
 
@@ -254,6 +272,7 @@ class PacketRecorderPlugin(Plugin):
         for command in step.get("onCompleteCommands", []):
             self._dispatch_command(command, player)
 
+        self._run_hook_commands("step_complete", player, session, step)
         self._start_next_step(player, session)
 
     def _complete_scenario(self, player: Any, session: Dict[str, Any]) -> None:
@@ -268,6 +287,7 @@ class PacketRecorderPlugin(Plugin):
             self._scenario.get("completeTitle", "Scenario complete"),
             self._scenario.get("completeMessage", "The recording task is complete. You can leave the game.")
         )
+        self._run_hook_commands("scenario_complete", player, session)
 
     def _check_sessions(self) -> None:
         for player_name, session in list(self._sessions.items()):
@@ -450,26 +470,209 @@ class PacketRecorderPlugin(Plugin):
             yaw_pitch = f" {float(position[3])} {float(position[4])}"
         self._dispatch_command(f"tp {{player}} {float(position[0])} {float(position[1])} {float(position[2])}{yaw_pitch}", player)
 
+    def _run_hook_commands(
+        self,
+        hook: str,
+        player: Any,
+        session: Dict[str, Any],
+        step: Optional[Dict[str, Any]] = None
+    ) -> None:
+        for spec in self._command_specs_for_hook(hook, session, step):
+            self._schedule_command_spec(spec, hook, player, session, step)
+
+    def _command_specs_for_hook(
+        self,
+        hook: str,
+        session: Dict[str, Any],
+        step: Optional[Dict[str, Any]] = None
+    ) -> List[Any]:
+        specs = []
+        for spec in self._scenario.get("commands", []) if self._scenario else []:
+            if self._command_spec_matches_hook(spec, hook, session, step, default_hook="scenario_start"):
+                specs.append(spec)
+        if step is not None:
+            for spec in step.get("commands", []):
+                if self._command_spec_matches_hook(spec, hook, session, step, default_hook="step_start"):
+                    specs.append(spec)
+        return specs
+
+    def _command_spec_matches_hook(
+        self,
+        spec: Any,
+        hook: str,
+        session: Dict[str, Any],
+        step: Optional[Dict[str, Any]],
+        default_hook: str
+    ) -> bool:
+        if isinstance(spec, str):
+            spec_hook = default_hook
+        elif isinstance(spec, dict):
+            spec_hook = str(spec.get("hook", spec.get("event", spec.get("on", default_hook))))
+        else:
+            return False
+        if spec_hook != hook:
+            return False
+        if step is None:
+            return True
+
+        step_id = spec.get("step", spec.get("stepId")) if isinstance(spec, dict) else None
+        if step_id is not None and str(step_id) != str(step.get("id", session.get("step_index"))):
+            return False
+
+        step_index = spec.get("stepIndex") if isinstance(spec, dict) else None
+        if step_index is not None and int(step_index) != int(session.get("step_index", -1)):
+            return False
+        return True
+
+    def _schedule_command_spec(
+        self,
+        spec: Any,
+        hook: str,
+        player: Any,
+        session: Dict[str, Any],
+        step: Optional[Dict[str, Any]] = None
+    ) -> None:
+        if hook not in SUPPORTED_COMMAND_HOOKS:
+            self._write({
+                "type": "scenario_command_error",
+                "scenario": self._scenario.get("id") if self._scenario else None,
+                "player": self._player_name(player),
+                "hook": hook,
+                "error": "unsupported command hook"
+            })
+            return
+
+        commands = self._commands_from_spec(spec)
+        delay_ticks = self._delay_ticks_from_spec(spec)
+        for template in commands:
+            command = self._format_command(template, player, hook=hook, session=session, step=step)
+            if delay_ticks <= 0:
+                self._dispatch_raw_command(command, player, hook=hook, session=session, step=step)
+                continue
+            self._schedule_command(command, delay_ticks, hook, player, session, step)
+
+    def _commands_from_spec(self, spec: Any) -> List[str]:
+        if isinstance(spec, str):
+            return [spec]
+        if not isinstance(spec, dict):
+            return []
+        if "commands" in spec:
+            raw = spec.get("commands")
+            if isinstance(raw, list):
+                return [str(value) for value in raw]
+            return [str(raw)]
+        if "command" in spec:
+            return [str(spec.get("command"))]
+        return []
+
+    def _delay_ticks_from_spec(self, spec: Any) -> int:
+        if not isinstance(spec, dict):
+            return 0
+        if "delayTicks" in spec:
+            return max(0, int(spec.get("delayTicks", 0)))
+        if "delay_ticks" in spec:
+            return max(0, int(spec.get("delay_ticks", 0)))
+        if "delayMs" in spec:
+            return max(0, int(math.ceil(float(spec.get("delayMs", 0)) / 50.0)))
+        if "delay_ms" in spec:
+            return max(0, int(math.ceil(float(spec.get("delay_ms", 0)) / 50.0)))
+        if "delaySeconds" in spec:
+            return max(0, int(math.ceil(float(spec.get("delaySeconds", 0)) * TICKS_PER_SECOND)))
+        if "delay_seconds" in spec:
+            return max(0, int(math.ceil(float(spec.get("delay_seconds", 0)) * TICKS_PER_SECOND)))
+        return 0
+
+    def _schedule_command(
+        self,
+        command: str,
+        delay_ticks: int,
+        hook: str,
+        player: Any,
+        session: Dict[str, Any],
+        step: Optional[Dict[str, Any]] = None
+    ) -> None:
+        player_name = self._player_name(player)
+        step_id = self._step_id(step, session)
+        scheduled_session = {"step_index": session.get("step_index")}
+        self._write({
+            "type": "scenario_command_scheduled",
+            "scenario": self._scenario.get("id") if self._scenario else None,
+            "player": player_name,
+            "hook": hook,
+            "step": step_id,
+            "step_index": scheduled_session.get("step_index"),
+            "delay_ticks": delay_ticks,
+            "command": command
+        })
+
+        def run_command() -> None:
+            current_player = self.server.get_player(player_name) if player_name else None
+            if current_player is None:
+                self._write({
+                    "type": "scenario_command_skipped",
+                    "scenario": self._scenario.get("id") if self._scenario else None,
+                    "player": player_name,
+                    "hook": hook,
+                    "step": step_id,
+                    "step_index": scheduled_session.get("step_index"),
+                    "command": command,
+                    "reason": "player_offline"
+                })
+                return
+            self._dispatch_raw_command(command, current_player, hook=hook, session=scheduled_session, step=step)
+
+        task = self.server.scheduler.run_task(self, run_command, delay=delay_ticks)
+        self._scheduled_command_tasks.append(task)
+
     def _dispatch_command(self, template: str, player: Any) -> bool:
         command = self._format_command(template, player)
         return self._dispatch_raw_command(command, player)
 
-    def _dispatch_raw_command(self, command: str, player: Any) -> bool:
+    def _dispatch_raw_command(
+        self,
+        command: str,
+        player: Any,
+        hook: Optional[str] = None,
+        session: Optional[Dict[str, Any]] = None,
+        step: Optional[Dict[str, Any]] = None
+    ) -> bool:
         self._write({
             "type": "scenario_command",
             "scenario": self._scenario.get("id") if self._scenario else None,
             "player": self._player_name(player),
+            "hook": hook,
+            "step": self._step_id(step, session),
+            "step_index": session.get("step_index") if session else None,
             "command": command
         })
         return bool(self.server.dispatch_command(self.server.command_sender, command))
 
-    def _format_command(self, template: str, player: Any) -> str:
+    def _format_command(
+        self,
+        template: str,
+        player: Any,
+        hook: Optional[str] = None,
+        session: Optional[Dict[str, Any]] = None,
+        step: Optional[Dict[str, Any]] = None
+    ) -> str:
         player_name = self._player_name(player) or ""
         quoted = self._quote_command_argument(player_name)
+        scenario_id = self._scenario.get("id") if self._scenario else ""
         return str(template).format(
+            id=scenario_id,
+            scenario=scenario_id,
+            scenarioId=scenario_id,
             player=quoted,
-            playerName=player_name
+            playerName=player_name,
+            hook=hook or "",
+            step=self._step_id(step, session) or "",
+            stepIndex=session.get("step_index") if session else ""
         )
+
+    def _step_id(self, step: Optional[Dict[str, Any]], session: Optional[Dict[str, Any]]) -> Optional[str]:
+        if step is not None:
+            return str(step.get("id", session.get("step_index") if session else ""))
+        return None
 
     def _send_step_instructions(self, player: Any, index: int, total: int, instructions: List[str]) -> None:
         title = f"Step {index + 1}/{total}"

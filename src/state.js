@@ -66,6 +66,7 @@ class BotState extends EventEmitter {
       gameMode: null
     };
     this.chunkCount = 0;
+    this.dimension = 0;
 
     pluginLoader.ensureState(this);
 
@@ -78,8 +79,7 @@ class BotState extends EventEmitter {
     this.chunkColumn = require('prismarine-chunk')(registry);
     this.worldClass = require('prismarine-world')(registry);
 
-    this.world = this.options.world ?? new this.worldClass(null);
-    this.externalWorld = this.options.world != null;
+    this.world = new this.worldClass(null);
 
     // Entity & player storage (populated by entityHandler / playerHandler)
     this.entities = new Map();
@@ -89,7 +89,6 @@ class BotState extends EventEmitter {
 
   start () {
     const clientOptions = { ...this.options };
-    delete clientOptions.world;
     this.client = bedrock.createClient({ ...clientOptions, delayedInit: true });
     this.client.registry = this.registry;
 
@@ -103,6 +102,16 @@ class BotState extends EventEmitter {
     } else {
       this.client.close();
     }
+  }
+
+  resetWorld () {
+    this.world = new this.worldClass(null);
+  }
+
+  setDimension (dimension, options = {}) {
+    const changed = this.dimension !== dimension;
+    this.dimension = dimension;
+    if (changed && options.resetWorld) this.resetWorld();
   }
 }
 

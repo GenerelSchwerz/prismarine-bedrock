@@ -192,11 +192,25 @@ The current sample scenario is still considered unproven until a real Bedrock cl
   "setupCommands": [
     "clear {player}"
   ],
+  "commands": [
+    {
+      "hook": "scenario_start",
+      "delaySeconds": 1,
+      "command": "say scenario {id} has started for {playerName}"
+    }
+  ],
   "steps": [
     {
       "id": "first-step",
       "instructions": [
         "Do the first action."
+      ],
+      "commands": [
+        {
+          "hook": "step_start",
+          "delayTicks": 20,
+          "command": "playsound random.orb {player}"
+        }
       ],
       "clearance": {
         "type": "packet_seen",
@@ -213,6 +227,77 @@ Command placeholders:
 
 - `{player}`: quoted player name, safe for commands.
 - `{playerName}`: raw player name.
+- `{id}`, `{scenario}`, `{scenarioId}`: scenario id.
+- `{hook}`: current scenario event hook for entries in `commands`.
+- `{step}`: current step id for step hooks.
+- `{stepIndex}`: zero-based current step index for step hooks.
+
+### Scenario event hooks
+
+Scenario `commands` entries can run at these hooks. Each entry may use `hook`, `event`, or `on` to name the hook. Root-level `commands` default to `scenario_start`; step-level `commands` default to `step_start`.
+
+| Hook | Where it can be declared | When it runs | Context |
+| --- | --- | --- | --- |
+| `player_join` | Root `commands` | After a recordable player joins and the scenario session is created, before auto-op, legacy root setup commands, gamemode, spawn teleport, and `scenario_start`. | Player only; no current step. |
+| `scenario_start` | Root `commands` | After legacy root `setupCommands`, gamemode, spawn teleport, and the `scenario_start` marker. | Player only; no current step. |
+| `step_start` | Root `commands`, optionally filtered with `step`/`stepIndex`, or a step's `commands` | After legacy step `setupCommands` and the `step_start` marker, before instructions are sent and before immediate clearance evaluation. | Player plus current step. |
+| `step_complete` | Root `commands`, optionally filtered with `step`/`stepIndex`, or a step's `commands` | After the `step_complete` marker and legacy `onCompleteCommands`, before the next step starts. | Player plus completed step. |
+| `scenario_complete` | Root `commands` | After the final step completes, the `scenario_complete` marker is written, and the completion notice is sent. | Player only; no current step. |
+
+Command scheduling fields:
+
+- `command`: one command string.
+- `commands`: array of command strings, useful when several commands share the same hook and delay.
+- `delayTicks`: delay in server ticks.
+- `delaySeconds`: delay in seconds; converted to ticks at 20 ticks per second.
+- `delayMs`: delay in milliseconds; rounded up to full ticks.
+- `step`: optional step id filter for root commands on `step_start` or `step_complete`.
+- `stepIndex`: optional zero-based step index filter for root commands on `step_start` or `step_complete`.
+
+Scheduled command examples:
+
+```json
+{
+  "commands": [
+    {
+      "hook": "player_join",
+      "command": "say {playerName} joined the recording scenario"
+    },
+    {
+      "hook": "step_start",
+      "step": "wait-for-door",
+      "delaySeconds": 3,
+      "command": "setblock 4 64 0 air"
+    },
+    {
+      "hook": "scenario_complete",
+      "delayTicks": 40,
+      "commands": [
+        "say scenario complete for {playerName}",
+        "gamemode creative {player}"
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "id": "wait-for-door",
+      "commands": [
+        {
+          "hook": "step_start",
+          "delayMs": 500,
+          "command": "title {player} actionbar Door opens soon"
+        }
+      ]
+    }
+  ]
+}
+```
+
+Legacy command fields remain supported:
+
+- Root `setupCommands` run immediately during scenario startup, before `scenario_start`.
+- Step `setupCommands` run immediately before the `step_start` marker.
+- Step `onCompleteCommands` run immediately after the `step_complete` marker.
 
 Supported clearance conditions:
 

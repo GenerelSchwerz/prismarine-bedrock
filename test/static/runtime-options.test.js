@@ -70,22 +70,17 @@ describe('runtime options', function () {
     )
   })
 
-  it('uses an externally supplied world instance', function () {
-    const externalWorld = {
-      getBlock: async () => ({ name: 'stone' }),
-      sync: {
-        getBlock: () => ({ name: 'stone' })
-      }
-    }
-
+  it('keeps world state owned by the bot and resettable on dimension changes', function () {
     const bot = new BotState({
       username: 'RuntimeOptionsBot',
-      physicsEnabled: false,
-      world: externalWorld
+      physicsEnabled: false
     })
+    const originalWorld = bot.world
 
-    assert.strictEqual(bot.world, externalWorld)
-    assert.strictEqual(bot.externalWorld, true)
+    bot.setDimension(1, { resetWorld: true })
+
+    assert.notStrictEqual(bot.world, originalWorld)
+    assert.strictEqual(bot.dimension, 1)
   })
 
   it('does not request chunk radius when world decoding is disabled', function () {

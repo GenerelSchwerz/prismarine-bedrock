@@ -13,7 +13,6 @@ module.exports = (botState, options = {}) => {
   if (options.worldDecodeEnabled === false || botState.worldDecodeEnabled === false) return;
 
   const client = botState.client;
-  const world = botState.world;
   const registry = botState.registry;
   const ChunkColumn = botState.chunkColumn;
 
@@ -132,21 +131,40 @@ module.exports = (botState, options = {}) => {
   if (!botState.loadedChunks) botState.loadedChunks = new Set(); // "cx,cz" after full chunk decode
   if (!botState.loadedChunkSections) botState.loadedChunkSections = new Map(); // "cx,cz" → Set<sectionY>
 
+  function resetActiveWorldState(dimension) {
+    if (typeof botState.setDimension === 'function') {
+      botState.setDimension(dimension, { resetWorld: true });
+    } else {
+      botState.dimension = dimension;
+    }
+
+    botState.blobCache.clear();
+    botState.pendingBlobRequests.clear();
+    botState.networkChunks.clear();
+    botState.pendingSubchunkRequests.clear();
+    botState.loadedChunks.clear();
+    botState.loadedChunkSections.clear();
+    botState.chunkCount = 0;
+    botState.rawChunkPublisherCenter = null;
+    botState.chunkPublisherCenter = null;
+    botState.chunkPublisherRadius = null;
+  }
+
   botState.getBlock = async (...args) => {
     const pos = normalizeBlockPos(...args);
-    return world.getBlock(pos);
+    return botState.world.getBlock(pos);
   };
 
   botState.getBlockStateIdAt = (...args) => {
     const pos = normalizeBlockPos(...args);
-    return world.getBlockStateId(pos);
+    return botState.world.getBlockStateId(pos);
   };
 
   botState.setBlockStateIdAt = async (...args) => {
     const stateId = args[args.length - 1];
     const pos = normalizeBlockPos(...args.slice(0, -1));
 
-    await world.setBlockStateId(pos, stateId);
+    await botState.world.setBlockStateId(pos, stateId);
     return true;
   };
 
@@ -389,7 +407,7 @@ module.exports = (botState, options = {}) => {
           if (misses.length > 0) {
             requestMissingBlobs(misses);
           } else {
-            await world.setColumn(cx, cz, chunk);
+            await botState.world.setColumn(cx, cz, chunk);
             markFullChunkLoaded(cx, cz);
           }
         })
@@ -419,7 +437,7 @@ module.exports = (botState, options = {}) => {
           if (misses.length > 0) {
             requestMissingBlobs(misses);
           } else {
-            await world.setColumn(cx, cz, chunk);
+            await botState.world.setColumn(cx, cz, chunk);
             markChunkSectionLoaded(cx, cz, sectionY);
           }
         })
@@ -515,6 +533,7 @@ module.exports = (botState, options = {}) => {
     const cx = packet.x;
     const cz = packet.z;
     const sectionCount = packet.sub_chunk_count;
+    const dimension = packet.dimension ?? botState.dimension ?? 0;
 
     let chunk = botState.networkChunks.get(chunkKey(cx, cz));
     if (!chunk) chunk = createChunkColumn(cx, cz);
@@ -525,7 +544,7 @@ module.exports = (botState, options = {}) => {
         chunk.networkDecodeNoCache(packet.payload, sectionCount);
         normalizeBedrockFullChunkSections(chunk, sectionCount);
 
-        await world.setColumn(cx, cz, chunk);
+        await botState.world.setColumn(cx, cz, chunk);
         botState.networkChunks.set(chunkKey(cx, cz), chunk);
         markFullChunkLoaded(cx, cz);
       } else if (sectionCount >= 0 && packet.cache_enabled) {
@@ -564,7 +583,7 @@ module.exports = (botState, options = {}) => {
           if (misses.length > 0) {
             requestMissingBlobs(misses);
           } else {
-            await world.setColumn(cx, cz, chunk);
+            await botState.world.setColumn(cx, cz, chunk);
             botState.networkChunks.set(chunkKey(cx, cz), chunk);
             markFullChunkLoaded(cx, cz);
           }
@@ -573,10 +592,9 @@ module.exports = (botState, options = {}) => {
         // Negative count: subchunk polling mode.
         // This creates a placeholder column, but does NOT mark it loaded.
         if (!chunk.sections.length) {
-          await world.setColumn(cx, cz, chunk);
+          await botState.world.setColumn(cx, cz, chunk);
         }
 
-        const dimension = packet.dimension;
         const originSectionY = subchunkOriginSectionY();
         const sectionYs = subchunkSectionYsAround(originSectionY);
         rememberSubchunkRequest(cx, cz, dimension, originSectionY, sectionYs);
@@ -610,7 +628,7 @@ module.exports = (botState, options = {}) => {
 
       if (!chunk) {
         chunk = createChunkColumn(cx, cz);
-        await world.setColumn(cx, cz, chunk);
+        await botState.world.setColumn(cx, cz, chunk);
         botState.networkChunks.set(chunkKey(cx, cz), chunk);
       }
 
@@ -622,7 +640,7 @@ module.exports = (botState, options = {}) => {
       if (!pkt.cache_enabled) {
         // Non-cached subchunk
         await chunk.networkDecodeSubChunkNoCache(sectionY, entry.payload);
-        await world.setColumn(cx, cz, chunk);
+        await botState.world.setColumn(cx, cz, chunk);
         botState.networkChunks.set(chunkKey(cx, cz), chunk);
         markChunkSectionLoaded(cx, cz, sectionY);
       } else {
@@ -656,7 +674,7 @@ module.exports = (botState, options = {}) => {
           if (misses.length > 0) {
             requestMissingBlobs(misses);
           } else {
-            await world.setColumn(cx, cz, chunk);
+            await botState.world.setColumn(cx, cz, chunk);
             botState.networkChunks.set(chunkKey(cx, cz), chunk);
             markChunkSectionLoaded(cx, cz, sectionY);
           }
@@ -697,7 +715,7 @@ module.exports = (botState, options = {}) => {
       signedBlockCoordinateY(position.y),
       position.z
     ));
-    const chunk = await world.getColumnAt(pos);
+    const chunk = await botState.world.getColumnAt(pos);
 
     if (!chunk) {
       console.warn(`Chunk not loaded at ${pos}, cannot apply block update`);
@@ -727,12 +745,12 @@ module.exports = (botState, options = {}) => {
   client.on('block_entity_data', async (pkt) => {
     const pos = new Vec3(pkt.position.x, pkt.position.y, pkt.position.z);
     const localPos = new Vec3(pos.x & 15, pos.y, pos.z & 15);
-    const chunk = await world.getColumnAt(pos);
+    const chunk = await botState.world.getColumnAt(pos);
 
     if (!chunk) return;
 
     chunk.setBlockEntity(localPos, pkt.nbt);
-    world.saveAt(pos);
+    botState.world.saveAt(pos);
   });
 
   // ── network_chunk_publisher_update (0x79) ──
@@ -740,6 +758,10 @@ module.exports = (botState, options = {}) => {
     botState.rawChunkPublisherCenter = packet.coordinates;
     botState.chunkPublisherCenter = normalizeNetworkChunkPublisherCoordinates(packet.coordinates);
     botState.chunkPublisherRadius = packet.radius;
+  });
+
+  client.on('change_dimension', (packet) => {
+    resetActiveWorldState(packet.dimension);
   });
 
   client.on('move_player', (packet) => {

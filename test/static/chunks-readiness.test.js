@@ -314,4 +314,32 @@ describe('chunk readiness helpers', function () {
     )
     assert.strictEqual(updates[0].stateId, 123)
   })
+
+  it('drops active world decode state on dimension change', function () {
+    const botState = createBotState()
+    injectChunks(botState)
+
+    botState.blobCache.set('blob', Buffer.alloc(0))
+    botState.pendingBlobRequests.set('blob', { type: 'level_chunk' })
+    botState.networkChunks.set(chunkKey(0, 0), new botState.chunkColumn())
+    botState.pendingSubchunkRequests.set(chunkKey(0, 0), { sectionYs: new Set([-4]) })
+    botState.loadedChunks.add(chunkKey(0, 0))
+    botState.loadedChunkSections.set(chunkKey(0, 0), new Set([-4]))
+    botState.chunkCount = 1
+    botState.chunkPublisherCenter = { x: 0, y: 64, z: 0 }
+    botState.chunkPublisherRadius = 64
+
+    botState.client.emit('change_dimension', { dimension: 1 })
+
+    assert.strictEqual(botState.dimension, 1)
+    assert.strictEqual(botState.blobCache.size, 0)
+    assert.strictEqual(botState.pendingBlobRequests.size, 0)
+    assert.strictEqual(botState.networkChunks.size, 0)
+    assert.strictEqual(botState.pendingSubchunkRequests.size, 0)
+    assert.strictEqual(botState.loadedChunks.size, 0)
+    assert.strictEqual(botState.loadedChunkSections.size, 0)
+    assert.strictEqual(botState.chunkCount, 0)
+    assert.strictEqual(botState.chunkPublisherCenter, null)
+    assert.strictEqual(botState.chunkPublisherRadius, null)
+  })
 })

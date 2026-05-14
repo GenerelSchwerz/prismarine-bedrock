@@ -22,13 +22,16 @@ Make it easy for future agents to define real-user BDS recording scenarios with 
 - `[x]` Add scenario state machine to recorder plugin.
 - `[x]` Add scenario docs and sample.
 - `[x]` Verification.
+- `[x]` Extend scenario commands so hooks can run delayed commands at scenario and step events.
+- `[x]` Document every scenario event hook available to scenario JSON.
+- `[ ]` Add expanded scenario clearance conditions for entity, held item, container, effect, elapsed time, movement, and command checks.
 
 ## Current State
 
-- Worktree state: clean at task start; task changes now limited to owned files.
+- Worktree state: existing unrelated user/peer changes are present in `README.md`, `docs/tasks/TASK-14-runtime-physics-world-modes.md`, `examples/block-access.js`, `src/builtins/chunks.js`, `src/builtins/setup.js`, `src/state.js`, `test/static/chunks-readiness.test.js`, and `test/static/runtime-options.test.js`; they will not be touched for this task.
 - Already implemented: Endstone packet recorder from TASK-07.
-- In progress: none.
-- Not started: live Endstone scenario run with a real Bedrock client; requires user-driven Bedrock client interaction.
+- In progress: adding expanded clearance conditions.
+- Not started: live Endstone scenario run of scheduled scenario commands with a real Bedrock client; requires user-driven Bedrock client interaction.
 - Known mismatch between notes and worktree: none.
 
 ## Change Ledger
@@ -43,6 +46,8 @@ Make it easy for future agents to define real-user BDS recording scenarios with 
 | `scripts/endstone-packet-recorder/**` | changed | Added scenario loading/state machine/clearance checks and JSONL markers. |
 | `test/recorded-bds/**` | changed | Added scenario authoring README, human tester runbook, copy-paste tester prompt, evidence checklist, and `craft-planks-and-place` sample. |
 | `test/recorded-bds/scenarios/craft-wooden-pickaxes-at-table.json` | added | Human-driven workbench scenario that opens a crafting table and records crafting three wooden pickaxes from oak logs. |
+| `scripts/endstone-packet-recorder/src/endstone_packet_recorder/recorder.py` | changed | Added hook-aware immediate/delayed `commands` scheduling for root and step scopes, with command context fields and scheduled-command JSONL markers. |
+| `test/recorded-bds/README.md` | changed | Added explicit scenario event hook documentation, command scheduling fields, placeholders, examples, and legacy command-field mapping. |
 
 ## Evidence Log
 
@@ -73,6 +78,10 @@ Make it easy for future agents to define real-user BDS recording scenarios with 
 - `2026-05-13` - Focused live normal crafting verification against running `endstone-1` - BLOCKED/ENVIRONMENT. Notes: direct Mocha run connected to the existing human scenario server on BDS 1.26.12, but command targeting still used `.OpBot`, the bot was disconnected, and setup timed out before crafting. Attempting to launch a clean `endstone-2` with `--endstone-count=2` failed because the launcher tried to refresh the busy running `endstone-1` install and hit locked `python3.dll`. Static and round-trip checks passed; live verification needs the existing scenario server stopped or a launcher path that starts only a non-busy instance.
 - `2026-05-13` - Temp focused live runner prepared - PASS. Notes: `scripts/tmp/run-live-normal-crafting.js` invokes Mocha through Node argv with `--grep "normal crafts oak planks from oak logs with the live server recipe data"` so launcher client command quoting cannot split the grep string. Syntax check `node -c scripts/tmp/run-live-normal-crafting.js` passed. Because Endstone command forwarding depends on launcher-injected `E2E_SERVER_COMMAND_FILE`, run it from the launcher console as `/client node scripts/tmp/run-live-normal-crafting.js`.
 - `2026-05-13` - Added `craft-wooden-pickaxes-at-table` real-client scenario - PASS. Notes: JSON parse printed `craft-wooden-pickaxes-at-table:2:7`; the scenario clears when BDS sends `container_open` packet `46` for the opened table and when the player's inventory contains at least three `minecraft:wooden_pickaxe` items after receiving `item_stack_request` packet `147`.
+- `2026-05-14` - `python -m py_compile scripts/endstone-packet-recorder/src/endstone_packet_recorder/recorder.py scripts/endstone-packet-recorder/src/endstone_packet_recorder/__init__.py` - PASS.
+- `2026-05-14` - `node -e "const fs=require('fs'); for (const f of fs.readdirSync('test/recorded-bds/scenarios')) { if (f.endsWith('.json')) { const p='test/recorded-bds/scenarios/'+f; const j=JSON.parse(fs.readFileSync(p,'utf8')); console.log(j.id+':'+j.steps.length); } }"` - PASS. Notes: parsed all committed Endstone scenario JSON files.
+- `2026-05-14` - Fake-Endstone Python smoke for scheduled commands - PASS. Notes: imported recorder with fake Endstone modules and verified `scenario_start`, root filtered `step_start`, step-level delayed `step_start`, placeholders, and scheduler callback dispatch.
+- `2026-05-14` - Python AST parse with `feature_version=(3, 9)` for recorder plugin files - PASS.
 
 ## Architecture Notes
 
@@ -81,6 +90,7 @@ Make it easy for future agents to define real-user BDS recording scenarios with 
 - Scenario selection activates recorder mode automatically so packet records and scenario markers share one JSONL.
 - Supported clearance conditions: `inventory_contains`, `inventory_lacks`, `block_is`, `player_at`, `packet_seen`, `manual`, plus `all`/`any` composites.
 - Scenario commands support `{player}` for a quoted player name and `{playerName}` for the raw name.
+- Scenario scheduled command hooks are `player_join`, `scenario_start`, `step_start`, `step_complete`, and `scenario_complete`. Root `commands` default to `scenario_start`; step `commands` default to `step_start`. Delays can be expressed as `delayTicks`, `delaySeconds`, or `delayMs`.
 
 ## Handoff
 
@@ -104,16 +114,17 @@ node scripts/e2e-servers.js launch --target=endstone --world=superflat --endston
 ## Resume Notes
 
 - Next step: live-run `craft-wooden-pickaxes-at-table` with a real Bedrock client using the runbook in `test/recorded-bds/README.md`; verify the JSONL includes `scenario_start`, `step_start`, `step_complete`, `scenario_complete`, and `scenario_end`.
+- For scheduled-command validation, add a small scenario with root `commands` and step `commands`, then run it with a real Bedrock client and verify `scenario_command_scheduled` and delayed `scenario_command` markers.
 - For focused normal-crafting verification against a running Endstone launcher, use `/client node scripts/tmp/run-live-normal-crafting.js` from the launcher console instead of passing a quoted Mocha `--grep` string directly.
 - Do not repeat: Endstone API docs lookup.
 - Raw logs: none.
 
 ## Final Summary
 
-- Result: Added Endstone-only stepped scenario orchestration for human-driven BDS packet recording, plus a human tester runbook and copy-paste prompt.
+- Result: Added Endstone-only stepped scenario orchestration for human-driven BDS packet recording, plus a human tester runbook and copy-paste prompt. Follow-up on 2026-05-14 added hook-aware scheduled scenario commands for root and per-step scenario events, plus explicit hook documentation.
 - Files changed: `scripts/e2e-server/options.js`, `scripts/e2e-server/install.js`, `scripts/e2e-server/launch.js`, `scripts/e2e-server/process-utils.js`, `scripts/e2e-server/help.js`, `scripts/endstone-packet-recorder/src/endstone_packet_recorder/recorder.py`, `test/recorded-bds/README.md`, `test/recorded-bds/scenarios/craft-planks-and-place.json`, `docs/tasks/TASK-08-endstone-recording-scenarios.md`.
-- Verification: focused JS syntax checks, Python compile, Python 3.9 AST check, scenario JSON parse, option/env smoke checks, help output check, and fake-Endstone helper smoke passed.
-- Follow-up tasks: live-run sample scenario with real Bedrock client; tune sample item/block identifiers if BDS/Endstone reports a different canonical identifier than `minecraft:planks`.
+- Verification: focused JS syntax checks, Python compile, Python 3.9 AST check, scenario JSON parse, option/env smoke checks, help output check, fake-Endstone helper smoke, and fake-Endstone scheduled-command smoke passed.
+- Follow-up tasks: live-run sample scenario with real Bedrock client; live-run a scheduled-command scenario to verify delayed command markers and timing against Endstone/BDS.
 
 ## Failure Summary
 

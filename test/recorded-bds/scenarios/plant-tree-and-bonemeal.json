@@ -1,0 +1,52 @@
+{
+  "id": "plant-tree-and-bonemeal",
+  "autoOp": true,
+  "gamemode": "survival",
+  "spawn": [0, 65, 0, 0, 0],
+  "setupCommands": [
+    "clear {player}",
+    "time set day",
+    "weather clear",
+    "gamerule randomTickSpeed 3",
+    "fill -4 64 -4 4 70 4 air",
+    "setblock 0 64 2 grass_block",
+    "give {player} oak_sapling 1",
+    "give {player} bone_meal 16",
+    "tp {player} 0 65 0"
+  ],
+  "steps": [
+    {
+      "id": "plant-oak-sapling",
+      "instructions": [
+        "Select the oak sapling.",
+        "Plant it on the grass block in front of you."
+      ],
+      "clearance": {
+        "type": "block_is",
+        "position": [0, 65, 2],
+        "block": "oak_sapling"
+      }
+    },
+   {
+  "id": "bonemeal-sapling-until-tree-grows",
+  "instructions": [
+    "Select bone meal.",
+    "Use bone meal on the sapling until it grows into a tree."
+  ],
+  "clearance": {
+    "all": [
+      {
+        "type": "block_is",
+        "position": [0, 65, 2],
+        "block": "oak_log"
+      },
+      {
+        "type": "inventory_lacks",
+        "item": "oak_sapling",
+        "count": 1
+      }
+    ]
+  }
+}
+  ]
+}

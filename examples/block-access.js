@@ -65,7 +65,7 @@ async function main() {
   for (const [x, y, z] of POINTS) {
     const rawStateId = readRawStateId(bot, x, y, z);
     const accessStateId = typeof bot.getBlockStateIdAt === "function" ? bot.getBlockStateIdAt(x, y, z) : undefined;
-    const block = typeof bot.getBlockAt === "function" ? await bot.getBlockAt(x, y, z) : null;
+    const block = typeof bot.getBlockAt === "function" ? await bot.getBlock(x, y, z) : null;
 
     console.log({
       pos: new Vec3(x, y, z),

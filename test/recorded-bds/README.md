@@ -70,16 +70,18 @@ The decoder always prints `player_auth_input` as deltas. By default it ignores t
 
 ## Feature-To-Recorded-Test Workflow
 
-Use this loop when a requested bot feature should be grounded in real Bedrock client behavior before implementation:
+Use this loop when a requested bot feature should be grounded in real Bedrock client behavior before implementation. The target is packet-by-packet parity for the complete user-visible action, not a sequence of isolated one-packet fixes.
 
 1. Capture the requested feature in the matching `docs/tasks/TASK-NN-*.md` file. If the request compounds on active work, keep the same task log and append the new scenario, owned files, and resume step instead of starting a disconnected task.
-2. Design the smallest real-client scenario that demonstrates the feature. Prefer deterministic setup commands, one visible player action per step, and clearance checks that prove the action happened through server state plus relevant packets.
+2. Design the smallest complete real-client scenario that demonstrates the feature from preconditions through server acknowledgement and resulting state. Prefer deterministic setup commands, one visible player action per step, and clearance checks that prove the action happened through server state plus relevant packets.
 3. Add or update a data-only scenario under `test/recorded-bds/scenarios/`. Run JSON parsing or other cheap static checks before asking for a live client run.
 4. Launch Endstone/BDS with the scenario and give the human tester the connection prompt from this README. Keep raw packet JSONL and decoded traces under `logs/` or `.e2e-servers/`.
-5. Decode the recording, identify the packet shapes, slot/container ids, request ids, and response status behavior needed by the bot, then summarize that evidence in the task log. Do not commit full packet dumps.
-6. Implement the bot behavior and create tests from the distilled evidence. Use static tests for packet builders, planners, and pure helpers; use live tests for actual bot behavior against both Java/Geyser and Endstone/BDS when the feature crosses client-server behavior.
-7. Verify locally in this order when applicable: packet round-trip, focused static tests, focused live Endstone test, focused live Geyser test, then the broader relevant test script.
-8. Update the task log after each scenario run, packet conclusion, code change, and test result. Mark the feature complete only after the test evidence covers both recorded BDS behavior and bot behavior on the target servers, or record the exact blocker.
+5. Decode the recording and build an ordered trace map for the whole action: scenario markers, relevant clientbound setup/state packets, outbound request packets, embedded `player_auth_input` data, response packets, inventory/world-state updates, request ids, slot/container ids, and status behavior. Do not commit full packet dumps.
+6. Capture or decode the current bot trace for the same scenario and compare it against the live-client trace packet by packet. Record matching packets, missing bot packets, extra bot packets, field mismatches, request/response id mismatches, and intentional deviations in the task log.
+7. Implement bot behavior from the trace map. Fixing one small packet mismatch is acceptable as an increment, but do not stop there unless the updated trace map says the remaining mismatches are understood, intentionally deferred, or blocked.
+8. Create tests from the distilled evidence. Use static tests for packet builders, planners, and pure helpers; use live tests for actual bot behavior against both Java/Geyser and Endstone/BDS when the feature crosses client-server behavior.
+9. Verify locally in this order when applicable: packet round-trip, focused static tests, focused live Endstone test, focused live Geyser test, then the broader relevant test script.
+10. Update the task log after each scenario run, packet conclusion, code change, and test result. Mark the feature complete only after the test evidence covers both recorded BDS behavior and bot behavior on the target servers, or record the exact blocker.
 
 When the next requested feature builds on the current one, fold it into the same cycle: extend the scenario or add a neighboring scenario, reuse existing decoded evidence when it still applies, and keep the implementation/test plan in the same task log unless the new work has a separate ownership boundary.
 

@@ -1,0 +1,46 @@
+{
+  "id": "aim-and-shoot-cow",
+  "autoOp": true,
+  "gamemode": "survival",
+  "spawn": [0, 65, 0, 0, 0],
+  "setupCommands": [
+    "clear {player}",
+    "time set day",
+    "weather clear",
+    "difficulty peaceful",
+    "kill @e[type=!player]",
+    "fill -4 64 -2 4 70 12 air",
+    "fill -4 63 -2 4 63 12 grass_block",
+    "give {player} bow 1",
+    "give {player} arrow 16",
+    "summon cow 0 65 8",
+    "effect @e[type=cow,r=12] slowness 999999 255 true",
+    "tp {player} 0 65 0 0 0"
+  ],
+  "steps": [
+    {
+      "id": "equip-bow-and-aim",
+      "instructions": [
+        "Equip the bow.",
+        "Aim directly at the cow, but do not shoot yet."
+      ],
+      "clearance": {
+        "type": "packet_seen",
+        "direction": "receive",
+        "packet_id": 144,
+        "count": 3
+      }
+    },
+    {
+      "id": "shoot-cow",
+      "instructions": [
+        "Hold use to draw the bow, then release to shoot the cow."
+      ],
+      "clearance": {
+        "type": "inventory_lacks",
+        "item": "arrow",
+        "count": 16
+      }
+    }
+  ]
+}

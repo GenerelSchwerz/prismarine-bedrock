@@ -1,0 +1,43 @@
+{
+  "id": "hit-stationary-cow",
+  "autoOp": true,
+  "gamemode": "survival",
+  "spawn": [0, 65, 0, 0, 0],
+  "setupCommands": [
+    "clear {player}",
+    "time set day",
+    "weather clear",
+    "difficulty peaceful",
+    "kill @e[type=!player]",
+    "fill -3 64 -2 3 68 8 air",
+    "fill -3 63 -2 3 63 8 grass_block",
+    "summon cow 0 65 4",
+    "effect @e[type=cow,r=8] slowness 999999 255 true",
+    "tp {player} 0 65 0 0 0"
+  ],
+  "steps": [
+    {
+      "id": "walk-to-cow",
+      "instructions": [
+        "Walk straight forward until you are next to the cow."
+      ],
+      "clearance": {
+        "type": "player_at",
+        "position": [0, 65, 3],
+        "radius": 1.25
+      }
+    },
+    {
+      "id": "hit-cow-once",
+      "instructions": [
+        "Punch the cow once."
+      ],
+      "clearance": {
+        "type": "packet_seen",
+        "direction": "receive",
+        "packet_id": 144,
+        "count": 2
+      }
+    }
+  ]
+}

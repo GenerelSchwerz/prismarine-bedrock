@@ -1,5 +1,5 @@
 // builtins/dig.js
-// Auto-loaded by BotState._loadBuiltins().
+// Auto-loaded by plugin-loader.
 // Provides botState.dig(block).
 
 const { logAction, toVec3i } = require('../utils')

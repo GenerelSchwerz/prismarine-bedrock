@@ -1,5 +1,5 @@
 // builtins/inventory.js
-// Auto-loaded by BotState._loadBuiltins().
+// Auto-loaded by plugin-loader.
 //
 // Passive Bedrock/Geyser inventory mirror.
 //

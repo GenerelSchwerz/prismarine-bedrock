@@ -45,7 +45,7 @@ async function main() {
   for (let x = MIN_XZ; x <= MAX_XZ; x++) {
     for (let z = MIN_XZ; z <= MAX_XZ; z++) {
       for (let y = MIN_Y; y <= MAX_Y; y++) {
-        const block = await bot.getBlockAt(x, y, z);
+        const block = await bot.getBlock(x, y, z);
         const expected = expectedBlockName(y);
         checked++;
 

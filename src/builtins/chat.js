@@ -1,5 +1,5 @@
 // builtins/chat.js
-// Auto-loaded by BotState._loadBuiltins(). Parses incoming bedrock 'text' packets using
+// Auto-loaded by plugin-loader. Parses incoming bedrock 'text' packets using
 // prismarine-chat and emits structured events on the botState EventEmitter.
 //
 // Also attaches say() and whisper() methods to botState for sending chat.

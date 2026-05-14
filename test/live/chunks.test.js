@@ -51,12 +51,12 @@ async function waitForBlockName (botState, pos, name, timeoutMs = 15000) {
   const started = Date.now()
 
   while (Date.now() - started < timeoutMs) {
-    const block = await botState.getBlockAt(pos)
+    const block = await botState.getBlock(pos)
     if (block?.name === name) return block
     await sleep(100)
   }
 
-  const actual = await botState.getBlockAt(pos)
+  const actual = await botState.getBlock(pos)
   assert.fail(
     `Timed out waiting for ${name} at ${pos.x} ${pos.y} ${pos.z}; ` +
     `actual=${actual?.name || 'missing'}`
@@ -74,7 +74,7 @@ async function scanLoadedBlocks (botState, center, options = {}) {
     for (let z = center.z - radius; z <= center.z + radius; z++) {
       for (let x = center.x - radius; x <= center.x + radius; x++) {
         const pos = new Vec3(x, y, z)
-        const block = await botState.getBlockAt(pos)
+        const block = await botState.getBlock(pos)
         const name = block?.name || 'missing'
 
         counts.set(name, (counts.get(name) || 0) + 1)

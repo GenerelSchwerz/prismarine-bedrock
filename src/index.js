@@ -1,4 +1,5 @@
 const BotState = require('./state')
+const pluginLoader = require('./plugin-loader')
 const version = require('./version')
 
 function createBot (options) {
@@ -10,5 +11,6 @@ function createBot (options) {
 module.exports = {
   BotState,
   createBot,
+  pluginLoader,
   ...version
 }

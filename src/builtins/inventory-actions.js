@@ -1,5 +1,5 @@
 // builtins/inventory-actions.js
-// Auto-loaded by BotState._loadBuiltins().
+// Auto-loaded by plugin-loader.
 //
 // Active inventory behavior layer for server-authoritative Bedrock inventory.
 // Keeps inventory.js as the passive mirror and sends real item_stack_request

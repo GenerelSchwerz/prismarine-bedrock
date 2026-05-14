@@ -1,0 +1,90 @@
+{
+  "id": "enchant-iron-sword",
+  "autoOp": true,
+  "gamemode": "survival",
+  "spawn": [0, 65, 0, 0, 0],
+  "setupCommands": [
+    "clear {player}",
+    "time set day",
+    "weather clear",
+    "effect {player} clear",
+    "fill -4 64 -4 4 72 8 air",
+    "fill -4 63 -4 4 63 8 grass_block",
+
+    "setblock 0 64 4 enchanting_table",
+
+    "setblock -2 64 2 bookshelf",
+    "setblock -1 64 2 bookshelf",
+    "setblock 0 64 2 bookshelf",
+    "setblock 1 64 2 bookshelf",
+    "setblock 2 64 2 bookshelf",
+
+    "setblock -2 64 6 bookshelf",
+    "setblock -1 64 6 bookshelf",
+    "setblock 0 64 6 bookshelf",
+    "setblock 1 64 6 bookshelf",
+    "setblock 2 64 6 bookshelf",
+
+    "setblock -2 64 3 bookshelf",
+    "setblock -2 64 4 bookshelf",
+    "setblock -2 64 5 bookshelf",
+
+    "setblock 2 64 3 bookshelf",
+    "setblock 2 64 4 bookshelf",
+    "setblock 2 64 5 bookshelf",
+
+    "give {player} iron_sword 1",
+    "give {player} lapis_lazuli 64",
+    "xp 30L {player}",
+    "tp {player} 0 65 0 0 0"
+  ],
+  "steps": [
+    {
+      "id": "open-enchanting-table",
+      "instructions": [
+        "Walk forward and open the enchanting table."
+      ],
+      "clearance": {
+        "type": "packet_seen",
+        "direction": "receive",
+        "packet_id": 144,
+        "count": 2
+      }
+    },
+    {
+      "id": "place-sword-and-lapis",
+      "instructions": [
+        "Put the iron sword into the enchanting table.",
+        "Put lapis lazuli into the lapis slot."
+      ],
+      "clearance": {
+        "type": "packet_seen",
+        "direction": "receive",
+        "packet_id": 147,
+        "count": 2
+      }
+    },
+    {
+      "id": "select-enchantment",
+      "instructions": [
+        "Select any available enchantment.",
+        "Take the enchanted sword back into your inventory."
+      ],
+      "clearance": {
+        "all": [
+          {
+            "type": "inventory_lacks",
+            "item": "lapis_lazuli",
+            "count": 64
+          },
+          {
+            "type": "packet_seen",
+            "direction": "receive",
+            "packet_id": 147,
+            "count": 3
+          }
+        ]
+      }
+    }
+  ]
+}

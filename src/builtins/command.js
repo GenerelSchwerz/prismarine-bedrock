@@ -1,5 +1,5 @@
 // builtins/commands.js
-// Auto-loaded by BotState._loadBuiltins().
+// Auto-loaded by plugin-loader.
 // Provides command helpers for Bedrock command_request and slash-chat commands.
 
 const crypto = require('crypto')

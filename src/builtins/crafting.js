@@ -1,5 +1,5 @@
 // builtins/crafting.js
-// Auto-loaded by BotState._loadBuiltins().
+// Auto-loaded by plugin-loader.
 
 const { buildStatic } = require('mineflayer-crafting-util')
 const recipeLoader = require('prismarine-recipe')

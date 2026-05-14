@@ -1,5 +1,5 @@
 // builtins/place.js
-// Auto-loaded by BotState._loadBuiltins(). Adds placeBlock() and placeEntity() methods
+// Auto-loaded by plugin-loader. Adds placeBlock() and placeEntity() methods
 // to the bot state. Uses the InventoryTransaction packet (item_use) to perform placements.
 //
 // Assumes:

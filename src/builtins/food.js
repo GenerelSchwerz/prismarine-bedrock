@@ -1,5 +1,5 @@
 // builtins/food.js
-// Auto-loaded by BotState._loadBuiltins(). Provides botState.eat().
+// Auto-loaded by plugin-loader. Provides botState.eat().
 
 const {
   floorVec3,

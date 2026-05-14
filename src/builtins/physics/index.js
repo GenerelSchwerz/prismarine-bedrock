@@ -10,6 +10,11 @@ const { installControls, updateEyeDeltaAndTick } = require('./input-controls');
 const { createMovementPacketSender } = require('./movement-packets');
 
 module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
+  if (options.physicsEnabled === false || botState.physicsEnabled === false) return;
+  if (options.worldDecodeEnabled === false || botState.worldDecodeEnabled === false) {
+    throw new Error('[physics] physicsEnabled requires worldDecodeEnabled: true');
+  }
+
   const client = botState.client;
   const C = getConstants(botState.version || DEFAULT_BEDROCK_VERSION);
   const controls = installControls(botState, C);

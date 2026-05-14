@@ -215,12 +215,14 @@ module.exports = (botState, options) => {
     if (packet.status === 'player_spawn') {
       logAction('[←]', 'play_status', { status: 'player_spawn' });
 
-      // Tell the server our desired view radius (must be sent before or after spawn)
-      // The server will respond with chunks around the player.
-      client.queue('request_chunk_radius', {
-        chunk_radius: options.chunkRadius ?? 6,
-        max_radius: 0, // ignored by server
-      });
+      if (options.worldDecodeEnabled !== false) {
+        // Tell the server our desired view radius (must be sent before or after spawn)
+        // The server will respond with chunks around the player.
+        client.queue('request_chunk_radius', {
+          chunk_radius: options.chunkRadius ?? 6,
+          max_radius: 0, // ignored by server
+        });
+      }
 
       // Mark client as initialized
       client.queue('set_local_player_as_initialized', {

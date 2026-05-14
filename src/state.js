@@ -3,18 +3,54 @@ const Vec3 = require('vec3').Vec3;
 const { logAction } = require('./utils');
 const { EventEmitter } = require('stream');
 const { bedrockRegistryName, normalizeBedrockVersion } = require('./version');
+const pluginLoader = require('./plugin-loader');
+
+function normalizeBooleanOption(value, name) {
+  if (value == null) return undefined;
+  if (typeof value === 'boolean') return value;
+  if (value === 1 || value === '1') return true;
+  if (value === 0 || value === '0') return false;
+
+  const normalized = String(value).toLowerCase();
+  if (normalized === 'true' || normalized === 'on' || normalized === 'yes') return true;
+  if (normalized === 'false' || normalized === 'off' || normalized === 'no') return false;
+
+  throw new Error(`[bot] ${name} must be a boolean`);
+}
+
+function normalizeRuntimeOptions(options = {}) {
+  const worldDecodeEnabled =
+    normalizeBooleanOption(options.worldDecodeEnabled, 'worldDecodeEnabled') ??
+    true;
+
+  const physicsEnabled =
+    normalizeBooleanOption(options.physicsEnabled, 'physicsEnabled') ??
+    worldDecodeEnabled;
+
+  if (!worldDecodeEnabled && physicsEnabled) {
+    throw new Error('[bot] physicsEnabled requires worldDecodeEnabled: true');
+  }
+
+  return {
+    ...options,
+    worldDecodeEnabled,
+    physicsEnabled
+  };
+}
 
 class BotState extends EventEmitter {
   constructor (options = {}) {
     super();
-    this.options = {
+    this.options = normalizeRuntimeOptions({
       ...options,
       version: normalizeBedrockVersion(options.version)
-    };
+    });
     const registry = require('prismarine-registry')(bedrockRegistryName(this.options.version));
 
     this.registry = registry;
     this.version = this.options.version;
+    this.worldDecodeEnabled = this.options.worldDecodeEnabled;
+    this.physicsEnabled = this.options.physicsEnabled;
 
     this.client = null;
 
@@ -31,9 +67,7 @@ class BotState extends EventEmitter {
     };
     this.chunkCount = 0;
 
-    // Plugin system
-    this.plugins = [];
-    this.pluginsInjected = false;
+    pluginLoader.ensureState(this);
 
     // ── Normalized prismarine‑X instantiations ──
     this.entityClass = require('prismarine-entity')(registry);
@@ -44,7 +78,8 @@ class BotState extends EventEmitter {
     this.chunkColumn = require('prismarine-chunk')(registry);
     this.worldClass = require('prismarine-world')(registry);
 
-    this.world = new this.worldClass(null);
+    this.world = this.options.world ?? new this.worldClass(null);
+    this.externalWorld = this.options.world != null;
 
     // Entity & player storage (populated by entityHandler / playerHandler)
     this.entities = new Map();
@@ -52,58 +87,13 @@ class BotState extends EventEmitter {
     this.self = null;
   }
 
-  loadPlugin (plugin) {
-    if (this.plugins.indexOf(plugin) !== -1) return;
-    this.plugins.push(plugin);
-    if (this.pluginsInjected) {
-      plugin(this, this.options);
-    }
-  }
-
-  loadPlugins (plugins) {
-    plugins.forEach(p => this.loadPlugin(p));
-  }
-
-  hasPlugin (plugin) {
-    return this.plugins.indexOf(plugin) !== -1;
-  }
-
-  injectPlugins () {
-    this.plugins.forEach(p => p(this, this.options));
-    this.pluginsInjected = true;
-  }
-
-  _loadBuiltins () {
-    const path = require('path');
-    const fs = require('fs');
-    const builtinsDir = path.join(__dirname, 'builtins');
-    if (!fs.existsSync(builtinsDir)) return;
-    const entries = fs.readdirSync(builtinsDir);
-    for (const entry of entries) {
-      const entryPath = path.join(builtinsDir, entry);
-      const stat = fs.statSync(entryPath);
-      let pluginPath = null;
-      if (stat.isFile() && entry.endsWith('.js')) {
-        pluginPath = entryPath;
-      } else if (stat.isDirectory()) {
-        const indexPath = path.join(entryPath, 'index.js');
-        const siblingFilePath = path.join(builtinsDir, `${entry}.js`);
-        if (!fs.existsSync(siblingFilePath) && fs.existsSync(indexPath)) pluginPath = indexPath;
-      }
-      if (!pluginPath) continue;
-      const plugin = require(pluginPath);
-      if (typeof plugin === 'function') {
-        plugin(this, this.options);
-      }
-    }
-  }
-
   start () {
-    this.client = bedrock.createClient({ ...this.options, delayedInit: true });
+    const clientOptions = { ...this.options };
+    delete clientOptions.world;
+    this.client = bedrock.createClient({ ...clientOptions, delayedInit: true });
     this.client.registry = this.registry;
 
-    this._loadBuiltins();
-    this.injectPlugins();
+    pluginLoader.injectAll(this);
   }
 
   disconnect (reason = 'Client shutting down') {
@@ -114,15 +104,8 @@ class BotState extends EventEmitter {
       this.client.close();
     }
   }
-
-  async getBlock(pos) {
-    try {
-      return await this.world.getBlock(pos);
-    } catch (err) {
-      console.error(err)
-      return null;
-    }
-  }
 }
+
+BotState.normalizeRuntimeOptions = normalizeRuntimeOptions;
 
 module.exports = BotState;

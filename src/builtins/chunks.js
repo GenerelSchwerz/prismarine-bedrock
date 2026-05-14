@@ -10,6 +10,8 @@ const BlobType = { ChunkSection: 0, Biomes: 1 };
  * @param {object} [options]
  */
 module.exports = (botState, options = {}) => {
+  if (options.worldDecodeEnabled === false || botState.worldDecodeEnabled === false) return;
+
   const client = botState.client;
   const world = botState.world;
   const registry = botState.registry;
@@ -130,7 +132,7 @@ module.exports = (botState, options = {}) => {
   if (!botState.loadedChunks) botState.loadedChunks = new Set(); // "cx,cz" after full chunk decode
   if (!botState.loadedChunkSections) botState.loadedChunkSections = new Map(); // "cx,cz" → Set<sectionY>
 
-  botState.getBlockAt = async (...args) => {
+  botState.getBlock = async (...args) => {
     const pos = normalizeBlockPos(...args);
     return world.getBlock(pos);
   };

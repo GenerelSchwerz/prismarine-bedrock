@@ -11,7 +11,7 @@ This repo is optimized for long-running AI work where several agents may split a
 5. Identify owned files for the current task. If multiple agents are working, each agent must keep to disjoint write scopes or explicitly coordinate before touching shared files.
 6. Read the subsystem guide for the files you will edit.
 7. Keep runtime/debug artifacts in `logs/` or `scripts/tmp/`; both are gitignored. Commit only the distilled evidence in `docs/tasks/`.
-8. For feature requests that need real Bedrock client behavior, follow `test/recorded-bds/README.md` under `Feature-To-Recorded-Test Workflow`: design a live-client scenario, capture/decode logs, distill the evidence into tests, and continue the same loop when later feature requests compound on the active work.
+8. For feature requests that need real Bedrock client behavior, follow `test/recorded-bds/README.md` under `Feature-To-Recorded-Test Workflow`: design a live-client scenario, capture/decode logs, compare the live client and bot traces packet by packet for the full action, distill the evidence into tests, and continue the same loop when later feature requests compound on the active work.
 
 ## Explicit Workflow Triggers
 
@@ -30,11 +30,25 @@ This means:
 3. Add or update the scenario JSON.
 4. Ask the user to perform the live client steps when needed.
 5. Decode the captured Endstone/BDS logs.
-6. Implement the bot behavior.
-7. Add static and live tests for Endstone and Geyser.
-8. Keep iterating until the feature is complete or the blocker is recorded.
+6. Build a packet-by-packet comparison between the real client trace and the bot trace for the whole scenario.
+7. Implement bot behavior against the full trace gap list, not just the first failing packet.
+8. Add static and live tests for Endstone and Geyser.
+9. Keep iterating until the feature is complete or the blocker is recorded.
 
 If the triggered feature compounds on active work, integrate it into the current task log and scenario/test cycle unless the new work has a distinct ownership boundary.
+
+## Live Packet Parity
+
+When a task compares recorded Bedrock client behavior with bot behavior, the goal is a coherent 1:1 representation of the live scenario at the packet level. Do not treat the workflow as "fix the next small rejection and stop." First build an ordered trace comparison that covers the complete action being modeled, including relevant preconditions, request packets, embedded `player_auth_input` data, response packets, inventory or world-state updates, and scenario markers.
+
+Record the comparison in the task log as a trace map:
+
+- Live-client packet sequence and decoded source file.
+- Bot packet sequence and decoded source file.
+- Matching packets, intentional deviations, missing bot packets, extra bot packets, mismatched fields, request/response id relationships, and server state updates.
+- The implementation plan grouped by trace gaps, with any intentionally deferred mismatch called out explicitly.
+
+It is fine to fix trace gaps incrementally, but each increment should be chosen from the full trace map. After a code change, rerun or re-decode enough of the scenario to update the map before declaring the feature complete. A single green response or one accepted packet is evidence for that packet only; it is not evidence that the bot represents the live client behavior for the scenario.
 
 ## Task Logs
 

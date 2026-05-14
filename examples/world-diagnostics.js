@@ -21,7 +21,7 @@ async function printSlice(bot, y, centerX, centerZ) {
   for (let z = centerZ - SCAN_RADIUS; z <= centerZ + SCAN_RADIUS; z++) {
     let line = "";
     for (let x = centerX - SCAN_RADIUS; x <= centerX + SCAN_RADIUS; x++) {
-      const block = await bot.getBlockAt(x, y, z);
+      const block = await bot.getBlock(x, y, z);
       line += ` ${symbolForBlock(block?.name)} `;
     }
     console.log(`z=${String(z).padStart(4)} ${line}`);

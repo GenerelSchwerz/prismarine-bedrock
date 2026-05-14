@@ -52,7 +52,7 @@ async function logBlocksAroundBot (radius = 2, yRadius = 2) {
         let block = null
 
         try {
-          block = await bot.getBlockAt(x, y, z)
+          block = await bot.getBlock(x, y, z)
         } catch {}
 
         const name = block?.name ?? 'undefined'

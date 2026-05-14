@@ -157,7 +157,7 @@ function getEffectLevel (self, key, id) {
 }
 
 function applyPostMoveVelocity (self, velocity, world, C) {
-  const below = getBlockAt(world, self.position.offset(0, -0.1, 0))
+  const below = getBlock(world, self.position.offset(0, -0.1, 0))
   self.groundSlipperiness = getBlockFriction(below, C)
 
   if (self.horizontalCollision && isClimbable(self, world)) {
@@ -273,7 +273,7 @@ function getCollisionAABBs (world, searchBox) {
     for (let z = minZ; z <= maxZ; z++) {
       for (let x = minX; x <= maxX; x++) {
         const pos = new Vec3(x, y, z)
-        const block = getBlockAt(world, pos)
+        const block = getBlock(world, pos)
         for (const shape of getBlockShapes(block)) {
           const blockBox = AABB.fromShape(shape, pos)
           if (blockBox.intersects(searchBox)) boxes.push(blockBox)
@@ -285,7 +285,7 @@ function getCollisionAABBs (world, searchBox) {
   return boxes
 }
 
-function getBlockAt (world, pos) {
+function getBlock (world, pos) {
   try {
     return world.getBlock(floorVec3(pos))
   } catch {
@@ -326,14 +326,14 @@ function getBlockFriction (block, C) {
 }
 
 function isClimbable (self, world) {
-  const block = getBlockAt(world, self.position)
+  const block = getBlock(world, self.position)
   const name = block?.name || ''
   return name.includes('ladder') || name.includes('vine') || name.includes('scaffolding')
 }
 
 function updateFluidAndClimbableState (self, world) {
-  const feet = getBlockAt(world, self.position)
-  const eyes = getBlockAt(world, self.position.offset(0, self.eyeHeight || 1.62, 0))
+  const feet = getBlock(world, self.position)
+  const eyes = getBlock(world, self.position.offset(0, self.eyeHeight || 1.62, 0))
   const feetName = feet?.name || ''
   const eyesName = eyes?.name || ''
 

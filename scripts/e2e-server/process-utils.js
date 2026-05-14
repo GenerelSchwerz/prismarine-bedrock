@@ -20,14 +20,18 @@ async function runChecked(bin, args, cwd) {
 
 function venvPythonBin(instance) {
   return os.platform() === "win32"
-    ? path.join(instance.dir, ".venv", "Scripts", "python.exe")
-    : path.join(instance.dir, ".venv", "bin", "python");
+    ? path.join(endstoneVenvDir(instance), "Scripts", "python.exe")
+    : path.join(endstoneVenvDir(instance), "bin", "python");
 }
 
 function endstoneBin(instance) {
   return os.platform() === "win32"
-    ? path.join(instance.dir, ".venv", "Scripts", "endstone.exe")
-    : path.join(instance.dir, ".venv", "bin", "endstone");
+    ? path.join(endstoneVenvDir(instance), "Scripts", "endstone.exe")
+    : path.join(endstoneVenvDir(instance), "bin", "endstone");
+}
+
+function endstoneVenvDir(instance) {
+  return instance.endstoneVenvDir || path.join(instance.dir, ".venv");
 }
 
 function endstoneArgs(instance, options = {}) {
@@ -69,9 +73,9 @@ function endstoneEnv(instance, options = {}) {
   const pathEntries = [
     options.serverFolder || instance.dir,
     endstoneInternalDir(instance),
-    path.join(instance.dir, ".venv", "Scripts"),
+    path.join(endstoneVenvDir(instance), "Scripts"),
     pythonHome(instance),
-    path.join(instance.dir, ".venv", "Lib", "site-packages", "numpy.libs"),
+    path.join(endstoneVenvDir(instance), "Lib", "site-packages", "numpy.libs"),
     process.env.PATH || ""
   ].filter(Boolean);
 
@@ -79,11 +83,11 @@ function endstoneEnv(instance, options = {}) {
 }
 
 function endstoneInternalDir(instance) {
-  return path.join(instance.dir, ".venv", "Lib", "site-packages", "endstone", "_internal");
+  return path.join(endstoneVenvDir(instance), "Lib", "site-packages", "endstone", "_internal");
 }
 
 function pythonHome(instance) {
-  const cfg = path.join(instance.dir, ".venv", "pyvenv.cfg");
+  const cfg = path.join(endstoneVenvDir(instance), "pyvenv.cfg");
   try {
     const text = fs.readFileSync(cfg, "utf8");
     const match = text.match(/^home\s*=\s*(.+)$/m);
@@ -109,6 +113,9 @@ module.exports = {
   runChecked,
   venvPythonBin,
   endstoneBin,
+  endstoneVenvDir,
+  endstoneInternalDir,
+  pythonHome,
   endstoneArgs,
   endstoneEnv,
   clientEnv

@@ -2,12 +2,21 @@
 
 const fs = require("fs");
 const fsp = require("fs/promises");
+const crypto = require("crypto");
 const os = require("os");
 const path = require("path");
 const { spawn } = require("child_process");
 const { E2E_ROOT, CACHE_DIR, RUNS_DIR, ENDSTONE_TEMPLATE_DIR, ROOT } = require("./paths");
 const { mkdir, replaceDirectory, safeRemove, writeText, copyIfExists } = require("./fs-utils");
-const { runChecked, venvPythonBin, endstoneBin, endstoneArgs, endstoneEnv } = require("./process-utils");
+const {
+  runChecked,
+  venvPythonBin,
+  endstoneBin,
+  endstoneArgs,
+  endstoneEnv,
+  endstoneInternalDir,
+  pythonHome
+} = require("./process-utils");
 const {
   javaServerProperties,
   paperGlobalConfig,
@@ -84,17 +93,14 @@ async function installJavaGeyser(instance, options) {
 
 async function installEndstone(instance, options) {
   const source = options.endstonePackage || "endstone";
+  const cache = endstonePackageCache(source);
+  instance.endstoneVenvDir = cache.venvDir;
+  instance.endstoneTemplateDir = cache.templateDir;
   console.log(`Preparing ${instance.name}: uv-managed Endstone Bedrock server (${source})...`);
 
   await resetEndstoneInstanceIfPackageChanged(instance, source);
   await mkdir(instance.dir);
-
-  const venv = path.join(instance.dir, ".venv");
-  if (!fs.existsSync(venv)) {
-    await runChecked("uv", ["venv", venv], instance.dir);
-  }
-
-  await runChecked("uv", ["pip", "install", "--python", venvPythonBin(instance), "--upgrade", source], instance.dir);
+  await ensureEndstonePackageEnv(instance, source, cache);
   await copyEndstoneRuntimeDlls(instance, instance.dir);
   await ensureEndstoneTemplate(instance, options, source);
   await copyEndstoneTemplate(instance);
@@ -102,6 +108,23 @@ async function installEndstone(instance, options) {
   await writeText(path.join(instance.dir, "server.properties"), endstoneServerProperties(instance, options));
   if (options.endstonePacketRecorder || options.endstoneScenario) await installEndstonePacketRecorder(instance);
   await writeText(path.join(instance.dir, ENDSTONE_PACKAGE_MARKER), `${source}\n`);
+}
+
+async function ensureEndstonePackageEnv(instance, source, cache) {
+  const marker = path.join(cache.rootDir, ENDSTONE_PACKAGE_MARKER);
+  const existing = fs.existsSync(marker) ? (await fsp.readFile(marker, "utf8")).trim() : null;
+
+  if (existing === source && fs.existsSync(endstoneBin(instance))) return;
+  if (fs.existsSync(cache.rootDir)) {
+    const label = existing ? `${existing} -> ${source}` : `unknown -> ${source}`;
+    console.log(`Endstone package cache changed: ${label}; rebuilding ${path.relative(ROOT, cache.rootDir)}.`);
+    await safeRemove(cache.rootDir);
+  }
+
+  await mkdir(cache.rootDir);
+  await runChecked("uv", ["venv", cache.venvDir], ROOT);
+  await runChecked("uv", ["pip", "install", "--python", venvPythonBin(instance), "--upgrade", source], ROOT);
+  await writeText(marker, `${source}\n`);
 }
 
 async function installEndstonePacketRecorder(instance) {
@@ -139,6 +162,7 @@ function extensionsForProfile(profile) {
 
 async function resetEndstoneInstanceIfPackageChanged(instance, source) {
   const marker = path.join(instance.dir, ENDSTONE_PACKAGE_MARKER);
+  const templateDir = instance.endstoneTemplateDir;
   if (!fs.existsSync(instance.dir)) return;
 
   if (!fs.existsSync(marker)) {
@@ -150,7 +174,9 @@ async function resetEndstoneInstanceIfPackageChanged(instance, source) {
   const previous = (await fsp.readFile(marker, "utf8")).trim();
   if (previous === source) {
     const instanceVersion = await readOptionalText(path.join(instance.dir, "version.txt"));
-    const templateVersion = await readOptionalText(path.join(ENDSTONE_TEMPLATE_DIR, "version.txt"));
+    const templateVersion = templateDir
+      ? await readOptionalText(path.join(templateDir, "version.txt"))
+      : null;
 
     if (instanceVersion && templateVersion && instanceVersion.trim() !== templateVersion.trim()) {
       console.log(`Endstone BDS version changed for ${instance.name}: ${instanceVersion.trim()} -> ${templateVersion.trim()}; rebuilding instance.`);
@@ -174,43 +200,60 @@ async function readOptionalText(file) {
 
 async function ensureEndstoneTemplate(instance, options, source) {
   const executable = os.platform() === "win32" ? "bedrock_server.exe" : "bedrock_server";
-  const marker = path.join(ENDSTONE_TEMPLATE_DIR, ENDSTONE_PACKAGE_MARKER);
+  const templateDir = instance.endstoneTemplateDir;
+  const marker = path.join(templateDir, ENDSTONE_PACKAGE_MARKER);
 
-  if (fs.existsSync(path.join(ENDSTONE_TEMPLATE_DIR, executable))) {
+  await seedEndstoneTemplateFromLegacy(templateDir, source, executable);
+
+  if (fs.existsSync(path.join(templateDir, executable))) {
     const previous = fs.existsSync(marker)
       ? (await fsp.readFile(marker, "utf8")).trim()
       : null;
     if (previous === source) {
-      await copyEndstoneRuntimeDlls(instance, ENDSTONE_TEMPLATE_DIR);
+      await copyEndstoneRuntimeDlls(instance, templateDir);
       return;
     }
 
     const label = previous ? `${previous} -> ${source}` : `unknown -> ${source}`;
     console.log(`Endstone template package changed: ${label}; rebuilding template.`);
-    await safeRemove(ENDSTONE_TEMPLATE_DIR);
+    await safeRemove(templateDir);
   }
 
-  await mkdir(ENDSTONE_TEMPLATE_DIR);
-  console.log(`Warming Endstone BDS template in ${path.relative(ROOT, ENDSTONE_TEMPLATE_DIR)}...`);
-  await writeText(path.join(ENDSTONE_TEMPLATE_DIR, "server.properties"), endstoneServerProperties({
+  await mkdir(templateDir);
+  console.log(`Warming Endstone BDS template in ${path.relative(ROOT, templateDir)}...`);
+  await writeText(path.join(templateDir, "server.properties"), endstoneServerProperties({
     ...instance,
     name: "endstone-template",
     index: 0,
     bedrockPort: 19132,
     world: "normal"
   }, options));
-  await copyEndstoneRuntimeDlls(instance, ENDSTONE_TEMPLATE_DIR);
+  await copyEndstoneRuntimeDlls(instance, templateDir);
   await runEndstoneTemplateWarmup(endstoneBin(instance), endstoneArgs(instance, {
-    serverFolder: ENDSTONE_TEMPLATE_DIR,
+    serverFolder: templateDir,
     interactive: false
-  }), instance.dir, endstoneEnv(instance, { serverFolder: ENDSTONE_TEMPLATE_DIR }));
+  }), instance.dir, endstoneEnv(instance, { serverFolder: templateDir }));
   await writeText(marker, `${source}\n`);
+}
+
+async function seedEndstoneTemplateFromLegacy(templateDir, source, executable) {
+  if (fs.existsSync(path.join(templateDir, executable))) return;
+  if (!fs.existsSync(path.join(ENDSTONE_TEMPLATE_DIR, executable))) return;
+
+  const legacyMarker = path.join(ENDSTONE_TEMPLATE_DIR, ENDSTONE_PACKAGE_MARKER);
+  const legacySource = fs.existsSync(legacyMarker)
+    ? (await fsp.readFile(legacyMarker, "utf8")).trim()
+    : null;
+  if (legacySource !== source) return;
+
+  console.log(`Seeding Endstone package template from ${path.relative(ROOT, ENDSTONE_TEMPLATE_DIR)}.`);
+  await fsp.cp(ENDSTONE_TEMPLATE_DIR, templateDir, { recursive: true, force: true });
 }
 
 async function copyEndstoneRuntimeDlls(instance, targetDir) {
   const sources = new Set();
   const pythonDir = pythonHome(instance);
-  const internalDir = path.join(instance.dir, ".venv", "Lib", "site-packages", "endstone", "_internal");
+  const internalDir = endstoneInternalDir(instance);
 
   for (const file of [
     path.join(internalDir, "endstone_runtime.dll"),
@@ -233,17 +276,6 @@ async function copyEndstoneRuntimeDlls(instance, targetDir) {
   for (const source of sources) {
     if (!source || !fs.existsSync(source)) continue;
     await fsp.copyFile(source, path.join(targetDir, path.basename(source)));
-  }
-}
-
-function pythonHome(instance) {
-  const cfg = path.join(instance.dir, ".venv", "pyvenv.cfg");
-  try {
-    const text = fs.readFileSync(cfg, "utf8");
-    const match = text.match(/^home\s*=\s*(.+)$/m);
-    return match?.[1]?.trim() || null;
-  } catch {
-    return null;
   }
 }
 
@@ -293,6 +325,7 @@ async function runEndstoneTemplateWarmup(bin, args, cwd, extraEnv = {}) {
 
 async function copyEndstoneTemplate(instance) {
   const executable = os.platform() === "win32" ? "bedrock_server.exe" : "bedrock_server";
+  const templateDir = instance.endstoneTemplateDir;
   if (fs.existsSync(path.join(instance.dir, executable))) return;
 
   for (const name of [
@@ -320,8 +353,24 @@ async function copyEndstoneTemplate(instance) {
     "version.txt",
     ENDSTONE_PACKAGE_MARKER
   ]) {
-    await copyIfExists(path.join(ENDSTONE_TEMPLATE_DIR, name), path.join(instance.dir, name));
+    await copyIfExists(path.join(templateDir, name), path.join(instance.dir, name));
   }
+}
+
+function endstonePackageCache(source) {
+  const hash = crypto.createHash("sha256").update(source).digest("hex").slice(0, 12);
+  const slug = source
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48) || "endstone";
+  const rootDir = path.join(CACHE_DIR, "endstone-packages", `${slug}-${hash}`);
+
+  return {
+    rootDir,
+    venvDir: path.join(rootDir, ".venv"),
+    templateDir: path.join(rootDir, "bds-template")
+  };
 }
 
 async function cleanInstanceWorlds(instance, options) {

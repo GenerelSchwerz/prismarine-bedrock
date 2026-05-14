@@ -102,7 +102,7 @@ Clean both generated worlds and e2e run logs:
 node scripts/e2e-servers.js clean --scope=all
 ```
 
-World cleanup removes generated Java world folders matching e2e naming patterns and generated Endstone worlds/logs. It does not remove downloaded server jars, plugin caches, Endstone virtualenvs, or the Endstone BDS template.
+World cleanup removes generated Java world folders matching e2e naming patterns and generated Endstone worlds/logs. It does not remove downloaded server jars, plugin caches, Endstone package virtualenvs, or Endstone BDS templates.
 
 Stop orphaned e2e server processes from crashed or abandoned launcher sessions:
 
@@ -301,15 +301,21 @@ Profile names:
 
 When `--java-profiles` is used, the Java instance count defaults to the number of profiles. You can still pass `--java-count`; if there are more instances than profiles, profiles repeat. Each install replaces the target instance's `plugins/Geyser-Spigot/extensions/` folder before copying the selected cached jars, so stale plugins do not leak between test runs.
 
-The Endstone side uses `uv` to create `.e2e-servers/endstone-bds/.venv` and install Endstone. The launcher does not manually download Bedrock Dedicated Server. Endstone's own bootstrap downloads or updates BDS in the configured `--server-folder` when the server process starts, using Endstone's supported Minecraft version and remote metadata.
+The Endstone side uses `uv` to create a cached virtualenv for the selected Endstone package. The launcher does not manually download Bedrock Dedicated Server. Endstone's own bootstrap downloads or updates BDS in the configured `--server-folder` when the server process starts, using Endstone's supported Minecraft version and remote metadata.
 
-To avoid paying the BDS download/setup cost for every Endstone instance, the launcher warms a reusable Endstone/BDS template under:
+To avoid paying the BDS download/setup cost for every Endstone instance, the launcher warms reusable Endstone/BDS templates under package-specific cache folders:
 
 ```text
-.e2e-servers/cache/endstone-template/
+.e2e-servers/cache/endstone-packages/<package-key>/bds-template/
 ```
 
-The template is created by running Endstone once against that cache folder. Instance installs then copy the static BDS and Endstone support files from the template into `.e2e-servers/endstone-bds*`. Mutable folders such as `worlds/` and `logs/` are intentionally not copied, so each instance still creates its own world from its own `server.properties`.
+Each package cache also has its own Endstone virtualenv:
+
+```text
+.e2e-servers/cache/endstone-packages/<package-key>/.venv/
+```
+
+The template is created by running that cached Endstone package once against its cache folder. Instance installs then copy the static BDS and Endstone support files from the matching template into `.e2e-servers/endstone-bds*`. Mutable folders such as `worlds/` and `logs/` are intentionally not copied, so each instance still creates its own world from its own `server.properties`. Switching between package specs such as `endstone` and `endstone==0.10.18` reuses the corresponding package cache instead of rebuilding one shared template every time.
 
 By default, Endstone installs the published `endstone` package through `uv pip`. Pin an older Endstone package when you need the BDS version bundled by that Endstone release:
 
@@ -317,7 +323,7 @@ By default, Endstone installs the published `endstone` package through `uv pip`.
 node scripts/e2e-servers.js launch --target=endstone --endstone-package=endstone
 ```
 
-The launcher records the selected package in the Endstone instance and shared BDS template. If the package spec changes, it rebuilds the generated Endstone instance and template so the existing BDS executable is not silently reused.
+The launcher records the selected package in the Endstone instance and package cache. If the package spec changes, it rebuilds the generated Endstone instance from the matching cached template so the existing BDS executable is not silently reused. For floating specs such as `endstone`, delete the matching `.e2e-servers/cache/endstone-packages/` entry when you intentionally want to refresh to a newer published Endstone package.
 
 To install directly from the GitHub repository instead:
 

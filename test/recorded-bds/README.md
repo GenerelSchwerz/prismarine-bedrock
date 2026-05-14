@@ -199,6 +199,7 @@ The current sample scenario is still considered unproven until a real Bedrock cl
       "command": "say scenario {id} has started for {playerName}"
     }
   ],
+  "debugRecordEvents": [],
   "steps": [
     {
       "id": "first-step",
@@ -305,10 +306,77 @@ Supported clearance conditions:
 - `inventory_lacks`: `item`, optional `count`.
 - `block_is`: `position: [x, y, z]`, `block`.
 - `player_at`: `position: [x, y, z]`, optional `radius`.
+- `position_changed`: optional `from: [x, y, z]`, optional `minDistance`. When `from` is omitted, the step start position is used.
 - `packet_seen`: `packet_id`, optional `direction`, optional `count`.
+- `command_seen`: optional `contains`, optional `equals` or `command`, optional `count`. Matches scenario commands dispatched during the current step.
+- `entity_exists`: optional `entity`, optional `name`, optional `tag`, optional `position: [x, y, z]`, optional `radius`, optional `count`.
+- `entity_lacks`: same fields as `entity_exists`, clears when too few matching entities exist.
+- `entity_dead`: alias for `entity_lacks`, intended for tagged or named scenario targets.
+- `held_item_is`: `item`.
+- `container_open`: optional `container`, optional `packet_id`, optional `direction`, optional `count`. Defaults to the BDS `container_open` packet, `packet_id: 46`, `direction: "send"`.
+- `effect_active`: `effect`.
+- `effect_lacks`: `effect`.
+- `time_elapsed`: `seconds`, or `ms`, or `ticks`.
+- `endstone_event_seen`: `event`, optional `count`, optional `withinSeconds`, optional `where`.
 - `manual`: never auto-clears; useful while drafting.
 - `all`: array of child conditions.
 - `any`: array of child conditions.
+
+Examples:
+
+```json
+{ "type": "time_elapsed", "seconds": 3 }
+{ "type": "held_item_is", "item": "minecraft:bow" }
+{ "type": "container_open", "container": "crafting_table" }
+{ "type": "entity_exists", "entity": "minecraft:cow", "tag": "scenario_target", "position": [3, 64, 0], "radius": 5 }
+{ "type": "entity_dead", "entity": "minecraft:cow", "tag": "scenario_target" }
+{ "type": "effect_active", "effect": "minecraft:speed" }
+{ "type": "position_changed", "minDistance": 4 }
+{ "type": "command_seen", "contains": "setblock", "count": 1 }
+{ "type": "endstone_event_seen", "event": "PlayerJumpEvent", "withinSeconds": 2 }
+{ "type": "endstone_event_seen", "event": "PlayerMoveEvent", "where": { "distance": { "gte": 3 }, "to.y": { "gt": 65 } } }
+```
+
+### Endstone event clearances
+
+`endstone_event_seen` listens to Endstone's semantic event stream for only the event names referenced by the active scenario. Event tracking is internal and silent by default; matching event data appears in the `step_complete.reason` when the clearance passes.
+
+Supported event names:
+
+- `PlayerMoveEvent`
+- `PlayerJumpEvent`
+- `PlayerInteractEvent`
+- `PlayerItemHeldEvent`
+- `PlayerItemConsumeEvent`
+- `PlayerDeathEvent`
+- `PlayerRespawnEvent`
+- `PlayerCommandEvent`
+- `PlayerChatEvent`
+
+The optional `where` object matches normalized event data by dotted paths. Scalar values require equality. Numeric values may use `gt`, `gte`, `lt`, or `lte`. Strings may use `contains`.
+
+```json
+{
+  "type": "endstone_event_seen",
+  "event": "PlayerMoveEvent",
+  "count": 1,
+  "withinSeconds": 2,
+  "where": {
+    "distance": { "gte": 3 },
+    "to.y": { "gt": 65 }
+  }
+}
+```
+
+Debug event recording is opt-in:
+
+```json
+{
+  "debugRecordEvents": ["PlayerJumpEvent", "PlayerMoveEvent"]
+}
+```
+
+Only listed event names write `endstone_event` JSONL records. Keep high-frequency events such as `PlayerMoveEvent` out of `debugRecordEvents` unless you are doing a focused short run.
 
 Scenario markers written to JSONL include:
 

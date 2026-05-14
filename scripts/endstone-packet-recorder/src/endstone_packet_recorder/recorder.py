@@ -8,11 +8,27 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
-from endstone.event import PacketReceiveEvent, PacketSendEvent, PlayerJoinEvent, PlayerQuitEvent, event_handler
+from endstone.event import (
+    PacketReceiveEvent,
+    PacketSendEvent,
+    PlayerChatEvent,
+    PlayerCommandEvent,
+    PlayerDeathEvent,
+    PlayerInteractEvent,
+    PlayerItemConsumeEvent,
+    PlayerItemHeldEvent,
+    PlayerJoinEvent,
+    PlayerJumpEvent,
+    PlayerMoveEvent,
+    PlayerQuitEvent,
+    PlayerRespawnEvent,
+    event_handler
+)
 from endstone.plugin import Plugin
 
 
 DEFAULT_CHECK_PERIOD_TICKS = 10
+DEFAULT_RECENT_EVENT_LIMIT = 100
 TICKS_PER_SECOND = 20
 SUPPORTED_COMMAND_HOOKS = {
     "player_join",
@@ -41,6 +57,9 @@ class PacketRecorderPlugin(Plugin):
         self._handle = self._record_file.open("a", encoding="utf8")
         self._player_handles = {}
         self._scenario = self._load_scenario()
+        self._event_interest = self._collect_scenario_event_interest(self._scenario)
+        self._debug_record_events = self._parse_event_names(self._scenario.get("debugRecordEvents", [])) if self._scenario else set()
+        self._recent_event_limit = int(self._scenario.get("recentEventLimit", DEFAULT_RECENT_EVENT_LIMIT)) if self._scenario else DEFAULT_RECENT_EVENT_LIMIT
         self._sessions = {}
         self._check_task = None
         self._scheduled_command_tasks = []
@@ -58,7 +77,9 @@ class PacketRecorderPlugin(Plugin):
             self._write({
                 "type": "scenario_loaded",
                 "scenario": self._scenario.get("id"),
-                "step_count": len(self._scenario.get("steps", []))
+                "step_count": len(self._scenario.get("steps", [])),
+                "endstone_events": sorted(self._event_interest),
+                "debug_record_events": sorted(self._debug_record_events)
             })
             period = int(self._scenario.get("checkPeriodTicks", DEFAULT_CHECK_PERIOD_TICKS))
             self._check_task = self.server.scheduler.run_task(self, self._check_sessions, delay=period, period=period)
@@ -127,6 +148,42 @@ class PacketRecorderPlugin(Plugin):
     def on_packet_send(self, event: PacketSendEvent) -> None:
         self._record_packet("send", event)
 
+    @event_handler
+    def on_player_move(self, event: PlayerMoveEvent) -> None:
+        self._record_endstone_event(event)
+
+    @event_handler
+    def on_player_jump(self, event: PlayerJumpEvent) -> None:
+        self._record_endstone_event(event)
+
+    @event_handler
+    def on_player_interact(self, event: PlayerInteractEvent) -> None:
+        self._record_endstone_event(event)
+
+    @event_handler
+    def on_player_item_held(self, event: PlayerItemHeldEvent) -> None:
+        self._record_endstone_event(event)
+
+    @event_handler
+    def on_player_item_consume(self, event: PlayerItemConsumeEvent) -> None:
+        self._record_endstone_event(event)
+
+    @event_handler
+    def on_player_death(self, event: PlayerDeathEvent) -> None:
+        self._record_endstone_event(event)
+
+    @event_handler
+    def on_player_respawn(self, event: PlayerRespawnEvent) -> None:
+        self._record_endstone_event(event)
+
+    @event_handler
+    def on_player_command(self, event: PlayerCommandEvent) -> None:
+        self._record_endstone_event(event)
+
+    @event_handler
+    def on_player_chat(self, event: PlayerChatEvent) -> None:
+        self._record_endstone_event(event)
+
     def _record_packet(self, direction: str, event: Any) -> None:
         packet_id = int(event.packet_id)
         player_name = self._player_name(getattr(event, "player", None))
@@ -149,6 +206,42 @@ class PacketRecorderPlugin(Plugin):
             "payload_size": len(payload),
             "payload_sha256": hashlib.sha256(payload).hexdigest()
         })
+
+    def _record_endstone_event(self, event: Any) -> None:
+        event_name = event.__class__.__name__
+        if event_name not in self._event_interest and event_name not in self._debug_record_events:
+            return
+
+        player = self._safe_get(event, "player")
+        player_name = self._player_name(player)
+        if not self._should_record_player(player_name):
+            return
+        session = self._sessions.get(player_name) if player_name else None
+        if session is None or session.get("status") != "active":
+            return
+
+        record = {
+            "ts": time.time(),
+            "event": event_name,
+            "player": player_name,
+            "data": self._normalize_endstone_event(event, event_name, player_name)
+        }
+        recent = session.setdefault("recent_events", [])
+        recent.append(record)
+        if len(recent) > self._recent_event_limit:
+            del recent[:-self._recent_event_limit]
+
+        if event_name in self._debug_record_events:
+            self._write({
+                "type": "endstone_event",
+                "scenario": self._scenario.get("id") if self._scenario else None,
+                "player": player_name,
+                "event": event_name,
+                "data": record["data"]
+            })
+
+        if player is not None:
+            self._check_player_session(player, session)
 
     def _load_scenario(self) -> Optional[Dict[str, Any]]:
         raw = os.environ.get("E2E_ENDSTONE_SCENARIO", "").strip()
@@ -197,7 +290,9 @@ class PacketRecorderPlugin(Plugin):
             "player": player_name,
             "step_index": -1,
             "status": "active",
-            "packet_counts": {}
+            "packet_counts": {},
+            "command_history": [],
+            "recent_events": []
         }
         self._sessions[player_name] = session
         self._run_hook_commands("player_join", player, session)
@@ -236,6 +331,9 @@ class PacketRecorderPlugin(Plugin):
         session["step_index"] = next_index
         session["packet_counts"] = {}
         session["step_started_at"] = time.time()
+        session["step_start_position"] = self._location_dict(getattr(player, "location", None))
+        session["command_history"] = []
+        session["recent_events"] = []
 
         for command in step.get("setupCommands", []):
             self._dispatch_command(command, player)
@@ -346,8 +444,34 @@ class PacketRecorderPlugin(Plugin):
                 return self._clear_block_is(player, clearance)
             if kind == "player_at":
                 return self._clear_player_at(player, clearance)
+            if kind == "position_changed":
+                return self._clear_position_changed(player, session, clearance)
             if kind == "packet_seen":
                 return self._clear_packet_seen(session, clearance)
+            if kind == "command_seen":
+                return self._clear_command_seen(session, clearance)
+            if kind == "entity_exists":
+                return self._clear_entity_exists(player, clearance)
+            if kind in ("entity_lacks", "entity_dead"):
+                passed, reason = self._clear_entity_exists(player, clearance)
+                reason["type"] = kind
+                reason["passed"] = not passed
+                return not passed, reason
+            if kind == "held_item_is":
+                return self._clear_held_item_is(player, clearance)
+            if kind == "container_open":
+                return self._clear_container_open(session, clearance)
+            if kind == "effect_active":
+                return self._clear_effect_active(player, clearance)
+            if kind == "effect_lacks":
+                passed, reason = self._clear_effect_active(player, clearance)
+                reason["type"] = "effect_lacks"
+                reason["passed"] = not passed
+                return not passed, reason
+            if kind == "time_elapsed":
+                return self._clear_time_elapsed(session, clearance)
+            if kind == "endstone_event_seen":
+                return self._clear_endstone_event_seen(session, clearance)
             if kind == "manual":
                 return False, {"type": "manual"}
         except Exception as err:
@@ -412,6 +536,28 @@ class PacketRecorderPlugin(Plugin):
             "passed": passed
         }
 
+    def _clear_position_changed(self, player: Any, session: Dict[str, Any], clearance: Dict[str, Any]) -> tuple:
+        origin = clearance.get("from") or clearance.get("position") or session.get("step_start_position")
+        min_distance = float(clearance.get("minDistance", clearance.get("min_distance", 1.0)))
+        if isinstance(origin, dict):
+            origin = [origin.get("x"), origin.get("y"), origin.get("z")]
+        if not isinstance(origin, list) or len(origin) != 3:
+            return False, {"type": "position_changed", "error": "from/position must be [x, y, z] or omitted after step start"}
+
+        loc = player.location
+        distance = self._distance_xyz(
+            [float(loc.x), float(loc.y), float(loc.z)],
+            [float(origin[0]), float(origin[1]), float(origin[2])]
+        )
+        passed = distance >= min_distance
+        return passed, {
+            "type": "position_changed",
+            "from": origin,
+            "minDistance": min_distance,
+            "distance": distance,
+            "passed": passed
+        }
+
     def _clear_packet_seen(self, session: Dict[str, Any], clearance: Dict[str, Any]) -> tuple:
         packet_id = int(clearance.get("packet_id", clearance.get("packetId", -1)))
         direction = clearance.get("direction")
@@ -432,6 +578,159 @@ class PacketRecorderPlugin(Plugin):
             "direction": direction,
             "count": count,
             "seen": seen,
+            "passed": passed
+        }
+
+    def _clear_container_open(self, session: Dict[str, Any], clearance: Dict[str, Any]) -> tuple:
+        packet_id = int(clearance.get("packet_id", clearance.get("packetId", 46)))
+        direction = clearance.get("direction", "send")
+        count = int(clearance.get("count", 1))
+        passed, reason = self._clear_packet_seen(session, {
+            "packet_id": packet_id,
+            "direction": direction,
+            "count": count
+        })
+        reason["type"] = "container_open"
+        reason["container"] = clearance.get("container")
+        return passed, reason
+
+    def _clear_command_seen(self, session: Dict[str, Any], clearance: Dict[str, Any]) -> tuple:
+        contains = clearance.get("contains")
+        equals = clearance.get("equals", clearance.get("command"))
+        count = int(clearance.get("count", 1))
+        matched = []
+        for entry in session.get("command_history", []):
+            command = str(entry.get("command", ""))
+            if contains is not None and str(contains) not in command:
+                continue
+            if equals is not None and str(equals) != command:
+                continue
+            matched.append(entry)
+        passed = len(matched) >= count
+        return passed, {
+            "type": "command_seen",
+            "contains": contains,
+            "equals": equals,
+            "count": count,
+            "seen": len(matched),
+            "passed": passed
+        }
+
+    def _clear_entity_exists(self, player: Any, clearance: Dict[str, Any]) -> tuple:
+        expected_type = clearance.get("entity", clearance.get("entityType"))
+        expected_name = clearance.get("name")
+        expected_tag = clearance.get("tag")
+        position = clearance.get("position")
+        radius = float(clearance.get("radius", 16.0))
+        matches = []
+
+        for entity in self._iter_nearby_entities(player):
+            actual_type = self._entity_type(entity)
+            if expected_type is not None and not self._identifier_equal(actual_type, str(expected_type)):
+                continue
+            actual_name = self._entity_name(entity)
+            if expected_name is not None and actual_name != str(expected_name):
+                continue
+            actual_tags = self._entity_tags(entity)
+            if expected_tag is not None and str(expected_tag) not in actual_tags:
+                continue
+            actual_position = self._location_dict(getattr(entity, "location", None))
+            if position is not None:
+                if not isinstance(position, list) or len(position) != 3:
+                    return False, {"type": "entity_exists", "error": "position must be [x, y, z]"}
+                if actual_position is None:
+                    continue
+                distance = self._distance_xyz(
+                    [actual_position["x"], actual_position["y"], actual_position["z"]],
+                    [float(position[0]), float(position[1]), float(position[2])]
+                )
+                if distance > radius:
+                    continue
+            matches.append({
+                "type": actual_type,
+                "name": actual_name,
+                "tags": sorted(actual_tags),
+                "position": actual_position
+            })
+
+        passed = len(matches) >= int(clearance.get("count", 1))
+        return passed, {
+            "type": "entity_exists",
+            "entity": expected_type,
+            "name": expected_name,
+            "tag": expected_tag,
+            "position": position,
+            "radius": radius,
+            "count": int(clearance.get("count", 1)),
+            "seen": len(matches),
+            "matches": matches[:5],
+            "passed": passed
+        }
+
+    def _clear_held_item_is(self, player: Any, clearance: Dict[str, Any]) -> tuple:
+        expected = str(clearance.get("item", ""))
+        actual = self._held_item_identifier(player)
+        passed = self._identifier_equal(actual or "", expected)
+        return passed, {
+            "type": "held_item_is",
+            "expected": expected,
+            "actual": actual,
+            "passed": passed
+        }
+
+    def _clear_effect_active(self, player: Any, clearance: Dict[str, Any]) -> tuple:
+        expected = str(clearance.get("effect", clearance.get("name", "")))
+        effects = self._active_effect_identifiers(player)
+        passed = any(self._identifier_equal(effect, expected) for effect in effects)
+        return passed, {
+            "type": "effect_active",
+            "effect": expected,
+            "active": sorted(effects),
+            "passed": passed
+        }
+
+    def _clear_time_elapsed(self, session: Dict[str, Any], clearance: Dict[str, Any]) -> tuple:
+        required = float(clearance.get("seconds", 0))
+        if "ms" in clearance:
+            required = float(clearance.get("ms", 0)) / 1000.0
+        if "ticks" in clearance:
+            required = float(clearance.get("ticks", 0)) / TICKS_PER_SECOND
+        started_at = float(session.get("step_started_at", time.time()))
+        elapsed = time.time() - started_at
+        passed = elapsed >= required
+        return passed, {
+            "type": "time_elapsed",
+            "seconds": required,
+            "elapsed": elapsed,
+            "passed": passed
+        }
+
+    def _clear_endstone_event_seen(self, session: Dict[str, Any], clearance: Dict[str, Any]) -> tuple:
+        event_name = str(clearance.get("event", ""))
+        count = int(clearance.get("count", 1))
+        within_seconds = clearance.get("withinSeconds", clearance.get("within_seconds"))
+        since = None if within_seconds is None else time.time() - float(within_seconds)
+        where = clearance.get("where")
+        matched = []
+
+        for record in session.get("recent_events", []):
+            if event_name and record.get("event") != event_name:
+                continue
+            if since is not None and float(record.get("ts", 0)) < since:
+                continue
+            data = record.get("data", {})
+            if where is not None and not self._matches_where(data, where):
+                continue
+            matched.append(record)
+
+        passed = len(matched) >= count
+        return passed, {
+            "type": "endstone_event_seen",
+            "event": event_name,
+            "count": count,
+            "withinSeconds": within_seconds,
+            "seen": len(matched),
+            "matches": matched[:5],
             "passed": passed
         }
 
@@ -619,7 +918,19 @@ class PacketRecorderPlugin(Plugin):
                     "reason": "player_offline"
                 })
                 return
-            self._dispatch_raw_command(command, current_player, hook=hook, session=scheduled_session, step=step)
+            if step is not None and session.get("step_index") != scheduled_session.get("step_index"):
+                self._write({
+                    "type": "scenario_command_skipped",
+                    "scenario": self._scenario.get("id") if self._scenario else None,
+                    "player": player_name,
+                    "hook": hook,
+                    "step": step_id,
+                    "step_index": scheduled_session.get("step_index"),
+                    "command": command,
+                    "reason": "step_changed"
+                })
+                return
+            self._dispatch_raw_command(command, current_player, hook=hook, session=session, step=step)
 
         task = self.server.scheduler.run_task(self, run_command, delay=delay_ticks)
         self._scheduled_command_tasks.append(task)
@@ -645,6 +956,15 @@ class PacketRecorderPlugin(Plugin):
             "step_index": session.get("step_index") if session else None,
             "command": command
         })
+        if session is not None:
+            history = session.setdefault("command_history", [])
+            history.append({
+                "ts": time.time(),
+                "hook": hook,
+                "step": self._step_id(step, session),
+                "step_index": session.get("step_index"),
+                "command": command
+            })
         return bool(self.server.dispatch_command(self.server.command_sender, command))
 
     def _format_command(
@@ -738,6 +1058,305 @@ class PacketRecorderPlugin(Plugin):
             return False
         return player_name.lower() in self._player_filter
 
+    def _normalize_endstone_event(self, event: Any, event_name: str, player_name: Optional[str]) -> Dict[str, Any]:
+        data = {
+            "event": event_name,
+            "player": player_name
+        }
+
+        from_location = self._location_dict(self._safe_get(event, "from_location"))
+        to_location = self._location_dict(self._safe_get(event, "to_location"))
+        if from_location is not None:
+            data["from"] = from_location
+        if to_location is not None:
+            data["to"] = to_location
+        if from_location is not None and to_location is not None:
+            data["distance"] = self._distance_xyz(
+                [from_location["x"], from_location["y"], from_location["z"]],
+                [to_location["x"], to_location["y"], to_location["z"]]
+            )
+
+        for attr in ("command", "message", "action", "new_slot", "previous_slot", "death_message"):
+            value = self._safe_get(event, attr)
+            if value is not None:
+                data[attr] = self._json_safe_value(value)
+
+        block = self._safe_get(event, "block")
+        if block is not None:
+            data["block"] = self._block_summary(block)
+
+        item = self._safe_get(event, "item")
+        if item is not None:
+            data["item"] = self._item_summary(item)
+
+        actor = self._safe_get(event, "actor") or self._safe_get(event, "entity")
+        if actor is not None:
+            data["entity"] = self._entity_summary(actor)
+
+        return data
+
+    def _clearance_event_names(self, clearance: Any) -> Set[str]:
+        names = set()
+        if isinstance(clearance, list):
+            for child in clearance:
+                names.update(self._clearance_event_names(child))
+            return names
+        if not isinstance(clearance, dict):
+            return names
+        if "all" in clearance:
+            names.update(self._clearance_event_names(clearance["all"]))
+        if "any" in clearance:
+            names.update(self._clearance_event_names(clearance["any"]))
+        if clearance.get("type") == "endstone_event_seen" and clearance.get("event"):
+            names.add(str(clearance.get("event")))
+        return names
+
+    def _collect_scenario_event_interest(self, scenario: Optional[Dict[str, Any]]) -> Set[str]:
+        if not scenario:
+            return set()
+        names = set()
+        names.update(self._parse_event_names(scenario.get("recordEvents", [])))
+        names.update(self._parse_event_names(scenario.get("debugRecordEvents", [])))
+        for step in scenario.get("steps", []):
+            names.update(self._clearance_event_names(step.get("clearance")))
+        return names
+
+    def _matches_where(self, data: Dict[str, Any], where: Any) -> bool:
+        if not isinstance(where, dict):
+            return False
+        for path, expected in where.items():
+            actual = self._value_at_path(data, str(path))
+            if not self._matches_expected(actual, expected):
+                return False
+        return True
+
+    def _matches_expected(self, actual: Any, expected: Any) -> bool:
+        if isinstance(expected, dict):
+            for op, value in expected.items():
+                if op == "gt":
+                    if not (actual is not None and float(actual) > float(value)):
+                        return False
+                elif op == "gte":
+                    if not (actual is not None and float(actual) >= float(value)):
+                        return False
+                elif op == "lt":
+                    if not (actual is not None and float(actual) < float(value)):
+                        return False
+                elif op == "lte":
+                    if not (actual is not None and float(actual) <= float(value)):
+                        return False
+                elif op == "contains":
+                    if actual is None or str(value) not in str(actual):
+                        return False
+                else:
+                    return False
+            return True
+        return actual == expected
+
+    def _value_at_path(self, data: Any, path: str) -> Any:
+        current = data
+        for part in path.split("."):
+            if isinstance(current, dict):
+                current = current.get(part)
+            else:
+                current = getattr(current, part, None)
+            if current is None:
+                return None
+        return current
+
+    def _block_summary(self, block: Any) -> Dict[str, Any]:
+        return {
+            "type": self._json_safe_value(self._safe_get(block, "type")),
+            "location": self._location_dict(self._safe_get(block, "location"))
+        }
+
+    def _item_summary(self, item: Any) -> Dict[str, Any]:
+        count = self._safe_get(item, "count")
+        if count is None:
+            count = self._safe_get(item, "amount")
+        return {
+            "type": self._item_identifier(item),
+            "count": self._json_safe_value(count)
+        }
+
+    def _entity_summary(self, entity: Any) -> Dict[str, Any]:
+        return {
+            "type": self._entity_type(entity),
+            "name": self._entity_name(entity),
+            "tags": sorted(self._entity_tags(entity)),
+            "location": self._location_dict(self._safe_get(entity, "location"))
+        }
+
+    def _iter_nearby_entities(self, player: Any) -> List[Any]:
+        dimension = getattr(player, "dimension", None)
+        candidates = []
+        if dimension is not None:
+            for attr in ("entities", "entity_list"):
+                value = getattr(dimension, attr, None)
+                if value is not None:
+                    candidates.append(value)
+            for method in ("get_entities", "getEntities"):
+                value = getattr(dimension, method, None)
+                if callable(value):
+                    try:
+                        candidates.append(value())
+                    except TypeError:
+                        pass
+
+        level = getattr(player, "level", None) or getattr(player, "world", None)
+        if level is not None:
+            for attr in ("entities", "entity_list"):
+                value = getattr(level, attr, None)
+                if value is not None:
+                    candidates.append(value)
+
+        entities = []
+        for candidate in candidates:
+            try:
+                entities.extend(list(candidate.values()) if isinstance(candidate, dict) else list(candidate))
+            except TypeError:
+                continue
+        return entities
+
+    def _entity_type(self, entity: Any) -> str:
+        for attr in ("type", "type_id", "identifier", "runtime_id"):
+            value = getattr(entity, attr, None)
+            if value is not None:
+                return str(value)
+        return str(entity.__class__.__name__)
+
+    def _entity_name(self, entity: Any) -> Optional[str]:
+        for attr in ("name", "custom_name", "display_name"):
+            value = getattr(entity, attr, None)
+            if value:
+                return str(value)
+        return None
+
+    def _entity_tags(self, entity: Any) -> Set[str]:
+        for attr in ("scoreboard_tags", "tags"):
+            value = getattr(entity, attr, None)
+            if value is None:
+                continue
+            try:
+                return {str(tag) for tag in value}
+            except TypeError:
+                return {str(value)}
+        method = getattr(entity, "get_scoreboard_tags", None)
+        if callable(method):
+            try:
+                return {str(tag) for tag in method()}
+            except TypeError:
+                pass
+        return set()
+
+    def _held_item_identifier(self, player: Any) -> Optional[str]:
+        inventory = getattr(player, "inventory", None)
+        candidates = []
+        for owner in (player, inventory):
+            if owner is None:
+                continue
+            for attr in ("item_in_hand", "itemInHand", "held_item", "selected_item"):
+                value = getattr(owner, attr, None)
+                if value is not None:
+                    candidates.append(value)
+            for method in ("get_item_in_hand", "getItemInHand", "get_held_item"):
+                value = getattr(owner, method, None)
+                if callable(value):
+                    try:
+                        candidates.append(value())
+                    except TypeError:
+                        pass
+
+        for item in candidates:
+            identifier = self._item_identifier(item)
+            if identifier:
+                return identifier
+        return None
+
+    def _item_identifier(self, item: Any) -> Optional[str]:
+        if item is None:
+            return None
+        if isinstance(item, str):
+            return item
+        for attr in ("type", "name", "identifier", "id"):
+            value = getattr(item, attr, None)
+            if value:
+                return str(value)
+        return str(item)
+
+    def _active_effect_identifiers(self, player: Any) -> Set[str]:
+        candidates = []
+        for attr in ("active_effects", "effects", "potion_effects"):
+            value = getattr(player, attr, None)
+            if value is not None:
+                candidates.append(value)
+        for method in ("get_active_effects", "getEffects", "get_effects"):
+            value = getattr(player, method, None)
+            if callable(value):
+                try:
+                    candidates.append(value())
+                except TypeError:
+                    pass
+
+        effects = set()
+        for candidate in candidates:
+            values = candidate.values() if isinstance(candidate, dict) else candidate
+            try:
+                iterator = iter(values)
+            except TypeError:
+                iterator = iter([values])
+            for effect in iterator:
+                for attr in ("type", "name", "identifier", "id"):
+                    value = getattr(effect, attr, None)
+                    if value:
+                        effects.add(str(value))
+                        break
+                else:
+                    effects.add(str(effect))
+        return effects
+
+    @staticmethod
+    def _location_dict(location: Any) -> Optional[Dict[str, float]]:
+        if location is None:
+            return None
+        try:
+            data = {
+                "x": float(location.x),
+                "y": float(location.y),
+                "z": float(location.z)
+            }
+            for attr in ("pitch", "yaw"):
+                value = getattr(location, attr, None)
+                if value is not None:
+                    data[attr] = float(value)
+            return data
+        except Exception:
+            return None
+
+    @staticmethod
+    def _distance_xyz(a: List[float], b: List[float]) -> float:
+        dx = float(a[0]) - float(b[0])
+        dy = float(a[1]) - float(b[1])
+        dz = float(a[2]) - float(b[2])
+        return math.sqrt(dx * dx + dy * dy + dz * dz)
+
+    @staticmethod
+    def _safe_get(obj: Any, attr: str) -> Any:
+        try:
+            return getattr(obj, attr, None)
+        except Exception:
+            return None
+
+    @classmethod
+    def _json_safe_value(cls, value: Any) -> Any:
+        if value is None or isinstance(value, (str, int, float, bool)):
+            return value
+        if isinstance(value, (list, tuple)):
+            return [cls._json_safe_value(entry) for entry in value]
+        if isinstance(value, dict):
+            return {str(key): cls._json_safe_value(entry) for key, entry in value.items()}
+        return str(value)
+
     @staticmethod
     def _parse_packet_ids(raw: str) -> Optional[Set[int]]:
         values = [value.strip() for value in raw.split(",") if value.strip()]
@@ -751,6 +1370,15 @@ class PacketRecorderPlugin(Plugin):
         if not values:
             return None
         return set(values)
+
+    @staticmethod
+    def _parse_event_names(raw: Any) -> Set[str]:
+        if isinstance(raw, str):
+            values = [value.strip() for value in raw.split(",") if value.strip()]
+            return set(values)
+        if isinstance(raw, list):
+            return {str(value).strip() for value in raw if str(value).strip()}
+        return set()
 
     @staticmethod
     def _identifier_candidates(identifier: str) -> List[str]:

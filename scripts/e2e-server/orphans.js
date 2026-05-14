@@ -115,7 +115,7 @@ function isE2eProcess(processInfo) {
 }
 
 function isLauncherProcess(processInfo) {
-  const commandLine = (processInfo.commandLine || "").toLowerCase();
+  const commandLine = (processInfo.commandLine || "").toLowerCase().replace(/\\/g, "/");
   return commandLine.includes("scripts/e2e-servers.js") && commandLine.includes("launch");
 }
 
@@ -246,4 +246,11 @@ function execFileText(bin, args) {
   });
 }
 
-module.exports = { cleanupOrphans };
+module.exports = {
+  cleanupOrphans,
+  findE2eProcesses,
+  findLiveLauncherAncestor,
+  formatProcessCommand,
+  isE2eProcess,
+  isLauncherProcess
+};

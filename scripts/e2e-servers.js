@@ -7,6 +7,8 @@ const { installTargets, cleanTargets } = require("./e2e-server/install");
 const { launchTargets } = require("./e2e-server/launch");
 const { cleanupOrphans } = require("./e2e-server/orphans");
 const { printHelp } = require("./e2e-server/help");
+const { assignAutoPorts, printPortMap } = require("./e2e-server/ports");
+const { printStatus } = require("./e2e-server/status");
 
 const { command, options } = parseCli(process.argv);
 const targets = options.targets;
@@ -24,6 +26,10 @@ async function main() {
   }
 
   if (command === "install") {
+    if (options.autoPort) {
+      await assignAutoPorts(instances);
+      printPortMap(instances);
+    }
     await installTargets(instances, options);
     return;
   }
@@ -38,7 +44,16 @@ async function main() {
     return;
   }
 
+  if (command === "status") {
+    await printStatus(instances, options);
+    return;
+  }
+
   if (command === "launch") {
+    if (options.autoPort) {
+      await assignAutoPorts(instances);
+      printPortMap(instances);
+    }
     await installTargets(instances, options);
     await launchTargets(instances, options);
     return;

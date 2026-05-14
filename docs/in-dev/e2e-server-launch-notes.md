@@ -29,6 +29,21 @@ On bash:
 E2E_ENDSTONE_PORT=19132 E2E_GEYSER_PORT=19133 E2E_JAVA_PORT=25565 node scripts/e2e-servers.js launch
 ```
 
+For manual spinups where the default ports may already be occupied, let the launcher choose free ports before it writes server configs:
+
+```powershell
+node scripts/e2e-servers.js launch --target=endstone --auto-port
+```
+
+Environment form:
+
+```powershell
+$env:E2E_AUTO_PORT='1'
+node scripts/e2e-servers.js launch
+```
+
+`--auto-port` checks from the configured/default ports upward, reserves ports across all selected instances, rewrites the generated Paper/Geyser/Endstone configs with the selected values, and prints the final port map. Client runs started through `--client` or `/client` receive the selected Bedrock `PORT` automatically.
+
 Multiple instances use separate working directories:
 
 - First Java/Geyser instance: `.e2e-servers/java-geyser/`
@@ -119,6 +134,15 @@ pnpm run e2e:servers:cleanup-orphans
 ```
 
 Orphan cleanup scans local processes for command lines or executable paths under `.e2e-servers/`, skips instances that still have a live `scripts/e2e-servers.js launch` parent, reports those active managed processes with their launcher PID, stops orphaned process trees, and removes stale `.test-lock.<scope>.json` files whose recorded same-host PID is no longer alive. It keeps active test locks. Use `--include-managed` when a launcher-backed server tree is known to be abandoned and should be stopped anyway.
+
+Check current configured instance usage without stopping anything:
+
+```powershell
+node scripts/e2e-servers.js status
+node scripts/e2e-servers.js status --target=endstone
+```
+
+Status reports each configured instance's Java/Bedrock ports as free or used, Bedrock ping details when available, Endstone packet-recorder request state, matching running processes, and standalone e2e launcher/processes. Use it before manual packet-recorder sessions when a previous standalone e2e server may already be occupying the default ports.
 
 ## Install
 
@@ -348,6 +372,16 @@ Launch one family:
 node scripts/e2e-servers.js launch --target=java
 node scripts/e2e-servers.js launch --target=endstone
 ```
+
+Common request: "test server that packet logs for Endstone 1.26.12":
+
+```powershell
+$env:E2E_ENDSTONE_PACKAGE='endstone'
+$env:MC_VERSION='1.26.10'
+node scripts/e2e-servers.js launch --target=endstone --world=superflat --endstone-packet-recorder
+```
+
+The current published `endstone` package serves BDS `1.26.12.2`. Keep `MC_VERSION=1.26.10` for bot clients and packet decoding unless matching `1.26.12` registry data has been installed locally.
 
 Launch multiple instances:
 

@@ -111,6 +111,7 @@ function createMovementPacketSender (botState, C) {
   function sendPlayerAuthInput (dt) {
     const self = botState.self
     if (!self) return
+    if (!botState.canSendPlayerAuthInput) return
 
     interpolateRotation(dt)
 

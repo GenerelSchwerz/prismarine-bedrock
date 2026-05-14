@@ -18,6 +18,7 @@ function printHelp() {
     "  node scripts/e2e-servers.js install --target=java --java-worlds=normal,superflat",
     "  node scripts/e2e-servers.js clean --scope=worlds",
     "  node scripts/e2e-servers.js clean --scope=logs",
+    "  node scripts/e2e-servers.js status [--target=all|java|endstone] [--java-count=2] [--endstone-count=2]",
     "  node scripts/e2e-servers.js cleanup-orphans [--dry-run] [--include-managed]",
     "",
     "Environment:",
@@ -27,6 +28,7 @@ function printHelp() {
     "  E2E_JAVA_PORT           Java server port, default 25565",
     "  E2E_GEYSER_PORT         Geyser Bedrock UDP port, default 19133",
     "  E2E_ENDSTONE_PORT       Endstone Bedrock UDP port, default 19132",
+    "  E2E_AUTO_PORT           Set 1 to choose free Java/Geyser/Endstone ports automatically",
     "  E2E_JAVA_COUNT          Number of Java/Geyser instances, default 1",
     "  E2E_JAVA_PROFILES       Comma-separated Java plugin profiles, e.g. none,astrox,boar,astrox+boar",
     "  E2E_WORLD               World type for all instances: normal or superflat",
@@ -60,6 +62,7 @@ function printHelp() {
     "  --client-stop-delay-ms=N Delay before stopping servers after client exit, default 2000",
     "  --server-ready-timeout-ms=N Delay before giving up on server readiness, default 120000",
     "  --client CMD            With multiple servers, runs one client process per server with scoped HOST/PORT/lock env",
+    "  --auto-port             Choose free Java/Geyser/Endstone ports before writing configs",
     `  --endstone-package=SPEC Pin Endstone package spec, e.g. ${DEFAULT_ENDSTONE_PACKAGE}`,
     "  --endstone-packet-recorder Install an Endstone plugin that records PacketReceiveEvent/PacketSendEvent to JSONL",
     "  --endstone-packet-recorder-player=NAME Record packets only for the named player; repeatable/comma-separated",
@@ -70,6 +73,9 @@ function printHelp() {
     "Cleanup options:",
     "  --dry-run               For cleanup-orphans, report matching processes and stale locks without deleting",
     "  --include-managed       Also stop e2e server trees still owned by a launcher process",
+    "",
+    "Status:",
+    "  status reports configured instance ports as free/used, Bedrock ping results, recorder request state, and standalone e2e processes.",
     ""
   ].join("\n"));
 }

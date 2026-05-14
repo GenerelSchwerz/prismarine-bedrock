@@ -42,6 +42,7 @@ function buildInstances(selected, options) {
       name: `endstone-${index + 1}`,
       dir: index === 0 ? ENDSTONE_BASE_DIR : path.join(E2E_ROOT, `endstone-bds-${index + 1}`),
       bedrockPort: ENDSTONE_BEDROCK_PORT + index,
+      bedrockPortV6: 19134 + index,
       world: endstoneWorlds ? endstoneWorlds[index % endstoneWorlds.length] : options.world
     });
   }

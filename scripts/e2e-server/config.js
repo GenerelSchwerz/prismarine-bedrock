@@ -115,7 +115,7 @@ function endstoneServerProperties(instance, options) {
     "difficulty=peaceful",
     "allow-cheats=true",
     `server-port=${instance.bedrockPort}`,
-    `server-portv6=${19134 + instance.index}`,
+    `server-portv6=${instance.bedrockPortV6 || 19134 + instance.index}`,
     "online-mode=false",
     `level-name=${worldName(instance, options)}`,
     `level-type=${bedrockLevelType(instance.world)}`,

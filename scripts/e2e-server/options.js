@@ -37,6 +37,7 @@ function parseOptions(args) {
     javaBin: process.env.E2E_JAVA_BIN || defaultJavaBin(),
     geyserAuthType: process.env.E2E_GEYSER_AUTH_TYPE || "offline",
     autoOp: process.env.E2E_AUTO_OP !== "0",
+    autoPort: process.env.E2E_AUTO_PORT === "1",
     dryRun: false,
     includeManaged: false
   };
@@ -99,6 +100,8 @@ function parseOptions(args) {
       options.serverReadyTimeoutMs = parsePositiveInt(arg.slice("--server-ready-timeout-ms=".length), "--server-ready-timeout-ms");
     } else if (arg === "--no-auto-op") {
       options.autoOp = false;
+    } else if (arg === "--auto-port") {
+      options.autoPort = true;
     } else if (arg === "--dry-run") {
       options.dryRun = true;
     } else if (arg === "--include-managed") {

@@ -57,4 +57,19 @@ describe('e2e server options', function () {
       'node script.js --name "oak \\"planks\\""'
     )
   })
+
+  it('enables automatic port selection from cli or environment', function () {
+    const previous = process.env.E2E_AUTO_PORT
+    try {
+      delete process.env.E2E_AUTO_PORT
+      assert.strictEqual(parseOptions([]).autoPort, false)
+      assert.strictEqual(parseOptions(['--auto-port']).autoPort, true)
+
+      process.env.E2E_AUTO_PORT = '1'
+      assert.strictEqual(parseOptions([]).autoPort, true)
+    } finally {
+      if (previous === undefined) delete process.env.E2E_AUTO_PORT
+      else process.env.E2E_AUTO_PORT = previous
+    }
+  })
 })

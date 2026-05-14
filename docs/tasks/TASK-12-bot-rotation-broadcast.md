@@ -27,9 +27,9 @@ Other connected clients should visibly receive a bot's look/rotation changes whe
 
 ## Current State
 
-- Worktree state: only task logs are currently modified; `scripts/tmp/two-bot-rotation-check.js` exists under a gitignored path.
+- Worktree state: task logs are modified; `scripts/tmp/two-bot-rotation-check.js` exists under a gitignored path. Separate user/peer edits may exist in e2e-server docs/scripts and were not touched by this task.
 - Already implemented: no production fix yet.
-- In progress: diagnosis points at auth-input-only look updates not being rebroadcast by BDS.
+- In progress: the temporary two-bot runner now supports pre/post teleport rotation phases and begins by placing both bots on a known superflat floor before any look checks.
 - Not started: focused patch and regression test.
 - Known mismatch between notes and worktree: none.
 
@@ -38,7 +38,7 @@ Other connected clients should visibly receive a bot's look/rotation changes whe
 | File | State | Notes |
 | --- | --- | --- |
 | `docs/tasks/TASK-12-bot-rotation-broadcast.md` | changed | New task log for rotation broadcast diagnosis and fix plan. |
-| `scripts/tmp/two-bot-rotation-check.js` | local/gitignored | Temporary runner connects `LookBot` and `SentinelBot`, teleports both, rotates `LookBot`, and relies on split Endstone packet recordings. |
+| `scripts/tmp/two-bot-rotation-check.js` | local/gitignored | Temporary runner connects `LookBot` and `SentinelBot`, places both on a known superflat floor at `ROTATION_SUPERFLAT_FLOOR_Y` before the pre-teleport phase, then runs pre/post teleport rotation phases with bounded look waits and split Endstone packet recordings. |
 | `src/builtins/physics/movement-packets.js` | inspected | `look()` updates local yaw/pitch/headYaw; normal auth-input ticks send those fields. `syncLook()` can send standalone `move_player`, but ordinary `look()`/`waitForLookComplete()` do not send it. |
 | `src/builtins/physics/index.js` | inspected | Exposes `look`, `lookAt`, `waitForLookComplete`, and `syncLook`; no change made yet. |
 | `docs/tasks/TASK-06-crafting-item-stack-request.md` | changed by prior evidence pass | Contains the original crafting-adjacent rotation findings and points to this new standalone task. |
@@ -72,23 +72,34 @@ $env:E2E_ENDSTONE_PACKAGE='endstone==0.10.18'; $env:MC_VERSION='1.21.130'; $env:
   Raw: `.e2e-servers/endstone-bds/logs/two-bot-rotation-check-121130.LookBot.jsonl`, `.SentinelBot.jsonl`.
   Decoded: `logs/decoded-two-bot-rotation-121130-lookbot-auth.jsonl`, `logs/decoded-two-bot-rotation-121130-sentinel-all.jsonl`, `logs/decoded-two-bot-rotation-121130-sentinel-movement.jsonl`.
 
+- `2026-05-13` - Expanded pre/post teleport two-bot sentinel check on Endstone `0.10.18` / BDS `1.21.130.4` with initial known superflat floor placement - FAIL for visible rotation broadcast in both phases. Command:
+
+```powershell
+$env:E2E_ENDSTONE_PACKAGE='endstone==0.10.18'; $env:MC_VERSION='1.21.130'; $env:E2E_PACKET_RECORD_FILE='logs/two-bot-rotation-prepost-floor-121130.jsonl'; $env:ROTATION_PHASES='pre_teleport,post_teleport'; node scripts/e2e-servers.js launch --target=endstone --world=superflat --endstone-packet-recorder --endstone-packet-recorder-split-by-player --exit-after-client --client-timeout-ms=300000 --client node scripts/tmp/two-bot-rotation-check.js
+```
+
+  Result: client exited `0`. The runner first placed `LookBot` at `0.500 -60.000 0.500` and `SentinelBot` at `3.500 -60.000 0.500` with local ground at `y=-61`, then ran `pre_teleport`, then teleported both to the normal setup floor and ran `post_teleport`. `LookBot` sent auth-input yaw/head-yaw/camera-orientation deltas in both phases. `SentinelBot` saw only three packets for `LookBot` runtime `1`: initial `add_player`, floor-placement `move_player` at `y=-58.37998962402344`, and setup `move_player` at `y=65.62001037597656`. No runtime `1` `move_player`, `move_entity`, or `move_entity_delta` rotation packet was sent during either rotation phase.
+  Raw: `.e2e-servers/endstone-bds/logs/two-bot-rotation-prepost-floor-121130.LookBot.jsonl`, `.SentinelBot.jsonl`.
+  Decoded: `logs/decoded-two-bot-rotation-prepost-floor-121130-lookbot-auth.jsonl`, `logs/decoded-two-bot-rotation-prepost-floor-121130-sentinel-all.jsonl`, `logs/decoded-two-bot-rotation-prepost-floor-121130-sentinel-movement.jsonl`.
+
 ## Architecture Notes
 
 - Current `look()` changes `botState.self.yaw`, `pitch`, and `headYaw`. The regular movement loop encodes those values in `player_auth_input`.
 - BDS accepts those auth-input look fields from the bot, but the two-bot traces show BDS does not rebroadcast auth-input-only look changes as entity movement/rotation packets to another client.
-- Setup teleports are visible to the sentinel as `move_player`, so the sentinel is close enough and packet recording is not missing all target-player updates.
+- Setup teleports and the new initial superflat-floor placement are visible to the sentinel as `move_player`, so the sentinel is close enough and packet recording is not missing all target-player updates.
+- Running the look phase before and after the normal setup teleport on BDS `1.21.130.4` did not change the result: auth-input-only rotation was not broadcast in either phase.
 - `syncLook()` already exists and sends a standalone `move_player` with current interpolated yaw/pitch/head_yaw. The next diagnostic should test whether this packet is the missing server-visible rotation publication path.
 - If a `move_player` sync works, the implementation should avoid flooding: only emit it for explicit visible look syncs, container interactions, or completed look changes, not every auth-input interpolation tick unless tests prove BDS requires it.
 
 ## Handoff
 
-Start by modifying the temporary two-bot runner to optionally call `lookBot.syncLook()` after each `lookBot.waitForLookComplete()`. Run it first on `MC_VERSION=1.21.130` / `endstone==0.10.18`, then on current Endstone/BDS with `MC_VERSION=1.26.10`. Decode `SentinelBot` only and check for target runtime `1` after the setup teleport.
+Start by modifying the temporary two-bot runner to optionally call `lookBot.syncLook()` after each `lookBot.waitForLookComplete()`. Run it first on `MC_VERSION=1.21.130` / `endstone==0.10.18`, with the existing known-floor pre/post phases, then on current Endstone/BDS with `MC_VERSION=1.26.10`. Decode `SentinelBot` only and check for target runtime `1` after each phase start.
 
 ## Resume Notes
 
 - Next step: add an env-gated experiment to `scripts/tmp/two-bot-rotation-check.js`, such as `ROTATION_SYNC_MOVE_PLAYER=1`, that calls `await lookBot.syncLook()` after each scripted look.
-- Do not repeat: plain auth-input-only look has already failed on both BDS `1.21.130.4` and `1.26.12.2`.
-- Raw logs: `.e2e-servers/endstone-bds/logs/two-bot-rotation-check-12612*.jsonl` and `.e2e-servers/endstone-bds/logs/two-bot-rotation-check-121130*.jsonl`.
+- Do not repeat: plain auth-input-only look has already failed on both BDS `1.21.130.4` and `1.26.12.2`; it also failed on `1.21.130.4` both before and after the normal setup teleport when the bot starts on a known superflat floor.
+- Raw logs: `.e2e-servers/endstone-bds/logs/two-bot-rotation-check-12612*.jsonl`, `.e2e-servers/endstone-bds/logs/two-bot-rotation-check-121130*.jsonl`, and `.e2e-servers/endstone-bds/logs/two-bot-rotation-prepost-floor-121130*.jsonl`.
 
 ## Final Summary
 

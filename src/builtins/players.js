@@ -1,4 +1,4 @@
-const { logAction } = require('../utils');
+const { logAction, sameRuntimeId } = require('../utils');
 const { Vec3 } = require('vec3');
 const { applyEntityMetadata, applyHealth, flagsToBigInt, METADATA_FLAGS } = require('../entity-metadata');
 
@@ -55,6 +55,7 @@ module.exports = (botState, options) => {
 
   // Respawn (update position after respawn)
   botState.client.on('respawn', (packet) => {
+    if (botState.self && sameRuntimeId(packet.runtime_entity_id, botState.self.runtimeId)) return;
     const entity = botState.players.get(packet.runtime_entity_id);
     if (entity) {
       entity.position.set(packet.position.x, packet.position.y, packet.position.z);

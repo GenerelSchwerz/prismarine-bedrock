@@ -289,6 +289,40 @@ rg -n "bedrockSlotToJava|javaSlotToBedrock|ContainerSlotType" temp-geyser-inspec
 - Parallel Java/Geyser live shards: `pnpm run test:live:e2e:java:parallel`
 - All default tests: `pnpm test`
 
+## Common E2E Requests
+
+When the user asks for "a test server that packet logs for Endstone 1.26.12" or similar, run the current Endstone/BDS packet-recorder server:
+
+```powershell
+$env:E2E_ENDSTONE_PACKAGE='endstone'
+$env:MC_VERSION='1.26.10'
+node scripts/e2e-servers.js launch --target=endstone --world=superflat --endstone-packet-recorder
+```
+
+This starts the latest published Endstone package, which currently serves BDS `1.26.12.2`, on Bedrock UDP `19132` by default. Use `MC_VERSION=1.26.10` for this repo's installed Bedrock protocol data when decoding packets or running bot clients against that server; direct `MC_VERSION=1.26.12` is not available unless matching local `minecraft-data`/registry data has been added.
+
+Useful packet-recorder variants:
+
+```powershell
+# Record only selected players.
+node scripts/e2e-servers.js launch --target=endstone --world=superflat --endstone-packet-recorder --endstone-packet-recorder-player=OpBot
+
+# Keep the combined recorder and also write packet-recorder.<player>.jsonl files.
+node scripts/e2e-servers.js launch --target=endstone --world=superflat --endstone-packet-recorder --endstone-packet-recorder-split-by-player
+
+# Put the recorder JSONL at a stable repo-local path.
+$env:E2E_PACKET_RECORD_FILE='logs/my-endstone-12612-packets.jsonl'
+node scripts/e2e-servers.js launch --target=endstone --world=superflat --endstone-packet-recorder
+```
+
+Default recorder output is `.e2e-servers/endstone-bds/logs/packet-recorder.jsonl` unless `E2E_PACKET_RECORD_FILE` is set. Decode with:
+
+```powershell
+node scripts/decode-endstone-packet-recording.js .e2e-servers/endstone-bds/logs/packet-recorder.jsonl 1.26.10 --out=logs/decoded-endstone-12612.jsonl
+```
+
+To look up launcher arguments, run `node scripts/e2e-servers.js help` and inspect `scripts/e2e-server/options.js` for the authoritative parser. For longer explanation and examples, read `docs/in-dev/e2e-server-launch-notes.md`; for scenario-driven human captures, read `test/recorded-bds/README.md`.
+
 If a live packet failure is unclear after the first focused run, inspect packet traffic before guessing:
 
 ```powershell

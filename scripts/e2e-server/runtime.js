@@ -77,8 +77,18 @@ async function createRuntime(targetInstances, options) {
         autoOppedPlayers: new Set()
       };
       processes.set(name, record);
-      writeEvent(record, combined, "process_start", { command: commandLine, cwd });
+      writeEvent(record, combined, "process_start", {
+        command: commandLine,
+        cwd,
+        pid: child.pid || null,
+        launcherPid: process.pid,
+        usage: spawnOptions.usage || null
+      });
       console.log(`[${consoleLabel(record)}] ${commandLine}`);
+      console.log(`[${consoleLabel(record)}] spawned pid ${child.pid || "unknown"} (launcher pid ${process.pid})`);
+      for (const line of launchUsageLines(spawnOptions.usage)) {
+        console.log(`[${consoleLabel(record)}] ${line}`);
+      }
 
       const stdoutHandler = createOutputHandler(record, combined, "stdout", runtime);
       const stderrHandler = createOutputHandler(record, combined, "stderr", runtime);
@@ -460,6 +470,20 @@ function consoleLabel(record) {
     return `client-${record.run.id.split("-", 1)[0]}`;
   }
   return record.name;
+}
+
+function launchUsageLines(usage) {
+  if (!usage) return [];
+  const lines = [];
+  if (usage.kind) lines.push(`type ${usage.kind}`);
+  if (usage.world) lines.push(`world ${usage.world}`);
+  if (usage.javaPort) lines.push(`Java TCP port ${usage.javaPort}`);
+  if (usage.bedrockPort) lines.push(`Bedrock UDP port ${usage.bedrockPort}`);
+  if (usage.bedrockPortV6) lines.push(`Bedrock UDP v6 port ${usage.bedrockPortV6}`);
+  if (usage.profile) lines.push(`profile ${usage.profile}`);
+  if (usage.paperVersion) lines.push(`Paper ${usage.paperVersion}`);
+  if (usage.cwd) lines.push(`cwd ${usage.cwd}`);
+  return lines;
 }
 
 function finishClientRun(run, activeRuns, sessionCombined) {

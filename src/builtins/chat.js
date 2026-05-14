@@ -115,15 +115,16 @@ function inject (botState, options) {
       return
     }
     const chatMessage = new ChatMessage(message)
-    // client.queue('text', {
-    //   type: 'chat',
-    //   needs_translation: false,
-    //   source_name: options.username || 'Bot',
-    //   xuid: '',
-    //   platform_chat_id: '',
-    //   filtered_message: '',
-    //   message: message
-    // })
+    client.queue('text', {
+      needs_translation: false,
+      category: 'authored',
+      type: 'chat',
+      source_name: client.username || options.username || 'Bot',
+      message: chatMessage.toString(),
+      xuid: '',
+      platform_chat_id: '',
+      has_filtered_message: false
+    })
   }
 
   /**

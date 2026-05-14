@@ -393,6 +393,8 @@ node scripts/e2e-servers.js launch --java-count=2 --endstone-count=2
 
 The launcher prefixes each process line with the instance name, such as `java-1`, `java-2`, `endstone-1`, or `endstone-2`. Endstone is launched with `--server-folder <instance-dir> --no-confirm --interactive` so it manages BDS in that working directory and keeps a console open for live commands. Press `Ctrl+C` in the launcher terminal to stop all processes it started.
 
+When a server process is spawned, the launcher prints the child PID, launcher PID, selected world/profile, working directory, and the Java/Bedrock ports assigned to that instance before waiting for server readiness. The same values are written to the session `process_start` event so background launches and agent handoffs can identify the active process and connection details without waiting for the server log to reach `ready`.
+
 For Endstone packet recording, scope the hook when another Bedrock client may join during a bot run:
 
 ```powershell

@@ -30,7 +30,10 @@ async function launchTargets(targetInstances, options) {
         "-jar",
         path.join(instance.dir, "paper.jar"),
         "nogui"
-      ], instance.dir, {}, { readyPattern: serverReadyPattern(instance) });
+      ], instance.dir, {}, {
+        readyPattern: serverReadyPattern(instance),
+        usage: launchUsage(instance)
+      });
     }
 
     if (instance.type === "endstone") {
@@ -44,7 +47,10 @@ async function launchTargets(targetInstances, options) {
         packetRecorderPlayers: options.endstonePacketRecorderPlayers,
         packetRecorderSplitByPlayer: options.endstonePacketRecorderSplitByPlayer,
         repoRoot: ROOT
-      }), { readyPattern: serverReadyPattern(instance) });
+      }), {
+        readyPattern: serverReadyPattern(instance),
+        usage: launchUsage(instance)
+      });
     }
   }
 
@@ -64,6 +70,19 @@ async function launchTargets(targetInstances, options) {
 function serverReadyPattern(instance) {
   if (instance.type === "java") return /\bDone \([^)]+\)! For help, type "help"/;
   return /\bServer started\./;
+}
+
+function launchUsage(instance) {
+  return {
+    kind: instance.type,
+    world: instance.world,
+    javaPort: instance.javaPort || null,
+    bedrockPort: instance.bedrockPort,
+    bedrockPortV6: instance.bedrockPortV6 || null,
+    profile: instance.profile || null,
+    paperVersion: instance.paperVersion || null,
+    cwd: instance.dir
+  };
 }
 
 module.exports = { launchTargets };

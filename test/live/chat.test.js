@@ -2,6 +2,7 @@
 
 const assert = require('assert')
 const BotState = require('../../src/state')
+const { skipUnlessE2ETarget } = require('../helpers/e2e-targets')
 const {
   HOST,
   PORT,
@@ -12,11 +13,12 @@ const {
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 const TARGET = process.env.E2E_SERVER_TARGET || `port-${PORT}`
-const CHAT_USERNAME = process.env.CHAT_USERNAME || chatUsernameForTarget(TARGET)
+const CHAT_SENDER_USERNAME = process.env.CHAT_SENDER_USERNAME || chatUsernameForTarget(TARGET, 'Send')
+const CHAT_RECEIVER_USERNAME = process.env.CHAT_RECEIVER_USERNAME || chatUsernameForTarget(TARGET, 'Recv')
 
-function chatUsernameForTarget (target) {
+function chatUsernameForTarget (target, role) {
   const suffix = String(target).replace(/[^A-Za-z0-9]/g, '').slice(0, 10)
-  return suffix ? `Chat${suffix}` : 'ChatBot'
+  return suffix ? `Chat${role}${suffix}` : `Chat${role}`
 }
 
 function waitForSpawn (botState, timeoutMs = 30000) {
@@ -80,26 +82,41 @@ function waitForChatMessage (botState, expected) {
 describe('live chat builtin', function () {
   this.timeout(90000)
 
-  let botState
+  const bots = []
 
-  after(function () {
-    if (botState?.client) botState.disconnect('live chat builtin test complete')
+  before(function () {
+    skipUnlessE2ETarget(
+      this,
+      'endstone',
+      'chat broadcast is pinned to Endstone/BDS until the known Geyser chat/session bug is fixed'
+    )
   })
 
-  it('sends public chat and receives the server echo', async function () {
-    botState = await connectBot(CHAT_USERNAME)
+  after(function () {
+    for (const botState of bots) {
+      if (botState?.client) botState.disconnect('live chat builtin test complete')
+    }
+  })
+
+  it('sends public chat that another bot receives', async function () {
+    const receiver = await connectBot(CHAT_RECEIVER_USERNAME)
+    bots.push(receiver)
+
+    const sender = await connectBot(CHAT_SENDER_USERNAME)
+    bots.push(sender)
+
     await sleep(500)
 
     const message = `chat-e2e-${TARGET}-${Date.now()}`
-    const received = waitForChatMessage(botState, {
-      sourceName: CHAT_USERNAME,
+    const received = waitForChatMessage(receiver, {
+      sourceName: CHAT_SENDER_USERNAME,
       message
     })
 
-    botState.chat(message)
+    sender.chat(message)
 
     const event = await received
     assert.strictEqual(event.message, message)
-    assert.strictEqual(normalizePlayerName(event.sourceName), CHAT_USERNAME)
+    assert.strictEqual(normalizePlayerName(event.sourceName), CHAT_SENDER_USERNAME)
   })
 })

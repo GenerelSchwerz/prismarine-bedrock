@@ -64,7 +64,7 @@ function printHelp() {
     "  --client CMD            With multiple servers, runs one client process per server with scoped HOST/PORT/lock env",
     "  --auto-port             Choose free Java/Geyser/Endstone ports before writing configs",
     `  --endstone-package=SPEC Pin Endstone package spec, e.g. ${DEFAULT_ENDSTONE_PACKAGE}`,
-    "  --endstone-packet-recorder Install an Endstone plugin that records PacketReceiveEvent/PacketSendEvent to JSONL",
+    "  --endstone-packet-recorder Install an Endstone plugin that records PacketReceiveEvent/PacketSendEvent to compact JSONL rows",
     "  --endstone-packet-recorder-player=NAME Record packets only for the named player; repeatable/comma-separated",
     "  --endstone-packet-recorder-split-by-player Also write per-player recorder JSONL files",
     "  --endstone-scenario=ID_OR_PATH Run a stepped Endstone-only human recording scenario; enables recorder",

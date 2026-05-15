@@ -13,3 +13,7 @@ Put tests that create a `BotState` and connect to the Bedrock server under `test
 The default lock scope is `E2E_SERVER_TARGET`, then `PORT`, then `default`. This allows different e2e server instances, such as `java-1` and `endstone-1`, to run at the same time while still preventing concurrent tests against the same server instance. If a scoped lock exists, assume another agent is running live tests against that target. Wait for that run to finish. Only delete the lock after confirming no test process is active; stale same-host locks from dead processes are removed automatically on the next live Mocha startup.
 
 Set `TEST_LOCK_DISABLE=1` only for tests that do not touch the shared Bedrock server.
+
+## Target-Pinned Live Tests
+
+Use `test/helpers/e2e-targets.js` when a live test is only valid for one e2e server family. `skipUnlessE2ETarget(this, 'endstone')` pins a suite or test to Endstone/BDS. `skipUnlessE2ETarget(this, 'geyser')` pins it to Java/Geyser. The helper maps launcher target names such as `endstone-1` and `java-1`; it intentionally treats an unset target as unknown instead of guessing from the port.

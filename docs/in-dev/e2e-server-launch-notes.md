@@ -403,6 +403,20 @@ node scripts/e2e-servers.js launch --target=endstone --world=superflat --endston
 
 Use `--endstone-packet-recorder-player=NAME` repeatedly, or pass a comma-separated value, to record only selected players. Use `--endstone-packet-recorder-split-by-player` to keep the combined recorder file and also write clean files such as `packet-recorder.OpBot.jsonl` beside it. The environment variables are `E2E_PACKET_RECORDER_PLAYERS` and `E2E_PACKET_RECORDER_SPLIT_BY_PLAYER=1`.
 
+Packet hook records are compact rows rather than object-shaped packet JSON. The `recorder_start` marker records the schema, and packet rows use:
+
+```text
+["p",sequence,ts,direction,packet_id,sub_client_id,player,address,payload_base64,payload_size,payload_sha256]
+```
+
+`direction` is `r` for client-to-server receive hooks and `s` for server-to-client send hooks. Use the decoder or query helper instead of reading raw packet rows directly:
+
+```powershell
+node scripts/decode-endstone-packet-recording.js .e2e-servers/endstone-bds/logs/packet-recorder.jsonl 1.26.10 --packet-ids=147 --out=logs/decoded-item-stack-requests.jsonl
+node scripts/query-packet-recording.js .e2e-servers/endstone-bds/logs/packet-recorder.jsonl 1.26.10 --packet-names=item_stack_response --field=params.responses.0.request_id --field=params.responses.0.status
+node scripts/query-packet-recording.js .e2e-servers/endstone-bds/logs/packet-recorder.jsonl 1.26.10 --packet-ids=144 --count
+```
+
 ## Structured Logs
 
 Each launcher session creates a directory under `.e2e-servers/runs/<timestamp>/`. This session directory is tied to server uptime, not to a single test run.

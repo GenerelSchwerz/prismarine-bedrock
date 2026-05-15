@@ -40,7 +40,13 @@ node scripts/e2e-servers.js launch --target=endstone --world=superflat --endston
 
 This still writes the main `packet-recorder.jsonl` and also writes files such as `packet-recorder.OpBot.jsonl` beside it. The environment equivalents are `E2E_PACKET_RECORDER_PLAYERS=OpBot` and `E2E_PACKET_RECORDER_SPLIT_BY_PLAYER=1`.
 
-Decode packet records:
+Packet hook rows use `compact_packet_v1` to reduce repeated JSON keys. Scenario markers remain object records, while packets are arrays with this schema:
+
+```text
+["p",sequence,ts,direction,packet_id,sub_client_id,player,address,payload_base64,payload_size,payload_sha256]
+```
+
+`direction` is `r` for client-to-server receive hooks and `s` for server-to-client send hooks. Decode packet rows before inspecting fields:
 
 ```powershell
 node scripts/decode-endstone-packet-recording.js .e2e-servers/endstone-bds/logs/packet-recorder.jsonl 1.26.10
@@ -58,7 +64,14 @@ Then search the decoded file:
 rg -n "craft_recipe|crafting_input|creative_output" logs/decoded-item-stack-requests.jsonl
 ```
 
-Do not inspect raw recorder JSONL with broad `Get-Content`/`cat` during analysis. Use packet-id filters, compact decoder output, `--out`, and `rg` against decoded summaries. The decoder streams input line-by-line, so filtered decoded files can be generated without loading the whole recording into chat.
+For targeted packet and field queries, use the query helper instead of decoding broad full traces:
+
+```powershell
+node scripts/query-packet-recording.js .e2e-servers/endstone-bds/logs/packet-recorder.jsonl 1.26.10 --packet-names=item_stack_response --field=params.responses.0.request_id --field=params.responses.0.status
+node scripts/query-packet-recording.js .e2e-servers/endstone-bds/logs/packet-recorder.jsonl 1.26.10 --packet-ids=147 --where=params.requests.0.request_id=4 --field=params.requests.0.actions
+```
+
+Do not inspect raw recorder JSONL with broad `Get-Content`/`cat` during analysis. Use packet-id/name filters, compact decoder output, query field projections, `--out`, and `rg` against decoded summaries. The decoder and query helper stream input line-by-line, so filtered files can be generated without loading the whole recording into chat.
 
 Decode only `player_auth_input` changes:
 

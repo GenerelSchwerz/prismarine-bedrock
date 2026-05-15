@@ -70,6 +70,20 @@ class PacketRecorderPlugin(Plugin):
             "packet_ids": sorted(self._packet_ids) if self._packet_ids is not None else None,
             "players": sorted(self._player_filter) if self._player_filter is not None else None,
             "split_by_player": self._split_by_player,
+            "packet_record_format": "compact_packet_v1",
+            "packet_record_schema": [
+                "tag",
+                "sequence",
+                "ts",
+                "direction",
+                "packet_id",
+                "sub_client_id",
+                "player",
+                "address",
+                "payload_base64",
+                "payload_size",
+                "payload_sha256"
+            ],
             "scenario": self._scenario.get("id") if self._scenario else None
         })
 
@@ -195,17 +209,17 @@ class PacketRecorderPlugin(Plugin):
             return
 
         payload = bytes(event.payload)
-        self._write({
-            "type": "packet",
-            "direction": direction,
-            "packet_id": packet_id,
-            "sub_client_id": int(getattr(event, "sub_client_id", 0)),
-            "player": player_name,
-            "address": str(getattr(event, "address", "")),
-            "payload_base64": base64.b64encode(payload).decode("ascii"),
-            "payload_size": len(payload),
-            "payload_sha256": hashlib.sha256(payload).hexdigest()
-        })
+        self._write_packet_row([
+            "p",
+            "r" if direction == "receive" else "s",
+            packet_id,
+            int(getattr(event, "sub_client_id", 0)),
+            player_name,
+            str(getattr(event, "address", "")),
+            base64.b64encode(payload).decode("ascii"),
+            len(payload),
+            hashlib.sha256(payload).hexdigest()
+        ], player_name)
 
     def _record_endstone_event(self, event: Any) -> None:
         event_name = event.__class__.__name__
@@ -1037,6 +1051,19 @@ class PacketRecorderPlugin(Plugin):
             self._handle.flush()
             if self._split_by_player and record.get("player"):
                 player_handle = self._player_handle(str(record["player"]))
+                player_handle.write(line)
+                player_handle.flush()
+
+    def _write_packet_row(self, row: List[Any], player_name: Optional[str]) -> None:
+        with self._lock:
+            self._sequence += 1
+            row.insert(1, self._sequence)
+            row.insert(2, time.time())
+            line = json.dumps(row, separators=(",", ":")) + "\n"
+            self._handle.write(line)
+            self._handle.flush()
+            if self._split_by_player and player_name:
+                player_handle = self._player_handle(str(player_name))
                 player_handle.write(line)
                 player_handle.flush()
 

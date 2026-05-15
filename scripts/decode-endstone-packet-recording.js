@@ -27,7 +27,7 @@ function usage() {
   console.error(`Usage:
   node ${script} <recording.jsonl> [version] [--packet-ids=46,147,148] [--player-auth-input-delta-ignore=tick,yaw] [--full] [--out=logs/decoded.jsonl]
 
-Reads JSONL from the Endstone packet recorder and writes decoded packet JSONL to stdout.
+Reads compact_packet_v1 JSONL from the Endstone packet recorder and writes decoded packet JSONL to stdout.
 Default output is a compact summary for agent/human analysis; use --full for full decoded packet params.
 Use --out to write decoded JSONL to a file that can be searched with rg without loading it into chat.
 player_auth_input is printed as semantic deltas: the first packet for each stream, then only non-ignored decoded state changes.
@@ -100,8 +100,8 @@ function createOutputStream(filePath) {
 
 function processLine(line, writer) {
   if (!line.trim()) return;
-  const record = JSON.parse(line);
-  if (record.type !== "packet") return;
+  const record = compactPacketRecord(JSON.parse(line));
+  if (!record) return;
   const packetId = Number(record.packet_id);
   if (packetIds && !packetIds.has(packetId)) return;
 
@@ -134,6 +134,23 @@ function processLine(line, writer) {
 
   if (!fullOutput) summarizeOutput(decodedRecord);
   writer.write(`${JSON.stringify(decodedRecord, jsonSafeReplacer)}\n`);
+}
+
+function compactPacketRecord(value) {
+  if (!Array.isArray(value)) return null;
+  if (value[0] !== "p") return null;
+  return {
+    sequence: value[1],
+    ts: value[2],
+    direction: value[3] === "r" ? "receive" : "send",
+    packet_id: value[4],
+    sub_client_id: value[5],
+    player: value[6],
+    address: value[7],
+    payload_base64: value[8],
+    payload_size: value[9],
+    payload_sha256: value[10]
+  };
 }
 
 function summarizeOutput(output) {

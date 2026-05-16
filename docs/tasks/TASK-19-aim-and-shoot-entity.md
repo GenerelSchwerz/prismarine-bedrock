@@ -29,9 +29,10 @@ Use the recorded BDS workflow to capture a human aiming and shooting a bow at an
 - Worktree state: existing uncommitted TASK-17/TASK-18 packet logging and gym files are present; this task must not revert them.
 - Already implemented: `aim-and-shoot-cow` scenario existed before this task; the aim step now requires a cow near `[0, 65, 8]` and `held_item_is minecraft:bow`, and the shoot step requires both arrow consumption and that cow's absence. `held_item_is` now reads Endstone `PlayerInventory.item_in_main_hand`, selected slot `get_item`, and nested `ItemStack.type.id`/`ItemType.id` identifiers.
 - Confirmed: the live failure after the held-item resolver fix was the preceding `entity_exists` child in the `all` clearance. Endstone exposes nearby mobs through `level.actors`; once `_iter_nearby_entities` checked `actors`, Step 1 completed with both `entity_exists` and `held_item_is` passing.
-- In progress: continue the human capture from `logs/recorded-bds/aim-and-shoot-cow/human/2026-05-16T16-59-46-646Z/packets.jsonl` through shooting the cow.
-- Not started: bot recreation, packet comparison, library promotion.
-- Known mismatch between notes and worktree: none for TASK-19 yet.
+- Human run complete and indexed: `logs/recorded-bds/aim-and-shoot-cow/human/2026-05-16T16-59-46-646Z/packets.jsonl` has both step completions, `scenario_complete`, and `scenario_end status=complete`; SQLite sidecar exists.
+- Bot recreation is in progress in `test/recorded-bds/bots/aim-and-shoot-cow.js`. The latest rerun advanced past `equip-bow-and-aim` into `shoot-cow`, proving the bot can satisfy the held-bow clearance. It still failed because the cow survived all bow-shot attempts.
+- Latest failed bot raw log: `logs/recorded-bds/aim-and-shoot-cow/bot/2026-05-16T17-18-36-853Z/packets.jsonl`; markers show Step 1 complete, Step 2 active, then `scenario_end status=active completed_steps=1`.
+- Known mismatch between notes and worktree: `git status --short` currently reports unrelated `docs/tasks/TASK-20-available-commands-ready-handshake.md`; do not revert it for TASK-19.
 
 ## Change Ledger
 
@@ -41,6 +42,7 @@ Use the recorded BDS workflow to capture a human aiming and shooting a bow at an
 | `test/recorded-bds/scenarios/aim-and-shoot-cow.json` | changed | Guarded against async setup false positives. Step 1 now requires `entity_exists` for the target-position cow plus `held_item_is minecraft:bow`; setup gives arrows before the bow so slot 1 is the bow. The old packet-count gate was removed because the human got stuck after equipping the bow. Step 2 now requires both arrow consumption and `entity_dead` for the target-position cow. A tag-based attempt was reverted because BDS reported no targets for the tag selector immediately after summon. |
 | `scripts/endstone-packet-recorder/src/endstone_packet_recorder/recorder.py` | changed | Fixed `held_item_is` to check Endstone's actual main-hand and selected-slot inventory APIs and to resolve nested item type identifiers instead of comparing stringified item/type objects. Fixed `entity_exists` to scan Endstone `dimension.actors`/`level.actors`, which was preventing `held_item_is` from being reached in `all` clearances. |
 | `test/static/endstone-packet-recorder.test.js` | added | Covers `held_item_is` against Endstone-shaped `item_in_main_hand`, selected slot `get_item`, nested `ItemStack.type.id` identifiers, stale player-level held values, and `entity_exists` against Endstone `level.actors`. |
+| `test/recorded-bds/bots/aim-and-shoot-cow.js` | changed | Scenario-local bot recreation now recovers bot inventory with explicit `OpBot` commands, equips the bow, avoids `syncLook`, and sends local bow `item_use`/`item_release` packets. Latest run reaches Step 2 but does not kill the cow. |
 
 ## Parallel Subtasks
 
@@ -81,6 +83,9 @@ Use the recorded BDS workflow to capture a human aiming and shooting a bow at an
 - `2026-05-16` - `python -m py_compile scripts/endstone-packet-recorder/src/endstone_packet_recorder/recorder.py` - PASS. Notes: recorder compiles after adding `actors` entity sources.
 - `2026-05-16` - `pnpm exec mocha test/static/endstone-packet-recorder.test.js` - PASS. Notes: 2 passing; covers held-item detection and `entity_exists` against Endstone `level.actors`.
 - `2026-05-16` - `rg -n '"type":"(scenario_loaded|step_start|step_complete|scenario_complete|scenario_end|player_quit)"|held_item_is' logs/recorded-bds/aim-and-shoot-cow/human/2026-05-16T16-59-46-646Z/packets.jsonl` - PASS. Notes: Step 1 completed at sequence `404`; reason shows `entity_exists` passed with `seen: 4` and `held_item_is` passed with `actual: "minecraft:bow"`.
+- `2026-05-16` - `node scripts/index-packet-recording.js logs/recorded-bds/aim-and-shoot-cow/human/2026-05-16T16-59-46-646Z/packets.jsonl 1.26.10 --out=logs/recorded-bds/aim-and-shoot-cow/human/2026-05-16T16-59-46-646Z/packets.sqlite` - PASS. Notes: indexed completed human run; output reported 36 events, 1089 packets, 731941 fields.
+- `2026-05-16` - `node --check test/recorded-bds/bots/aim-and-shoot-cow.js` - PASS. Notes: scenario bot syntax valid before rerun.
+- `2026-05-16` - `node scripts/recorded-bds-gym.js run-bot --scenario=aim-and-shoot-cow` - FAIL. Notes: latest run `logs/recorded-bds/aim-and-shoot-cow/bot/2026-05-16T17-18-36-853Z/packets.jsonl`; Step 1 completed for `OpBot` at sequence `706` with `held_item_is actual=minecraft:bow`; Step 2 started at sequence `712`; bot disconnected with `Error: Scenario cow survived all bow shots`; scenario ended `status=active`, `completed_steps=1`.
 
 ## Architecture Notes
 
@@ -88,13 +93,13 @@ Use the recorded BDS workflow to capture a human aiming and shooting a bow at an
 
 ## Handoff
 
-Continue with scenario tightening, static JSON validation, then human capture.
+Continue from the latest failed bot run. Inspect bot bow packet trace and aiming/position state for `logs/recorded-bds/aim-and-shoot-cow/bot/2026-05-16T17-18-36-853Z/packets.jsonl`, then adjust only the scenario-local bot script until Step 2 completes.
 
 ## Resume Notes
 
-- Next step: continue or rerun `node scripts/recorded-bds-gym.js record-human --scenario=aim-and-shoot-cow`; Step 1 now completes from `held_item_is`, so proceed through Step 2 by shooting until the cow dies and then inspect scenario completion markers.
-- Do not repeat: scenario and task log discovery already found `aim-and-shoot-cow`; there are no existing completed gym runs for it.
-- Raw logs: `logs/recorded-bds/aim-and-shoot-cow/human/2026-05-16T16-59-46-646Z/packets.jsonl`.
+- Next step: inspect/decode the failed bot run `logs/recorded-bds/aim-and-shoot-cow/bot/2026-05-16T17-18-36-853Z/packets.jsonl`, focusing on `inventory_transaction`, `player_auth_input`, `mob_equipment`, projectile/entity motion, and whether arrows are consumed or projectiles spawn.
+- Do not repeat: human capture is complete and indexed; bot Step 1 now clears.
+- Raw logs: human `logs/recorded-bds/aim-and-shoot-cow/human/2026-05-16T16-59-46-646Z/packets.jsonl`; latest bot `logs/recorded-bds/aim-and-shoot-cow/bot/2026-05-16T17-18-36-853Z/packets.jsonl`.
 
 ## Final Summary
 

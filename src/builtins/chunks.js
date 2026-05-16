@@ -196,6 +196,14 @@ module.exports = (botState, options = {}) => {
     }
   }
 
+  function markChunkSectionsLoadedAbove(cx, cz, highestSectionY) {
+    if (!Number.isInteger(highestSectionY)) return;
+
+    for (let sectionY = highestSectionY + 1; sectionY <= WORLD_MAX_SECTION_Y; sectionY++) {
+      markChunkSectionLoaded(cx, cz, sectionY);
+    }
+  }
+
   function isSubChunkSuccess(result) {
     return result === 1 || result === 'success';
   }
@@ -619,6 +627,9 @@ module.exports = (botState, options = {}) => {
 
         const originSectionY = subchunkOriginSectionY();
         const sectionYs = levelChunkPollingSectionYs(packet, originSectionY);
+        if (packet.sub_chunk_count === -2) {
+          markChunkSectionsLoadedAbove(cx, cz, packet.highest_subchunk_count);
+        }
         rememberSubchunkRequest(cx, cz, dimension, originSectionY, sectionYs);
         queueSubchunkRequest(cx, cz, dimension, sectionYs, originSectionY);
 

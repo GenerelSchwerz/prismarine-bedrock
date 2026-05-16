@@ -56,6 +56,7 @@ async function launchTargets(targetInstances, options) {
 
   if (runtime.processes.size === 0) return;
   runtime.startConsole();
+  runtime.startScenarioMonitor(targetInstances);
   console.log(`Server session logs: ${runtime.sessionDir}`);
   console.log("Commands: /client <cmd>, /java <cmd>, /java-1 <cmd>, /endstone <cmd>, /endstone-1 <cmd>, /all <cmd>, /help, /quit.");
   if (options.client) {

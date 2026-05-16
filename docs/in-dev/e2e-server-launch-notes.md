@@ -417,6 +417,29 @@ node scripts/query-packet-recording.js .e2e-servers/endstone-bds/logs/packet-rec
 node scripts/query-packet-recording.js .e2e-servers/endstone-bds/logs/packet-recorder.jsonl 1.26.10 --packet-ids=144 --count
 ```
 
+For larger investigations, build a disposable SQLite index from the compact recording. The compact JSONL remains the append-only capture stream and source of truth; the SQLite file is a generated query cache that can be deleted and rebuilt.
+
+```powershell
+node scripts/index-packet-recording.js .e2e-servers/endstone-bds/logs/packet-recorder.jsonl 1.26.10 --out=logs/packet-recorder.sqlite
+```
+
+Query packets inside scenario/event bounds, sample noisy packet streams, and project decoded fields:
+
+```powershell
+node scripts/query-packet-db.js logs/packet-recorder.sqlite --after-event=step_start --after-where=step=open_table --before-event=step_complete --before-where=step=open_table --packet-names=player_auth_input --sample=20 --field=params.position --field=params.yaw
+node scripts/query-packet-db.js logs/packet-recorder.sqlite --packet-names=item_stack_request --where=params.requests.*.actions.*.type_id=take --field=params.requests.0.request_id
+```
+
+When `--endstone-scenario` is active, the launcher watches the recorder JSONL for `scenario_complete` followed by `scenario_end status=complete` and no remaining recorded players. The `scenario_end` marker is written when the completed player leaves, so human capture sessions now stop Endstone/BDS automatically after the tester exits the game. The launcher also prints periodic scenario monitor lines while it waits, including the current marker/step state and elapsed time, so background agent runs do not need a separate status-poll command just to know the process is still waiting.
+
+To keep a scenario server open manually:
+
+```powershell
+node scripts/e2e-servers.js launch --target=endstone --world=superflat --endstone-scenario=craft-planks-and-place --no-exit-after-scenario
+```
+
+The heartbeat interval defaults to 30 seconds and can be changed with `--scenario-progress-interval-ms=N` or `E2E_SCENARIO_PROGRESS_INTERVAL_MS=N`.
+
 ## Structured Logs
 
 Each launcher session creates a directory under `.e2e-servers/runs/<timestamp>/`. This session directory is tied to server uptime, not to a single test run.

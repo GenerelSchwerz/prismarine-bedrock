@@ -1218,7 +1218,7 @@ class PacketRecorderPlugin(Plugin):
         dimension = getattr(player, "dimension", None)
         candidates = []
         if dimension is not None:
-            for attr in ("entities", "entity_list"):
+            for attr in ("entities", "entity_list", "actors"):
                 value = getattr(dimension, attr, None)
                 if value is not None:
                     candidates.append(value)
@@ -1232,7 +1232,7 @@ class PacketRecorderPlugin(Plugin):
 
         level = getattr(player, "level", None) or getattr(player, "world", None)
         if level is not None:
-            for attr in ("entities", "entity_list"):
+            for attr in ("entities", "entity_list", "actors"):
                 value = getattr(level, attr, None)
                 if value is not None:
                     candidates.append(value)
@@ -1279,10 +1279,25 @@ class PacketRecorderPlugin(Plugin):
     def _held_item_identifier(self, player: Any) -> Optional[str]:
         inventory = getattr(player, "inventory", None)
         candidates = []
-        for owner in (player, inventory):
+        if inventory is not None:
+            selected_slot = getattr(inventory, "held_item_slot", None)
+            if selected_slot is not None:
+                for method in ("get_item", "getItem"):
+                    value = getattr(inventory, method, None)
+                    if callable(value):
+                        try:
+                            candidates.append(value(int(selected_slot)))
+                        except (TypeError, ValueError):
+                            pass
+                try:
+                    candidates.append(inventory[int(selected_slot)])
+                except Exception:
+                    pass
+
+        for owner in (inventory, player):
             if owner is None:
                 continue
-            for attr in ("item_in_hand", "itemInHand", "held_item", "selected_item"):
+            for attr in ("item_in_main_hand", "item_in_hand", "itemInHand", "held_item", "selected_item"):
                 value = getattr(owner, attr, None)
                 if value is not None:
                     candidates.append(value)
@@ -1305,10 +1320,13 @@ class PacketRecorderPlugin(Plugin):
             return None
         if isinstance(item, str):
             return item
-        for attr in ("type", "name", "identifier", "id"):
+        for attr in ("id", "key", "name", "identifier"):
             value = getattr(item, attr, None)
             if value:
                 return str(value)
+        item_type = getattr(item, "type", None)
+        if item_type:
+            return self._item_identifier(item_type)
         return str(item)
 
     def _active_effect_identifiers(self, player: Any) -> Set[str]:

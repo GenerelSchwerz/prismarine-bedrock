@@ -51,6 +51,7 @@
     "vec3": "^0.2.0"
   },
   "devDependencies": {
+    "better-sqlite3": "^12.10.0",
     "mocha": "^11.7.5"
   }
 }

@@ -18,8 +18,10 @@ function parseOptions(args) {
     client: null,
     clientArgs: null,
     exitAfterClient: false,
+    exitAfterScenario: process.env.E2E_EXIT_AFTER_SCENARIO !== "0",
     clientTimeoutMs: null,
     clientStopDelayMs: 2000,
+    scenarioProgressIntervalMs: parsePositiveInt(process.env.E2E_SCENARIO_PROGRESS_INTERVAL_MS || "30000", "E2E_SCENARIO_PROGRESS_INTERVAL_MS"),
     serverReadyTimeoutMs: 120000,
     geyserExtensions: [],
     javaProfiles: null,
@@ -92,10 +94,14 @@ function parseOptions(args) {
       options.cleanScope = normalizeCleanScope(arg.slice("--scope=".length));
     } else if (arg === "--exit-after-client") {
       options.exitAfterClient = true;
+    } else if (arg === "--no-exit-after-scenario") {
+      options.exitAfterScenario = false;
     } else if (arg.startsWith("--client-timeout-ms=")) {
       options.clientTimeoutMs = parsePositiveInt(arg.slice("--client-timeout-ms=".length), "--client-timeout-ms");
     } else if (arg.startsWith("--client-stop-delay-ms=")) {
       options.clientStopDelayMs = parsePositiveInt(arg.slice("--client-stop-delay-ms=".length), "--client-stop-delay-ms");
+    } else if (arg.startsWith("--scenario-progress-interval-ms=")) {
+      options.scenarioProgressIntervalMs = parsePositiveInt(arg.slice("--scenario-progress-interval-ms=".length), "--scenario-progress-interval-ms");
     } else if (arg.startsWith("--server-ready-timeout-ms=")) {
       options.serverReadyTimeoutMs = parsePositiveInt(arg.slice("--server-ready-timeout-ms=".length), "--server-ready-timeout-ms");
     } else if (arg === "--no-auto-op") {

@@ -11,11 +11,11 @@ This repo is optimized for long-running AI work where several agents may split a
 5. Identify owned files for the current task. If multiple agents are working, each agent must keep to disjoint write scopes or explicitly coordinate before touching shared files.
 6. Read the subsystem guide for the files you will edit.
 7. Keep runtime/debug artifacts in `logs/` or `scripts/tmp/`; both are gitignored. Commit only the distilled evidence in `docs/tasks/`.
-8. For feature requests that need real Bedrock client behavior, follow `test/recorded-bds/README.md` under `Feature-To-Recorded-Test Workflow`: design a live-client scenario, capture/decode logs, compare the live client and bot traces packet by packet for the full action, distill the evidence into tests, and continue the same loop when later feature requests compound on the active work.
+8. For feature requests that need real Bedrock client behavior, follow `test/recorded-bds/README.md` under `Recorded BDS Workflow`: design a live-client scenario, capture/decode/index logs, compare the live client and bot traces packet by packet for the full action, distill the evidence into tests or an isolated bot recreation, and continue the same loop when later feature requests compound on the active work.
 
 ## Explicit Workflow Triggers
 
-When the user says any of these phrases, run the full workflow in `test/recorded-bds/README.md` under `Feature-To-Recorded-Test Workflow`:
+When the user says any of these phrases, run the feature implementation mode in `test/recorded-bds/README.md` under `Recorded BDS Workflow`:
 
 - `Feature request workflow`
 - `Use the feature-to-recorded-test workflow`
@@ -26,16 +26,33 @@ When the user says any of these phrases, run the full workflow in `test/recorded
 This means:
 
 1. Create or update the matching task log.
-2. Design the live Bedrock client scenario.
-3. Add or update the scenario JSON.
-4. Ask the user to perform the live client steps when needed.
-5. Decode the captured Endstone/BDS logs.
-6. Build a packet-by-packet comparison between the real client trace and the bot trace for the whole scenario.
-7. Implement bot behavior against the full trace gap list, not just the first failing packet.
-8. Add static and live tests for Endstone and Geyser.
-9. Keep iterating until the feature is complete or the blocker is recorded.
+2. Resolve or author the scenario JSON.
+3. Capture or reuse a real Bedrock client run.
+4. Decode and index the captured Endstone/BDS logs.
+5. Build a packet-by-packet comparison between the real client trace and the bot trace for the whole scenario.
+6. Implement bot behavior against the full trace gap list, not just the first failing packet.
+7. Add static and live tests for Endstone and Geyser.
+8. Keep iterating until the feature is complete or the blocker is recorded.
 
 If the triggered feature compounds on active work, integrate it into the current task log and scenario/test cycle unless the new work has a distinct ownership boundary.
+
+When the user asks to launch, create, capture, or recreate a human scenario for bot packet parity, run the agentic recreation gym mode in `test/recorded-bds/README.md` under `Recorded BDS Workflow`. Natural language requests count; the user does not need to name the workflow exactly. Examples:
+
+- `Launch a new scenario. I want to sprint forward, then sprint into water. We should see the pose of the player change into swimming, from standing.`
+- `Capture a human scenario for opening a chest, then make the bot recreate it.`
+- `Use the gym to compare the bot against a real client placing a block.`
+- `Start a human workflow -> agentic recreation for <scenario>.`
+
+This means:
+
+1. Create or update the matching task log.
+2. Resolve or author the scenario JSON under `test/recorded-bds/scenarios/`.
+3. Run `node scripts/recorded-bds-gym.js status --scenario=<id>`.
+4. Reuse completed human logs when present; otherwise run `record-human` and ask the user to complete the live Bedrock scenario.
+5. Scaffold or edit `test/recorded-bds/bots/<scenario>.js`.
+6. Run the bot with `run-bot`.
+7. Compare with `compare`, inspect the `.md` and `.json` reports, and iterate on the isolated bot script or helper code.
+8. Use `promote` only after the bot run completes and comparison passes; then move proven general behavior into `src/` with tests.
 
 ## Live Packet Parity
 

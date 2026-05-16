@@ -72,4 +72,27 @@ describe('e2e server options', function () {
       else process.env.E2E_AUTO_PORT = previous
     }
   })
+
+  it('enables scenario auto-exit by default and allows disabling it', function () {
+    const previousExit = process.env.E2E_EXIT_AFTER_SCENARIO
+    const previousInterval = process.env.E2E_SCENARIO_PROGRESS_INTERVAL_MS
+    try {
+      delete process.env.E2E_EXIT_AFTER_SCENARIO
+      delete process.env.E2E_SCENARIO_PROGRESS_INTERVAL_MS
+      assert.strictEqual(parseOptions(['--endstone-scenario=craft-planks-and-place']).exitAfterScenario, true)
+      assert.strictEqual(parseOptions(['--endstone-scenario=craft-planks-and-place', '--no-exit-after-scenario']).exitAfterScenario, false)
+      assert.strictEqual(parseOptions(['--scenario-progress-interval-ms=5000']).scenarioProgressIntervalMs, 5000)
+
+      process.env.E2E_EXIT_AFTER_SCENARIO = '0'
+      process.env.E2E_SCENARIO_PROGRESS_INTERVAL_MS = '7000'
+      const options = parseOptions(['--endstone-scenario=craft-planks-and-place'])
+      assert.strictEqual(options.exitAfterScenario, false)
+      assert.strictEqual(options.scenarioProgressIntervalMs, 7000)
+    } finally {
+      if (previousExit === undefined) delete process.env.E2E_EXIT_AFTER_SCENARIO
+      else process.env.E2E_EXIT_AFTER_SCENARIO = previousExit
+      if (previousInterval === undefined) delete process.env.E2E_SCENARIO_PROGRESS_INTERVAL_MS
+      else process.env.E2E_SCENARIO_PROGRESS_INTERVAL_MS = previousInterval
+    }
+  })
 })

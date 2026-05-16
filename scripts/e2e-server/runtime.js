@@ -27,6 +27,7 @@ async function createRuntime(targetInstances, options) {
   let clientTimeout = null;
   let launchedClientRuns = 0;
   let finishedClientRuns = 0;
+  let scenarioMonitor = null;
 
   const runtime = {
     sessionDir,
@@ -244,6 +245,11 @@ async function createRuntime(targetInstances, options) {
       };
       process.stdin.on("data", stdinHandler);
     },
+    startScenarioMonitor(instances = targetInstances) {
+      if (!options.endstoneScenario || !options.exitAfterScenario) return;
+      if (scenarioMonitor) scenarioMonitor.stop();
+      scenarioMonitor = startScenarioMonitor(instances, runtime, combined, options);
+    },
     stopAll(reason = "requested") {
       if (stopPromise) return stopPromise;
       stopPromise = stopAll(reason);
@@ -290,6 +296,10 @@ async function createRuntime(targetInstances, options) {
     if (stdinHandler) process.stdin.off("data", stdinHandler);
     process.stdin.pause();
     if (clientTimeout) clearTimeout(clientTimeout);
+    if (scenarioMonitor) {
+      scenarioMonitor.stop();
+      scenarioMonitor = null;
+    }
     rejectReadyWaiters(new Error(`Shutdown requested: ${reason}`));
     for (const run of [...activeRuns.values()]) {
       run.commandBridge?.stop();
@@ -687,4 +697,170 @@ function writeRunEvent(record, line, payload) {
   }
 }
 
-module.exports = { createRuntime };
+function startScenarioMonitor(instances, runtime, combined, options) {
+  const targets = instances
+    .filter((instance) => instance.type === "endstone")
+    .map((instance) => ({
+      instance,
+      file: recorderPathForInstance(instance)
+    }));
+  if (targets.length === 0) return null;
+
+  const state = {
+    startedAt: Date.now(),
+    lastProgressAt: 0,
+    lastSummary: "",
+    lastMarkerCount: 0
+  };
+  const progressInterval = Math.max(1000, options.scenarioProgressIntervalMs || 30000);
+
+  console.log(`Scenario monitor: watching for completed scenario quit markers every ${Math.round(progressInterval / 1000)}s.`);
+  for (const target of targets) {
+    console.log(`Scenario monitor: ${target.instance.name} recorder file ${target.file}`);
+  }
+
+  const check = () => {
+    const summaries = targets.map((target) => {
+      return {
+        target,
+        markers: readScenarioMarkers(target.file)
+      };
+    });
+    const complete = summaries.find(({ markers }) => {
+      return hasCompletedScenarioEnd(markers) && activeScenarioPlayers(markers).length === 0;
+    });
+    const markerCount = summaries.reduce((total, summary) => total + summary.markers.length, 0);
+    const summary = summarizeScenarioProgress(summaries, state.startedAt);
+    const now = Date.now();
+
+    if (complete) {
+      const end = complete.markers.find((marker) => marker.type === "scenario_end" && marker.status === "complete");
+      const player = end?.player ? ` for ${end.player}` : "";
+      const message = `Scenario monitor: completed scenario_end${player} and all recorded players left; stopping servers.`;
+      console.log(message);
+      writeSessionEvent(combined, "scenario_complete_auto_shutdown", {
+        recorder: complete.target.file,
+        player: end?.player || null
+      });
+      void runtime.stopAll("scenario_complete");
+      return;
+    }
+
+    if (summary !== state.lastSummary || markerCount !== state.lastMarkerCount || now - state.lastProgressAt >= progressInterval) {
+      console.log(`Scenario monitor: ${summary}`);
+      state.lastSummary = summary;
+      state.lastMarkerCount = markerCount;
+      state.lastProgressAt = now;
+    }
+  };
+
+  const timer = setInterval(check, 1000);
+  timer.unref();
+  check();
+
+  return {
+    stop() {
+      clearInterval(timer);
+    }
+  };
+}
+
+function recorderPathForInstance(instance) {
+  const configured = process.env.E2E_PACKET_RECORD_FILE;
+  if (configured) {
+    return path.isAbsolute(configured) ? configured : path.resolve(instance.dir, configured);
+  }
+  return path.join(instance.dir, "logs", "packet-recorder.jsonl");
+}
+
+function readScenarioMarkers(file) {
+  let text;
+  try {
+    text = fs.readFileSync(file, "utf8");
+  } catch {
+    return [];
+  }
+
+  const markers = [];
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed[0] === "[") continue;
+    try {
+      const marker = JSON.parse(trimmed);
+      if (marker && typeof marker === "object" && marker.type) markers.push(marker);
+    } catch {
+      // Ignore partial lines while the recorder is appending.
+    }
+  }
+  return markers;
+}
+
+function hasCompletedScenarioEnd(markers) {
+  return markers.some((marker) => marker.type === "scenario_complete") &&
+    markers.some((marker) => marker.type === "scenario_end" && marker.status === "complete");
+}
+
+function activeScenarioPlayers(markers) {
+  const active = new Set();
+  for (const marker of markers) {
+    if (marker.type === "player_join" && marker.player) active.add(marker.player);
+    if (marker.type === "player_quit" && marker.player) active.delete(marker.player);
+  }
+  return [...active].sort();
+}
+
+function summarizeScenarioProgress(summaries, startedAt) {
+  const markers = summaries.flatMap((summary) => summary.markers);
+  if (markers.length === 0) {
+    return `waiting for recorder markers (${elapsedSeconds(startedAt)}s elapsed)`;
+  }
+
+  const latest = markers[markers.length - 1];
+  const activeStep = lastMarker(markers, "step_start");
+  const completeStep = lastMarker(markers, "step_complete");
+  const scenarioComplete = lastMarker(markers, "scenario_complete");
+  const playerJoin = lastMarker(markers, "player_join");
+  const abandonedEnd = [...markers].reverse().find((marker) => marker.type === "scenario_end" && marker.status !== "complete");
+
+  if (abandonedEnd) {
+    const player = abandonedEnd.player ? ` for ${abandonedEnd.player}` : "";
+    return `last scenario_end was ${abandonedEnd.status || "unknown"}${player}; waiting for a completed run (${elapsedSeconds(startedAt)}s elapsed)`;
+  }
+  if (scenarioComplete) {
+    const active = activeScenarioPlayers(markers);
+    if (active.length > 0) {
+      return `scenario_complete seen; waiting for player quit (${active.join(", ")} still connected, ${elapsedSeconds(startedAt)}s elapsed)`;
+    }
+    const player = scenarioComplete.player ? ` for ${scenarioComplete.player}` : "";
+    return `scenario_complete seen${player}; waiting for player quit/scenario_end (${elapsedSeconds(startedAt)}s elapsed)`;
+  }
+  if (activeStep) {
+    const completed = completeStep?.step === activeStep.step ? "complete" : "active";
+    return `step ${activeStep.step || activeStep.step_index || "unknown"} ${completed}; waiting (${elapsedSeconds(startedAt)}s elapsed)`;
+  }
+  if (playerJoin) {
+    const player = playerJoin.player ? ` ${playerJoin.player}` : "";
+    return `player joined${player}; waiting for scenario progress (${elapsedSeconds(startedAt)}s elapsed)`;
+  }
+  return `latest marker ${latest.type}; waiting (${elapsedSeconds(startedAt)}s elapsed)`;
+}
+
+function lastMarker(markers, type) {
+  for (let index = markers.length - 1; index >= 0; index -= 1) {
+    if (markers[index].type === type) return markers[index];
+  }
+  return null;
+}
+
+function elapsedSeconds(startedAt) {
+  return Math.round((Date.now() - startedAt) / 1000);
+}
+
+module.exports = {
+  createRuntime,
+  activeScenarioPlayers,
+  hasCompletedScenarioEnd,
+  readScenarioMarkers,
+  recorderPathForInstance,
+  summarizeScenarioProgress
+};

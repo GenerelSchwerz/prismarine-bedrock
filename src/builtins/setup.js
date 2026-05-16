@@ -119,6 +119,26 @@ module.exports = (botState, options) => {
   }
 
   // ── Initial connection ──
+  function queueAvailableCommandsReadyPackets() {
+    if (botState.sentAvailableCommandsReadyPackets) return;
+    botState.sentAvailableCommandsReadyPackets = true;
+
+    client.queue('serverbound_loading_screen', { type: 1 });
+    client.queue('serverbound_loading_screen', { type: 2 });
+    client.queue('interact', {
+      action_id: 'mouse_over_entity',
+      target_entity_id: 0n,
+      has_position: false,
+    });
+    client.queue('set_local_player_as_initialized', {
+      runtime_entity_id: client.entityId,
+    });
+
+    logAction('[->]', 'available_commands ready handshake', {
+      runtime_entity_id: String(client.entityId),
+    });
+  }
+
   client.on('connect_allowed', () => {
     logAction('[→]', 'connect', { host: options.host, port: options.port });
   });
@@ -183,6 +203,11 @@ module.exports = (botState, options) => {
       count: packet.biome_definitions.length,
     });
     // Store if needed: botState.biomeStringList = packet.string_list;
+  });
+
+  // Bedrock clients acknowledge command availability during the initial loading/client-ready sequence.
+  client.on('available_commands', () => {
+    queueAvailableCommandsReadyPackets();
   });
 
   // Bedrock server-authoritative recipes used by crafting/trading packet senders.

@@ -40,6 +40,16 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
     return mode === 1 || mode === 2 || mode === 'teleport' || mode === 'pitch'
   }
 
+  function rotationPitch(rotation) {
+    const value = rotation?.x ?? rotation?.pitch;
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  function rotationYaw(rotation) {
+    const value = rotation?.z ?? rotation?.y ?? rotation?.yaw;
+    return Number.isFinite(value) ? value : 0;
+  }
+
   function hasSupportingBlock() {
     const self = botState.self;
     if (!self?.position || !botState.world?.sync?.getBlock) return false;
@@ -248,9 +258,9 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
       pkt.player_position.z
     );
 
-    botState.self.pitch = pkt.rotation.x;
-    botState.self.yaw = pkt.rotation.y;
-    botState.self.headYaw = pkt.rotation.y;
+    botState.self.pitch = rotationPitch(pkt.rotation);
+    botState.self.yaw = rotationYaw(pkt.rotation);
+    botState.self.headYaw = botState.self.yaw;
     botState.self.velocity.set(0, 0, 0);
     botState.self.unvalidatedPosition = botState.self.position.clone();
     clearAuthoritativeMovementPosition();
@@ -315,8 +325,9 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
       pkt.position.z
     );
 
-    botState.self.pitch = pkt.rotation.x;
-    botState.self.yaw = pkt.rotation.y;
+    botState.self.pitch = rotationPitch(pkt.rotation);
+    botState.self.yaw = rotationYaw(pkt.rotation);
+    botState.self.headYaw = botState.self.yaw;
     botState.self.onGround = !!pkt.on_ground;
     botState.self.velocity.set(0, 0, 0);
     botState.self.unvalidatedPosition = botState.self.position.clone();

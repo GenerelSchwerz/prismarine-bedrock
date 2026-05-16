@@ -481,6 +481,28 @@ module.exports = (botState, options = {}) => {
     return sectionYs;
   }
 
+  function subchunkSectionYsThroughHighest(highestSectionY) {
+    const sectionYs = [];
+    const highest = Math.min(highestSectionY, WORLD_MAX_SECTION_Y);
+
+    for (let sectionY = WORLD_MIN_SECTION_Y; sectionY <= highest; sectionY++) {
+      sectionYs.push(sectionY);
+    }
+
+    return sectionYs;
+  }
+
+  function levelChunkPollingSectionYs(packet, originSectionY) {
+    if (
+      packet.sub_chunk_count === -2 &&
+      Number.isInteger(packet.highest_subchunk_count)
+    ) {
+      return subchunkSectionYsThroughHighest(packet.highest_subchunk_count);
+    }
+
+    return subchunkSectionYsAround(originSectionY);
+  }
+
   function queueSubchunkRequest(cx, cz, dimension, sectionYs = undefined, originSectionY = undefined) {
     originSectionY ??= subchunkOriginSectionY();
     const requestOffsets = [];
@@ -596,7 +618,7 @@ module.exports = (botState, options = {}) => {
         }
 
         const originSectionY = subchunkOriginSectionY();
-        const sectionYs = subchunkSectionYsAround(originSectionY);
+        const sectionYs = levelChunkPollingSectionYs(packet, originSectionY);
         rememberSubchunkRequest(cx, cz, dimension, originSectionY, sectionYs);
         queueSubchunkRequest(cx, cz, dimension, sectionYs, originSectionY);
 

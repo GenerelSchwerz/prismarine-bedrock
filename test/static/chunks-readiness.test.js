@@ -124,6 +124,46 @@ describe('chunk readiness helpers', function () {
     ])
   })
 
+  it('requests every advertised section in limited subchunk polling mode', async function () {
+    const botState = createBotState()
+    botState.version = '1.26.10'
+    injectChunks(botState)
+
+    botState.self = { position: new Vec3(0, 64, 0) }
+
+    botState.client.emit('network_chunk_publisher_update', {
+      coordinates: { x: 0, y: 65, z: 0 },
+      radius: 64
+    })
+
+    botState.client.emit('level_chunk', {
+      x: 0,
+      z: 0,
+      sub_chunk_count: -2,
+      highest_subchunk_count: 6,
+      dimension: 0
+    })
+
+    await waitImmediate()
+
+    const request = botState.client.queued.find(packet => packet.name === 'subchunk_request')
+    assert.ok(request)
+    assert.deepStrictEqual(request.params.origin, { x: 0, y: 4, z: 0 })
+    assert.deepStrictEqual(request.params.requests, [
+      { dx: 0, dy: -8, dz: 0 },
+      { dx: 0, dy: -7, dz: 0 },
+      { dx: 0, dy: -6, dz: 0 },
+      { dx: 0, dy: -5, dz: 0 },
+      { dx: 0, dy: -4, dz: 0 },
+      { dx: 0, dy: -3, dz: 0 },
+      { dx: 0, dy: -2, dz: 0 },
+      { dx: 0, dy: -1, dz: 0 },
+      { dx: 0, dy: 0, dz: 0 },
+      { dx: 0, dy: 1, dz: 0 },
+      { dx: 0, dy: 2, dz: 0 }
+    ])
+  })
+
   it('falls back to player section when decoded publisher y is outside world bounds', async function () {
     const botState = createBotState()
     injectChunks(botState)

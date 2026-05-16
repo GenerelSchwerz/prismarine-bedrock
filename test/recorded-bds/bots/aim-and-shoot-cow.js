@@ -133,7 +133,7 @@ async function step_equip_bow_and_aim(bot) {
   bot.command(`tp ${target} 0 65 0 0 0`);
   pinScenarioPosition(bot);
   bot.selectHotbarSlot(BOW_SLOT);
-  bot.lookAt(cow.position.offset(0, 1.0, 0), true);
+  bot.lookAt(cow.position.offset(0, 0.8, 0), true);
   await wait(300);
 }
 
@@ -145,12 +145,12 @@ async function step_shoot_cow(bot) {
       const cow = cowTarget(bot);
       if (!cow) return;
       pinScenarioPosition(bot);
-      bot.lookAt(cow.position.offset(0, 1.0, 0), true);
+      bot.lookAt(cow.position.offset(0, 0.8, 0), true);
       await wait(150);
       sendBowUse(bot);
       await wait(1450);
       pinScenarioPosition(bot);
-      bot.lookAt((cowTarget(bot) || cow).position.offset(0, 1.0, 0), true);
+      bot.lookAt((cowTarget(bot) || cow).position.offset(0, 0.8, 0), true);
       sendBowRelease(bot);
       await wait(900);
     } finally {

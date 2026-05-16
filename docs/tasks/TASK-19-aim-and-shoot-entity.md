@@ -30,8 +30,8 @@ Use the recorded BDS workflow to capture a human aiming and shooting a bow at an
 - Already implemented: `aim-and-shoot-cow` scenario existed before this task; the aim step now requires a cow near `[0, 65, 8]` and `held_item_is minecraft:bow`, and the shoot step requires both arrow consumption and that cow's absence. `held_item_is` now reads Endstone `PlayerInventory.item_in_main_hand`, selected slot `get_item`, and nested `ItemStack.type.id`/`ItemType.id` identifiers.
 - Confirmed: the live failure after the held-item resolver fix was the preceding `entity_exists` child in the `all` clearance. Endstone exposes nearby mobs through `level.actors`; once `_iter_nearby_entities` checked `actors`, Step 1 completed with both `entity_exists` and `held_item_is` passing.
 - Human run complete and indexed: `logs/recorded-bds/aim-and-shoot-cow/human/2026-05-16T16-59-46-646Z/packets.jsonl` has both step completions, `scenario_complete`, and `scenario_end status=complete`; SQLite sidecar exists.
-- Bot recreation is in progress in `test/recorded-bds/bots/aim-and-shoot-cow.js`. The latest rerun advanced past `equip-bow-and-aim` into `shoot-cow`, proving the bot can satisfy the held-bow clearance. It still failed because the cow survived all bow-shot attempts.
-- Latest failed bot raw log: `logs/recorded-bds/aim-and-shoot-cow/bot/2026-05-16T17-18-36-853Z/packets.jsonl`; markers show Step 1 complete, Step 2 active, then `scenario_end status=active completed_steps=1`.
+- Bot recreation is in progress in `test/recorded-bds/bots/aim-and-shoot-cow.js`. The latest rerun advanced past `equip-bow-and-aim` into `shoot-cow`, proving the bot can satisfy the held-bow clearance and no longer blocks on chunk readiness after the scenario teleport. It still failed because the cow survived all bow-shot attempts.
+- Latest failed bot raw log: `logs/recorded-bds/aim-and-shoot-cow/bot/2026-05-16T17-26-50-097Z/packets.jsonl`; markers show Step 1 complete, Step 2 active, arrows spawned near the bot, then `scenario_end status=active completed_steps=1`.
 - Known mismatch between notes and worktree: `git status --short` currently reports unrelated `docs/tasks/TASK-20-available-commands-ready-handshake.md`; do not revert it for TASK-19.
 
 ## Change Ledger
@@ -43,6 +43,8 @@ Use the recorded BDS workflow to capture a human aiming and shooting a bow at an
 | `scripts/endstone-packet-recorder/src/endstone_packet_recorder/recorder.py` | changed | Fixed `held_item_is` to check Endstone's actual main-hand and selected-slot inventory APIs and to resolve nested item type identifiers instead of comparing stringified item/type objects. Fixed `entity_exists` to scan Endstone `dimension.actors`/`level.actors`, which was preventing `held_item_is` from being reached in `all` clearances. |
 | `test/static/endstone-packet-recorder.test.js` | added | Covers `held_item_is` against Endstone-shaped `item_in_main_hand`, selected slot `get_item`, nested `ItemStack.type.id` identifiers, stale player-level held values, and `entity_exists` against Endstone `level.actors`. |
 | `test/recorded-bds/bots/aim-and-shoot-cow.js` | changed | Scenario-local bot recreation now recovers bot inventory with explicit `OpBot` commands, equips the bow, avoids `syncLook`, and sends local bow `item_use`/`item_release` packets. Latest run reaches Step 2 but does not kill the cow. |
+| `src/builtins/chunks.js` | changed | Fixes limited subchunk polling readiness: `highest_subchunk_count` now marks higher sections as known all-air so post-teleport physics readiness does not wait forever on columns with low terrain. |
+| `test/static/chunks-readiness.test.js` | changed | Adds a regression for a teleported Y=66 readiness check over a limited-polling column whose `highest_subchunk_count` is 0. |
 
 ## Parallel Subtasks
 
@@ -86,20 +88,25 @@ Use the recorded BDS workflow to capture a human aiming and shooting a bow at an
 - `2026-05-16` - `node scripts/index-packet-recording.js logs/recorded-bds/aim-and-shoot-cow/human/2026-05-16T16-59-46-646Z/packets.jsonl 1.26.10 --out=logs/recorded-bds/aim-and-shoot-cow/human/2026-05-16T16-59-46-646Z/packets.sqlite` - PASS. Notes: indexed completed human run; output reported 36 events, 1089 packets, 731941 fields.
 - `2026-05-16` - `node --check test/recorded-bds/bots/aim-and-shoot-cow.js` - PASS. Notes: scenario bot syntax valid before rerun.
 - `2026-05-16` - `node scripts/recorded-bds-gym.js run-bot --scenario=aim-and-shoot-cow` - FAIL. Notes: latest run `logs/recorded-bds/aim-and-shoot-cow/bot/2026-05-16T17-18-36-853Z/packets.jsonl`; Step 1 completed for `OpBot` at sequence `706` with `held_item_is actual=minecraft:bow`; Step 2 started at sequence `712`; bot disconnected with `Error: Scenario cow survived all bow shots`; scenario ended `status=active`, `completed_steps=1`.
+- `2026-05-16` - `node scripts/recorded-bds-gym.js run-bot --scenario=aim-and-shoot-cow` - FAIL, reproduced chunk readiness warning. Notes: run `logs/recorded-bds/aim-and-shoot-cow/bot/2026-05-16T17-23-38-867Z/packets.jsonl`; after teleport to `(0.5,65,0.5)`, physics logged `waitForChunksToLoad timed out after 10000ms (missing block data for 3 of 9 chunks: 1,-1, 1,0, 1,1)`.
+- `2026-05-16` - `node scripts/decode-endstone-packet-recording.js logs/recorded-bds/aim-and-shoot-cow/bot/2026-05-16T17-23-38-867Z/packets.jsonl 1.26.10 --packet-ids=174,175,19,69,121 --full --out=logs/recorded-bds/aim-and-shoot-cow/bot/2026-05-16T17-23-38-867Z/chunk-full.jsonl` - PASS investigation. Notes: the missing columns were not absent. For `1,-1`, `1,0`, and `1,1`, BDS sent `level_chunk sub_chunk_count=-2 highest_subchunk_count=0`; the bot requested/received sections `-4..0`, then physics readiness after teleport required sections `3..5` around Y=66. Those higher sections are all-air by schema but were not marked loaded locally.
+- `2026-05-16` - `npx mocha test/static/chunks-readiness.test.js` - PASS. Notes: 13 passing; new regression covers known-air sections above limited polling highest subchunk.
+- `2026-05-16` - `node scripts/recorded-bds-gym.js run-bot --scenario=aim-and-shoot-cow` - FAIL, chunk wait fixed. Notes: run `logs/recorded-bds/aim-and-shoot-cow/bot/2026-05-16T17-26-50-097Z/packets.jsonl`; no `[physics] waiting for nearby chunks` warning appeared. The bot advanced to shooting and spawned arrows at the bot position, but the cow survived all shots.
 
 ## Architecture Notes
 
 - Existing APIs include `lookAt`, `selectHotbarSlot`/`equipItem`, entity tracking, and entity interaction helpers. Bow draw/release behavior still needs packet evidence from the human trace before deciding whether a generic library API is sufficient or a scenario-local packet implementation is needed.
+- Limited subchunk polling uses `level_chunk.highest_subchunk_count` as the highest non-air subchunk. When this value is below the player's current Y section, sections above it are known all-air. Chunk readiness must count them as loaded air, otherwise teleports to an air/platform height can wait forever on edge columns even though the server has already proven those sections empty.
 
 ## Handoff
 
-Continue from the latest failed bot run. Inspect bot bow packet trace and aiming/position state for `logs/recorded-bds/aim-and-shoot-cow/bot/2026-05-16T17-18-36-853Z/packets.jsonl`, then adjust only the scenario-local bot script until Step 2 completes.
+Continue from the latest failed bot run. The chunk-readiness issue is fixed; inspect bot bow packet trace and aiming/position state for `logs/recorded-bds/aim-and-shoot-cow/bot/2026-05-16T17-26-50-097Z/packets.jsonl`, then adjust only the scenario-local bot script until Step 2 completes.
 
 ## Resume Notes
 
-- Next step: inspect/decode the failed bot run `logs/recorded-bds/aim-and-shoot-cow/bot/2026-05-16T17-18-36-853Z/packets.jsonl`, focusing on `inventory_transaction`, `player_auth_input`, `mob_equipment`, projectile/entity motion, and whether arrows are consumed or projectiles spawn.
+- Next step: inspect/decode the failed bot run `logs/recorded-bds/aim-and-shoot-cow/bot/2026-05-16T17-26-50-097Z/packets.jsonl`, focusing on `inventory_transaction`, `player_auth_input`, `mob_equipment`, projectile/entity motion, and why arrows spawn/shake at the bot position instead of hitting the cow.
 - Do not repeat: human capture is complete and indexed; bot Step 1 now clears.
-- Raw logs: human `logs/recorded-bds/aim-and-shoot-cow/human/2026-05-16T16-59-46-646Z/packets.jsonl`; latest bot `logs/recorded-bds/aim-and-shoot-cow/bot/2026-05-16T17-18-36-853Z/packets.jsonl`.
+- Raw logs: human `logs/recorded-bds/aim-and-shoot-cow/human/2026-05-16T16-59-46-646Z/packets.jsonl`; chunk investigation `logs/recorded-bds/aim-and-shoot-cow/bot/2026-05-16T17-23-38-867Z/`; latest bot `logs/recorded-bds/aim-and-shoot-cow/bot/2026-05-16T17-26-50-097Z/packets.jsonl`.
 
 ## Final Summary
 

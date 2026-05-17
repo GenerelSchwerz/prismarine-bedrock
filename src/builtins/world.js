@@ -10,8 +10,6 @@ const BlobType = { ChunkSection: 0, Biomes: 1 };
  * @param {object} [options]
  */
 module.exports = (botState, options = {}) => {
-  if (options.worldDecodeEnabled === false || botState.options?.worldDecodeEnabled === false) return;
-
   const client = botState.client;
   const registry = botState.registry;
   const ChunkColumn = botState.chunkColumn;
@@ -20,6 +18,20 @@ module.exports = (botState, options = {}) => {
   botState.protocolState ??= {};
   botState.game ??= {};
   botState.playerState ??= {};
+
+  botState.resetWorld = () => {
+    botState.world = new botState.worldClass(null);
+    return botState.world;
+  };
+
+  botState.setDimension = (dimension, options = {}) => {
+    const changed = botState.game.dimension !== dimension;
+    botState.game.dimension = dimension;
+    if (changed && options.resetWorld) botState.resetWorld();
+    return changed;
+  };
+
+  if (options.worldDecodeEnabled === false || botState.options?.worldDecodeEnabled === false) return;
 
   // Bedrock modern overworld height.
   //
@@ -137,11 +149,7 @@ module.exports = (botState, options = {}) => {
   if (!botState.loadedChunkSections) botState.loadedChunkSections = new Map(); // "cx,cz" → Set<sectionY>
 
   function resetActiveWorldState(dimension) {
-    if (typeof botState.setDimension === 'function') {
-      botState.setDimension(dimension, { resetWorld: true });
-    } else {
-      botState.game.dimension = dimension;
-    }
+    botState.setDimension(dimension, { resetWorld: true });
 
     botState.blobCache.clear();
     botState.pendingBlobRequests.clear();

@@ -2,6 +2,9 @@ const fs = require('fs')
 const path = require('path')
 
 const loaderStates = new WeakMap()
+const builtinLoadPriority = {
+  'world.js': -100
+}
 
 function ensureState (botState) {
   if (!loaderStates.has(botState)) {
@@ -42,7 +45,6 @@ function injectPlugins (botState) {
 
 function shouldLoadBuiltin (botState, entry) {
   const options = botState.options ?? {}
-  if (entry === 'chunks.js' && options.worldDecodeEnabled === false) return false
   if ((entry === 'physics.js' || entry === 'physics') && options.physicsEnabled === false) return false
   return true
 }
@@ -51,7 +53,10 @@ function loadBuiltins (botState) {
   const builtinsDir = path.join(__dirname, 'builtins')
   if (!fs.existsSync(builtinsDir)) return
 
-  const entries = fs.readdirSync(builtinsDir)
+  const entries = fs.readdirSync(builtinsDir).sort((a, b) => {
+    const priority = (builtinLoadPriority[a] ?? 0) - (builtinLoadPriority[b] ?? 0)
+    return priority || a.localeCompare(b)
+  })
   for (const entry of entries) {
     if (!shouldLoadBuiltin(botState, entry)) continue
 

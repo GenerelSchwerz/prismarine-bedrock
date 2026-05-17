@@ -25,7 +25,16 @@ function registryWithStartGame () {
   const liveRegistry = require('prismarine-registry')('bedrock_1.26.10')
   const liveBlock = require('prismarine-block')(liveRegistry)
   const client = new EventEmitter()
-  setupPlugin({ client, registry: liveRegistry, blockClass: liveBlock, game: {} }, {})
+  const botState = {
+    client,
+    registry: liveRegistry,
+    blockClass: liveBlock,
+    game: {},
+    setDimension (dimension) {
+      this.game.dimension = dimension
+    }
+  }
+  setupPlugin(botState, {})
   client.emit('start_game', {
     entity_id: 1n,
     runtime_entity_id: 1n,

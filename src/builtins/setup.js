@@ -156,8 +156,7 @@ module.exports = (botState, options) => {
     );
     botState.playerState.spawnRotation = pkt.rotation;
     botState.game.gameMode = pkt.player_gamemode;
-    if (typeof botState.setDimension === 'function') botState.setDimension(pkt.dimension);
-    else botState.game.dimension = pkt.dimension;
+    botState.setDimension(pkt.dimension);
     botState.protocolState.blockNetworkIdsAreHashes = !!pkt.block_network_ids_are_hashes;
     botState.playerState.health = 20;
     botState.lifecycle.isDead = false;
@@ -280,8 +279,7 @@ module.exports = (botState, options) => {
   });
 
   client.on('change_dimension', (packet) => {
-    if (typeof botState.setDimension === 'function') botState.setDimension(packet.dimension);
-    else botState.game.dimension = packet.dimension;
+    botState.setDimension(packet.dimension);
   });
 
   client.on('update_attributes', (packet) => {

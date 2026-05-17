@@ -3,7 +3,7 @@
 const assert = require('assert')
 const { EventEmitter } = require('events')
 const { Vec3 } = require('vec3')
-const injectChunks = require('../../src/builtins/chunks')
+const injectWorld = require('../../src/builtins/world')
 
 function createBotState () {
   const client = new EventEmitter()
@@ -17,6 +17,7 @@ function createBotState () {
     world: {
       setColumn: async () => {}
     },
+    worldClass: function World () {},
     registry: {},
     chunkColumn: function ChunkColumn () {
       this.sections = []
@@ -38,10 +39,10 @@ function waitImmediate () {
   return new Promise(resolve => setImmediate(resolve))
 }
 
-describe('chunk readiness helpers', function () {
+describe('world readiness helpers', function () {
   it('requires all chunks around the center position, not just the current chunk', function () {
     const botState = createBotState()
-    injectChunks(botState)
+    injectWorld(botState)
 
     botState.loadedChunks.add(chunkKey(0, 0))
 
@@ -64,7 +65,7 @@ describe('chunk readiness helpers', function () {
 
   it('decodes network chunk publisher y before using it as subchunk origin', async function () {
     const botState = createBotState()
-    injectChunks(botState)
+    injectWorld(botState)
 
     botState.self = { position: new Vec3(0, 80, 0) }
 
@@ -97,7 +98,7 @@ describe('chunk readiness helpers', function () {
   it('uses direct network chunk publisher y when it matches the teleported player height', async function () {
     const botState = createBotState()
     botState.version = '1.26.10'
-    injectChunks(botState)
+    injectWorld(botState)
 
     botState.self = { position: new Vec3(0, 64, 0) }
 
@@ -131,7 +132,7 @@ describe('chunk readiness helpers', function () {
   it('requests every advertised section in limited subchunk polling mode', async function () {
     const botState = createBotState()
     botState.version = '1.26.10'
-    injectChunks(botState)
+    injectWorld(botState)
 
     botState.self = { position: new Vec3(0, 64, 0) }
 
@@ -171,7 +172,7 @@ describe('chunk readiness helpers', function () {
   it('treats sections above limited polling highest subchunk as loaded air', async function () {
     const botState = createBotState()
     botState.version = '1.26.10'
-    injectChunks(botState)
+    injectWorld(botState)
 
     botState.self = { position: new Vec3(16.5, 66.62, 0.5) }
 
@@ -219,7 +220,7 @@ describe('chunk readiness helpers', function () {
 
   it('falls back to player section when decoded publisher y is outside world bounds', async function () {
     const botState = createBotState()
-    injectChunks(botState)
+    injectWorld(botState)
 
     botState.self = { position: new Vec3(0, 80, 0) }
 
@@ -251,7 +252,7 @@ describe('chunk readiness helpers', function () {
 
   it('falls back to world minimum section when publisher and player y are outside world bounds', async function () {
     const botState = createBotState()
-    injectChunks(botState)
+    injectWorld(botState)
 
     botState.self = { position: new Vec3(0, 32768, 0) }
 
@@ -276,7 +277,7 @@ describe('chunk readiness helpers', function () {
 
   it('counts success_all_air subchunk responses as loaded sections', function () {
     const botState = createBotState()
-    injectChunks(botState)
+    injectWorld(botState)
 
     botState.networkChunks.set(chunkKey(0, 0), new botState.chunkColumn())
 
@@ -296,7 +297,7 @@ describe('chunk readiness helpers', function () {
 
   it('uses the network chunk publisher height for subchunk readiness', async function () {
     const botState = createBotState()
-    injectChunks(botState)
+    injectWorld(botState)
 
     botState.client.emit('network_chunk_publisher_update', {
       coordinates: { x: 0, y: 117, z: 0 },
@@ -329,7 +330,7 @@ describe('chunk readiness helpers', function () {
     botState.client.entityId = 1n
     botState.game.dimension = 0
     botState.protocolState.blockNetworkIdsAreHashes = true
-    injectChunks(botState)
+    injectWorld(botState)
 
     botState.client.emit('move_player', {
       runtime_id: 1,
@@ -355,7 +356,7 @@ describe('chunk readiness helpers', function () {
     botState.client.entityId = 1n
     botState.game.dimension = 0
     botState.protocolState.blockNetworkIdsAreHashes = false
-    injectChunks(botState)
+    injectWorld(botState)
 
     botState.client.emit('move_player', {
       runtime_id: 1,
@@ -384,7 +385,7 @@ describe('chunk readiness helpers', function () {
       updates.push({ pos, stateId })
     }
 
-    injectChunks(botState)
+    injectWorld(botState)
 
     botState.client.emit('update_subchunk_blocks', {
       x: 99,
@@ -410,7 +411,7 @@ describe('chunk readiness helpers', function () {
 
   it('drops active world decode state on dimension change', function () {
     const botState = createBotState()
-    injectChunks(botState)
+    injectWorld(botState)
 
     botState.blobCache.set('blob', Buffer.alloc(0))
     botState.pendingBlobRequests.set('blob', { type: 'level_chunk' })

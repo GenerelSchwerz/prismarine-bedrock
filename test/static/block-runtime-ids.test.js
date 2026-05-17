@@ -61,7 +61,10 @@ describe('block runtime id mapping', function () {
       client,
       registry,
       blockClass: Block,
-      game: {}
+      game: {},
+      setDimension (dimension) {
+        this.game.dimension = dimension
+      }
     }
 
     setupPlugin(botState, {})

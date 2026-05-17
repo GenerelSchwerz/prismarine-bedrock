@@ -85,7 +85,7 @@ Gap:
 This repo:
 
 - Builds a `prismarine-world` instance in `BotState`.
-- Decodes and stores Bedrock chunks in `src/builtins/chunks.js`.
+- Decodes and stores Bedrock chunks in `src/builtins/world.js`.
 - Tracks blob cache state, missing blob requests, chunk sections, full chunk load state, subchunk updates, block updates, synced block updates, subchunk block updates, block entity data, and network chunk publisher updates.
 - Exposes `getBlockAt`, `getBlockStateIdAt`, `setBlockStateIdAt`, `areChunksLoadedAround`, and `waitForChunksToLoad`.
 - Maintains world bounds such as `worldMinY` and `worldHeight`.

@@ -130,15 +130,6 @@ class BotState extends EventEmitter {
     }
   }
 
-  resetWorld () {
-    this.world = new this.worldClass(null);
-  }
-
-  setDimension (dimension, options = {}) {
-    const changed = this.game.dimension !== dimension;
-    this.game.dimension = dimension;
-    if (changed && options.resetWorld) this.resetWorld();
-  }
 }
 
 BotState.normalizeRuntimeOptions = normalizeRuntimeOptions;

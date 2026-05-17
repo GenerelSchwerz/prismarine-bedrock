@@ -5,6 +5,7 @@ const { EventEmitter } = require('events')
 const BotState = require('../../src/state')
 const pluginLoader = require('../../src/plugin-loader')
 const setupPlugin = require('../../src/builtins/setup')
+const worldPlugin = require('../../src/builtins/world')
 
 function createSetupBotState () {
   const client = new EventEmitter()
@@ -52,7 +53,7 @@ describe('runtime options', function () {
     assert.strictEqual(bot.options.worldDecodeEnabled, true)
     assert.strictEqual(bot.options.physicsEnabled, false)
     assert.strictEqual(pluginLoader.shouldLoadBuiltin(bot, 'physics.js'), false)
-    assert.strictEqual(pluginLoader.shouldLoadBuiltin(bot, 'chunks.js'), true)
+    assert.strictEqual(pluginLoader.shouldLoadBuiltin(bot, 'world.js'), true)
   })
 
   it('disables physics by default when world decoding is disabled', function () {
@@ -64,7 +65,7 @@ describe('runtime options', function () {
     assert.strictEqual(bot.options.worldDecodeEnabled, false)
     assert.strictEqual(bot.options.physicsEnabled, false)
     assert.strictEqual(pluginLoader.shouldLoadBuiltin(bot, 'physics.js'), false)
-    assert.strictEqual(pluginLoader.shouldLoadBuiltin(bot, 'chunks.js'), false)
+    assert.strictEqual(pluginLoader.shouldLoadBuiltin(bot, 'world.js'), true)
   })
 
   it('rejects physics without world decoding', function () {
@@ -78,13 +79,18 @@ describe('runtime options', function () {
     )
   })
 
-  it('keeps world state owned by the bot and resettable on dimension changes', function () {
+  it('installs dimension and world reset handling from the world builtin', function () {
     const bot = new BotState({
       username: 'RuntimeOptionsBot',
       physicsEnabled: false
     })
     const originalWorld = bot.world
 
+    assert.strictEqual(typeof bot.setDimension, 'undefined')
+    assert.strictEqual(typeof bot.resetWorld, 'undefined')
+
+    bot.client = new EventEmitter()
+    worldPlugin(bot)
     bot.setDimension(1, { resetWorld: true })
 
     assert.notStrictEqual(bot.world, originalWorld)
@@ -123,6 +129,36 @@ describe('runtime options', function () {
       botState.client.queued.map(packet => packet.name),
       ['set_local_player_as_initialized']
     )
+  })
+
+  it('keeps dimension handling available when world decoding is disabled', function () {
+    const bot = new BotState({
+      username: 'RuntimeOptionsBot',
+      worldDecodeEnabled: false
+    })
+    bot.client = new EventEmitter()
+    bot.client.entityId = 1n
+    bot.client.queued = []
+    bot.client.queue = (name, params) => {
+      bot.client.queued.push({ name, params })
+    }
+
+    worldPlugin(bot, bot.options)
+    setupPlugin(bot, bot.options)
+    bot.client.emit('start_game', {
+      entity_id: 1n,
+      runtime_entity_id: 1n,
+      player_position: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, z: 0 },
+      player_gamemode: 'creative',
+      dimension: 2,
+      block_network_ids_are_hashes: false,
+      server_authoritative_inventory: true,
+      itemstates: [],
+      block_properties: []
+    })
+
+    assert.strictEqual(bot.game.dimension, 2)
   })
 
   it('keeps plugin loading state in the external loader', function () {

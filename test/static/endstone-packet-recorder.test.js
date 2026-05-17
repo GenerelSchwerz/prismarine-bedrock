@@ -13,7 +13,7 @@ from pathlib import Path
 
 event = types.ModuleType("endstone.event")
 for name in [
-    "PacketReceiveEvent", "PacketSendEvent", "PlayerChatEvent", "PlayerCommandEvent",
+    "ActorDeathEvent", "PacketReceiveEvent", "PacketSendEvent", "PlayerChatEvent", "PlayerCommandEvent",
     "PlayerDeathEvent", "PlayerInteractEvent", "PlayerItemConsumeEvent",
     "PlayerItemHeldEvent", "PlayerJoinEvent", "PlayerJumpEvent", "PlayerMoveEvent",
     "PlayerQuitEvent", "PlayerRespawnEvent"
@@ -104,7 +104,7 @@ from pathlib import Path
 
 event = types.ModuleType("endstone.event")
 for name in [
-    "PacketReceiveEvent", "PacketSendEvent", "PlayerChatEvent", "PlayerCommandEvent",
+    "ActorDeathEvent", "PacketReceiveEvent", "PacketSendEvent", "PlayerChatEvent", "PlayerCommandEvent",
     "PlayerDeathEvent", "PlayerInteractEvent", "PlayerItemConsumeEvent",
     "PlayerItemHeldEvent", "PlayerJoinEvent", "PlayerJumpEvent", "PlayerMoveEvent",
     "PlayerQuitEvent", "PlayerRespawnEvent"
@@ -136,8 +136,14 @@ class Actor:
     location = Location(0, 65, 8)
     scoreboard_tags = []
 
+class DeadActor:
+    type = "minecraft:cow"
+    location = Location(0, 65, 8)
+    scoreboard_tags = []
+    health = 0
+
 class Level:
-    actors = [Actor()]
+    actors = [Actor(), DeadActor()]
 
 class Player:
     level = Level()
@@ -148,6 +154,13 @@ passed, reason = recorder._clear_entity_exists(
     {"type": "entity_exists", "entity": "minecraft:cow", "position": [0, 65, 8], "radius": 3}
 )
 assert passed, reason
+assert reason["seen"] == 1, reason
+
+passed, reason = recorder._clear_entity_exists(
+    Player(),
+    {"type": "entity_dead", "entity": "minecraft:cow", "position": [0, 65, 8], "radius": 3, "count": 2}
+)
+assert not passed, reason
 assert reason["seen"] == 1, reason
 `
 

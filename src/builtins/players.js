@@ -14,8 +14,8 @@ module.exports = (botState, options) => {
   const PLAYER_HEIGHT = 1.8;
   const CROUCH_HEIGHT = 1.5;
   const PLAYER_WIDTH = 0.6;
-  const PLAYER_EYEHEIGHT = 1.62;
-  const CROUCH_EYEHEIGHT = 1.27;
+  const PLAYER_EYEHEIGHT = Math.fround(1.62);
+  const CROUCH_EYEHEIGHT = Math.fround(1.27);
 
   // ── Player list (update usernames / display names) ──
   botState.client.on('player_list', (packet) => {

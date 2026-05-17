@@ -42,7 +42,7 @@ module.exports = (botState) => {
   }
 
   function blockFace (pos) {
-    const eye = botState.self.position.offset(0, 1.62, 0)
+    const eye = botState.self.position
     const center = {
       x: Math.floor(pos.x) + 0.5,
       y: Math.floor(pos.y) + 0.5,

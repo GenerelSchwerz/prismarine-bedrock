@@ -144,6 +144,7 @@ Before stopping, even on failure:
 - `test/live/`: tests that connect to a local Bedrock/Geyser target.
 - `scripts/roundtrip-packet.js`: local Bedrock protocol serializer/deserializer check.
 - `scripts/e2e-servers.js`: local Endstone/BDS and Java/Geyser launcher.
+- `temp-bedrock-protocol-docs/`: local clone of Mojang Bedrock protocol docs. Do not treat it as repo source.
 - `temp-geyser-inspect/`: local Geyser checkout for translator inspection. Do not treat it as repo source.
 - `temp-gophertunnel-inspect/`: local Gophertunnel checkout for Bedrock protocol reference. Do not treat it as repo source.
 
@@ -165,6 +166,19 @@ node_modules/minecraft-data/minecraft-data/data/bedrock/<MC_VERSION>/types.yml
 ```
 
 Use `src/version.js` for the default version and helpers such as `minecraftDataBedrockDir()`. The default client/protocol version is `1.26.10`; shorthand `26.10` is normalized to `1.26.10` before calling `bedrock-protocol` or `prismarine-registry`. Do not hard-code old version directories or older `.pnpm/minecraft-data@...` paths in notes or scripts.
+
+Use Mojang's protocol docs as the first semantic reference when a packet field's meaning is ambiguous. A local gitignored clone lives at:
+
+```powershell
+cd C:\Users\owner\Documents\github\bedrock-test\temp-bedrock-protocol-docs
+```
+
+Useful docs entrypoints:
+
+- `json/CorrectPlayerMovePredictionPacket.json`
+- `json/PlayerAuthInputPacket.json`
+
+Example: `CorrectPlayerMovePredictionPacket.Rotation` is documented as "Only sent when PredictionType is Vehicle"; player corrections should not change the bot's local look rotation.
 
 For crafting, inventory, or trading behavior, verify these schema entries:
 
@@ -205,6 +219,7 @@ Do not copy Gophertunnel structs into this JavaScript repo as a substitute for c
 When recording evidence in a task log, name the source class:
 
 - Protocol schema: `minecraft-data` files under `node_modules/minecraft-data/minecraft-data/data/bedrock/<MC_VERSION>/`.
+- Protocol field semantics: Mojang Bedrock protocol docs under `temp-bedrock-protocol-docs/json/`.
 - Protocol semantics: local Gophertunnel checkout under `temp-gophertunnel-inspect/`.
 - Proxy/server translation behavior: local Geyser checkout under `temp-geyser-inspect/`.
 - Runtime server data: packets observed from the active server, especially `crafting_data`, `item_registry`, `inventory_content`, `inventory_slot`, `item_stack_request`, and `item_stack_response`.

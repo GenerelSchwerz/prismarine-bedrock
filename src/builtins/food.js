@@ -93,11 +93,7 @@ function makeItemReleasePacket (botState, slot, item) {
         action_type: 'consume',
         hotbar_slot: slot,
         held_item: itemToRaw(item, botState.itemClass),
-        head_pos: toVec3f({
-          x: playerPos.x,
-          y: playerPos.y + 1.62,
-          z: playerPos.z
-        })
+        head_pos: toVec3f(playerPos)
       }
     }
   }

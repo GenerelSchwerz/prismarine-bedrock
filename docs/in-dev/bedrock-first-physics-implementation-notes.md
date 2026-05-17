@@ -9,6 +9,8 @@ This note records the local source pass used for the Bedrock physics implementat
   - `InputFlag`
   - `packet_correct_player_move_prediction`
   - `packet_set_movement_authority`
+- `temp-bedrock-protocol-docs/json/CorrectPlayerMovePredictionPacket.json`
+  - `Rotation` is documented as vehicle-only correction data, so player corrections should not change local look rotation.
 - `node_modules/@nxg-org/mineflayer-util-plugin/lib/calcs/aabb.js`
   - Reused `AABB` for player and block collision volumes.
   - Reused `computeOffsetX`, `computeOffsetY`, `computeOffsetZ`, `extend`, `translate`, and `fromShape`.
@@ -50,7 +52,7 @@ This note records the local source pass used for the Bedrock physics implementat
 
 - This is a Bedrock-first player movement implementation, not a full Bedrock client clone.
 - It currently relies on prismarine block collision `shapes`. Special block-specific behaviors are only covered where the local block data exposes enough information or where the behavior is generic, such as friction and climbable-name detection.
-- Geyser/Boar both treat server corrections as authoritative. The plugin keeps that model: `move_player`, `respawn`, `correct_player_move_prediction`, and velocity hint packets reset or update local movement state.
+- Geyser/Boar both treat server corrections as authoritative. The plugin keeps that model: `move_player`, `respawn`, `correct_player_move_prediction`, and velocity hint packets reset or update local movement state. `correct_player_move_prediction` corrects position/ground state for player movement; it must not overwrite the bot's current pitch/yaw/headYaw unless vehicle correction semantics are explicitly implemented.
 - `player_auth_input.delta` is generated from the simulated velocity after collision/drag. Boar explicitly corrects this field server-side because it is validation-sensitive.
 
 ## Follow-up candidates

@@ -3,6 +3,7 @@ node_modules/
 pnpm-lock.yaml
 temp-geyser-inspect
 temp-gophertunnel-inspect
+temp-bedrock-protocol-docs
 Boar
 .test-lock.json
 .e2e-servers/

@@ -19,7 +19,7 @@ const {
 const specializeContainer = require('./specialize')
 
 function blockFace (botState, pos) {
-  const eye = botState.self.position.offset(0, 1.62, 0)
+  const eye = botState.self.position
   const center = {
     x: Math.floor(pos.x) + 0.5,
     y: Math.floor(pos.y) + 0.5,
@@ -208,9 +208,7 @@ module.exports = function containersPlugin (botState, options = {}) {
     const resultPosition = resultPositionForFace(target, face)
     const heldSlot = botState.heldItemSlot ?? 0
     const heldItem = botState.inventory?.slots?.[heldSlot] ?? null
-    const playerPos = botState.self?.position?.offset?.(0, 1.62, 0) ??
-      botState.self?.position ??
-      botState.spawnPosition
+    const playerPos = botState.self?.position ?? botState.spawnPosition
     const clickPos = opts.clickPosition ?? rayClickPositionForFace(
       playerPos,
       target,

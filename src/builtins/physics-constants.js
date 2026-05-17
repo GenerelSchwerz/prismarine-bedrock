@@ -12,7 +12,7 @@ const LATEST = {
   // Player dimensions (metres / blocks)
   PLAYER_HEIGHT: 1.8,
   PLAYER_WIDTH: 0.6,
-  EYE_HEIGHT: 1.62,
+  EYE_HEIGHT: Math.fround(1.62),
   HALF_WIDTH: 0.3,
 
   // Physics

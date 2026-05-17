@@ -8,6 +8,7 @@ const { installBedrockMovementStateHandlers } = require('./nxg-physics-utils-ada
 const { createBedrockPhysicsEngine } = require('./bedrock-physics-engine');
 const { installControls, updateEyeDeltaAndTick } = require('./input-controls');
 const { createMovementPacketSender } = require('./movement-packets');
+const { setSelfEyePosition, toFeetPosition, withSelfFeetPosition } = require('./position');
 
 module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
   if (options.physicsEnabled === false || botState.physicsEnabled === false) return;
@@ -55,7 +56,8 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
     if (!self?.position || !botState.world?.sync?.getBlock) return false;
 
     try {
-      const below = botState.world.sync.getBlock(self.position.offset(0, -0.1, 0).floored());
+      const feet = toFeetPosition(self.position, self, C);
+      const below = botState.world.sync.getBlock(feet.offset(0, -0.1, 0).floored());
       return below?.boundingBox === 'block' || (Array.isArray(below?.shapes) && below.shapes.length > 0);
     } catch {
       return false;
@@ -68,7 +70,9 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
 
     controls.evaluateControls();
 
-    physics.simulateSelf(botState, controls.getControlStateSnapshot(), world, C);
+    withSelfFeetPosition(self, C, () => {
+      physics.simulateSelf(botState, controls.getControlStateSnapshot(), world, C);
+    });
 
     if (!self.verticalCollision && !self.onGround && hasSupportingBlock()) {
       self.verticalCollision = true;
@@ -224,11 +228,11 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
     if (!isUsableMovementPosition(position)) return false;
     if (!botState.self) return false;
 
-    botState.self.position.set(position.x, position.y - C.EYE_HEIGHT, position.z);
+    setSelfEyePosition(botState.self, position, C);
     botState.self.velocity.set(0, 0, 0);
     botState.self.unvalidatedPosition = botState.self.position.clone();
     botState.self._prevEye = null;
-    botState.authoritativeMovementFeetPosition = botState.self.position.clone();
+    botState.authoritativeMovementFeetPosition = toFeetPosition(botState.self.position, botState.self, C);
     botState.canSendPlayerAuthInput = true;
     hasAuthoritativeMovementPosition = true;
     return true;
@@ -252,11 +256,7 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
   client.on('start_game', (pkt) => {
     if (!botState.self) return;
 
-    botState.self.position.set(
-      pkt.player_position.x,
-      pkt.player_position.y - C.EYE_HEIGHT,
-      pkt.player_position.z
-    );
+    setSelfEyePosition(botState.self, pkt.player_position, C);
 
     botState.self.pitch = rotationPitch(pkt.rotation);
     botState.self.yaw = rotationYaw(pkt.rotation);
@@ -279,11 +279,7 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
     if (!botState.self || !sameRuntimeId(pkt.runtime_id, client.entityId)) return;
     if (!isUsableMovementPosition(pkt.position)) return;
 
-    botState.self.position.set(
-      pkt.position.x,
-      pkt.position.y - C.EYE_HEIGHT,
-      pkt.position.z
-    );
+    setSelfEyePosition(botState.self, pkt.position, C);
 
     botState.self.pitch = pkt.pitch;
     botState.self.yaw = pkt.yaw;
@@ -300,7 +296,7 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
     botState.self._prevEye = null;
     hasAuthoritativeMovementPosition = true;
     botState.canSendPlayerAuthInput = true;
-    botState.authoritativeMovementFeetPosition = botState.self.position.clone();
+    botState.authoritativeMovementFeetPosition = toFeetPosition(botState.self.position, botState.self, C);
     void startTick();
   });
 
@@ -319,15 +315,8 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
     if (!botState.self) return;
     if (!isUsableMovementPosition(pkt.position)) return;
 
-    botState.self.position.set(
-      pkt.position.x,
-      pkt.position.y - C.EYE_HEIGHT,
-      pkt.position.z
-    );
+    setSelfEyePosition(botState.self, pkt.position, C);
 
-    botState.self.pitch = rotationPitch(pkt.rotation);
-    botState.self.yaw = rotationYaw(pkt.rotation);
-    botState.self.headYaw = botState.self.yaw;
     botState.self.onGround = !!pkt.on_ground;
     botState.self.velocity.set(0, 0, 0);
     botState.self.unvalidatedPosition = botState.self.position.clone();
@@ -336,7 +325,7 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
     botState.self._prevEye = null;
     hasAuthoritativeMovementPosition = true;
     botState.canSendPlayerAuthInput = true;
-    botState.authoritativeMovementFeetPosition = botState.self.position.clone();
+    botState.authoritativeMovementFeetPosition = toFeetPosition(botState.self.position, botState.self, C);
     void startTick();
   });
 

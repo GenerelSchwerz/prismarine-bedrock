@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from endstone.event import (
+    ActorDeathEvent,
     PacketReceiveEvent,
     PacketSendEvent,
     PlayerChatEvent,
@@ -198,6 +199,10 @@ class PacketRecorderPlugin(Plugin):
     def on_player_chat(self, event: PlayerChatEvent) -> None:
         self._record_endstone_event(event)
 
+    @event_handler
+    def on_actor_death(self, event: ActorDeathEvent) -> None:
+        self._record_endstone_event(event)
+
     def _record_packet(self, direction: str, event: Any) -> None:
         packet_id = int(event.packet_id)
         player_name = self._player_name(getattr(event, "player", None))
@@ -228,6 +233,10 @@ class PacketRecorderPlugin(Plugin):
 
         player = self._safe_get(event, "player")
         player_name = self._player_name(player)
+        if player is None:
+            self._record_global_endstone_event(event, event_name)
+            return
+
         if not self._should_record_player(player_name):
             return
         session = self._sessions.get(player_name) if player_name else None
@@ -256,6 +265,35 @@ class PacketRecorderPlugin(Plugin):
 
         if player is not None:
             self._check_player_session(player, session)
+
+    def _record_global_endstone_event(self, event: Any, event_name: str) -> None:
+        for player_name, session in list(getattr(self, "_sessions", {}).items()):
+            if session.get("status") != "active" or not self._should_record_player(player_name):
+                continue
+
+            record = {
+                "ts": time.time(),
+                "event": event_name,
+                "player": player_name,
+                "data": self._normalize_endstone_event(event, event_name, player_name)
+            }
+            recent = session.setdefault("recent_events", [])
+            recent.append(record)
+            if len(recent) > self._recent_event_limit:
+                del recent[:-self._recent_event_limit]
+
+            if event_name in self._debug_record_events:
+                self._write({
+                    "type": "endstone_event",
+                    "scenario": self._scenario.get("id") if self._scenario else None,
+                    "player": player_name,
+                    "event": event_name,
+                    "data": record["data"]
+                })
+
+            player = self.server.get_player(player_name)
+            if player is not None:
+                self._check_player_session(player, session)
 
     def _load_scenario(self) -> Optional[Dict[str, Any]]:
         raw = os.environ.get("E2E_ENDSTONE_SCENARIO", "").strip()
@@ -639,6 +677,8 @@ class PacketRecorderPlugin(Plugin):
         matches = []
 
         for entity in self._iter_nearby_entities(player):
+            if self._entity_is_dead(entity):
+                continue
             actual_type = self._entity_type(entity)
             if expected_type is not None and not self._identifier_equal(actual_type, str(expected_type)):
                 continue
@@ -1244,6 +1284,34 @@ class PacketRecorderPlugin(Plugin):
             except TypeError:
                 continue
         return entities
+
+    def _entity_is_dead(self, entity: Any) -> bool:
+        for attr in ("is_dead", "dead", "is_removed", "removed", "is_valid"):
+            value = getattr(entity, attr, None)
+            if callable(value):
+                try:
+                    value = value()
+                except TypeError:
+                    continue
+            if attr == "is_valid" and value is not None:
+                return not bool(value)
+            if value is not None and bool(value):
+                return True
+
+        for attr in ("health", "current_health"):
+            value = getattr(entity, attr, None)
+            if callable(value):
+                try:
+                    value = value()
+                except TypeError:
+                    continue
+            if value is None:
+                continue
+            try:
+                return float(value) <= 0
+            except (TypeError, ValueError):
+                continue
+        return False
 
     def _entity_type(self, entity: Any) -> str:
         for attr in ("type", "type_id", "identifier", "runtime_id"):

@@ -1,5 +1,6 @@
 const { Vec3 } = require('vec3')
 const { deltaDeg, logAction, normalizeInputData, numberOrZero } = require('../../utils')
+const { toFeetPosition } = require('./position')
 
 const INPUT_FLAG_NAME_BY_CONSTANT = {
   BIT_JUMPING: 'jumping',
@@ -55,12 +56,13 @@ function cameraOrientationFromRotation (yaw, pitch) {
   }
 }
 
-function hasSupportingBlock (botState) {
+function hasSupportingBlock (botState, C) {
   const self = botState.self
   if (!self?.position || !botState.world?.sync?.getBlock) return false
 
   try {
-    const below = botState.world.sync.getBlock(self.position.offset(0, -0.1, 0).floored())
+    const feet = toFeetPosition(self.position, self, C)
+    const below = botState.world.sync.getBlock(feet.offset(0, -0.1, 0).floored())
     return below?.boundingBox === 'block' || (Array.isArray(below?.shapes) && below.shapes.length > 0)
   } catch {
     return false
@@ -124,7 +126,7 @@ function createMovementPacketSender (botState, C) {
     const cameraOrientation = cameraOrientationFromRotation(sentYaw, sentPitch)
     const inputData = normalizeInputData(self.inputData || 0n, inputFlagByBit(C))
     inputData.block_breaking_delay_enabled = true
-    if (self.verticalCollision || self.onGround || hasSupportingBlock(botState)) {
+    if (self.verticalCollision || self.onGround || hasSupportingBlock(botState, C)) {
       inputData.vertical_collision = true
     }
     if (self._handledTeleportPending) {
@@ -137,7 +139,7 @@ function createMovementPacketSender (botState, C) {
       yaw: sentYaw,
       position: {
         x: numberOrZero(self.position.x),
-        y: numberOrZero(self.position.y) + C.EYE_HEIGHT,
+        y: numberOrZero(self.position.y),
         z: numberOrZero(self.position.z),
       },
       move_vector: {
@@ -185,7 +187,7 @@ function createMovementPacketSender (botState, C) {
       runtime_id: client.entityId || 0n,
       position: {
         x: numberOrZero(self.position.x),
-        y: numberOrZero(self.position.y) + C.EYE_HEIGHT,
+        y: numberOrZero(self.position.y),
         z: numberOrZero(self.position.z),
       },
       pitch: numberOrZero(lastSentPitch),
@@ -215,7 +217,7 @@ function createMovementPacketSender (botState, C) {
   function lookAt (point, force = false) {
     if (!botState.self) return
 
-    const eye = botState.self.position.offset(0, C.EYE_HEIGHT, 0)
+    const eye = botState.self.position
     const d = point.minus ? point.minus(eye) : new Vec3(point.x - eye.x, point.y - eye.y, point.z - eye.z)
     const yaw = (Math.atan2(-d.x, d.z) * 180) / Math.PI
     const pitch = (-Math.atan2(d.y, Math.sqrt(d.x * d.x + d.z * d.z)) * 180) / Math.PI

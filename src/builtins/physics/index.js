@@ -22,7 +22,7 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
   installBedrockMovementStateHandlers(botState);
   const world = createBedrockWorldAdapter(botState);
   const physics = createBedrockPhysicsEngine(options);
-  const movementPackets = createMovementPacketSender(botState, C);
+  const movementPackets = createMovementPacketSender(botState, C, options);
 
   let tickInterval = null;
   let movementMode = 'server';
@@ -87,10 +87,24 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
   }
 
   async function sendMovementTick() {
+    botState.emit('physicsTickPre', {
+      phase: 'pre',
+      movementMode,
+      tick: botState.self?.tick ?? 0n
+    });
+
     await tickSimulation();
 
+    const packet = movementMode !== 'client' ? 'player_auth_input' : 'move_player';
     if (movementMode !== 'client') movementPackets.sendPlayerAuthInput(tickMs / 1000);
     else movementPackets.sendMovePlayer(0, tickMs / 1000);
+
+    botState.emit('physicsTick', {
+      phase: 'post',
+      movementMode,
+      packet,
+      tick: botState.self?.tick ?? 0n
+    });
   }
 
   function yieldImmediate() {

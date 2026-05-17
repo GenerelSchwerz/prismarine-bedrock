@@ -2,8 +2,8 @@
 
 - **Status:** `[x]` complete
 - **Owner:** Codex / 2026-05-17
-- **Scope:** Inspect `mineflayer-pathfinder` as a reference and identify the minimum bot/world/entity state needed to reuse it for movement-only navigation.
-- **Owned files:** `docs/tasks/TASK-22-mineflayer-pathfinder-adapter-review.md`
+- **Scope:** Inspect `mineflayer-pathfinder` as a reference and add the physics tick hooks needed by a movement-only adapter.
+- **Owned files:** `docs/tasks/TASK-22-mineflayer-pathfinder-adapter-review.md`, `src/builtins/physics/index.js`, `test/static/physics-events.test.js`
 - **Related docs:** `AGENTS.md`, `docs/in-dev/bedrock-first-physics-implementation-notes.md`, `docs/reference/mineflayer-feature-comparison.md`
 
 ## Goal
@@ -38,6 +38,8 @@ Produce a concrete compatibility review for using `mineflayer-pathfinder` as the
 | --- | --- | --- |
 | `docs/tasks/TASK-22-mineflayer-pathfinder-adapter-review.md` | changed | Durable notes for the pathfinder compatibility investigation. |
 | `ref/mineflayer-pathfinder/` | inspected / gitignored | Local reference clone of PrismarineJS `mineflayer-pathfinder`; not repo source. |
+| `src/builtins/physics/index.js` | changed | Emits pre-simulation/send `physicsTickPre` and Mineflayer-compatible post-send `physicsTick` from the movement tick path. |
+| `test/static/physics-events.test.js` | changed | Adds focused coverage for event order and same-tick control mutation before auth-input send. |
 
 ## Parallel Subtasks
 
@@ -50,6 +52,11 @@ Produce a concrete compatibility review for using `mineflayer-pathfinder` as the
 - `2026-05-17` - read movement docs and parity docs - PASS. Notes: current repo exposes low-level controls and Bedrock-first auth-input physics but no pathfinder.
 - `2026-05-17` - `git clone https://github.com/PrismarineJS/mineflayer-pathfinder.git ref/mineflayer-pathfinder` - PASS. Notes: reference checkout cloned under ignored `ref/`.
 - `2026-05-17` - inspected `ref/mineflayer-pathfinder/index.js`, `lib/movements.js`, `lib/physics.js`, `lib/astar.js`, `lib/goals.js`, and `lib/goto.js` - PASS. Notes: planner is reusable in concept; executor expects Mineflayer-shaped bot state and Java `prismarine-physics`.
+- `2026-05-17` - `node -c src/builtins/physics/index.js` - PASS. Notes: syntax check for physics tick event changes.
+- `2026-05-17` - `npx mocha test/static/physics-events.test.js` - PASS. Notes: 1 passing; verifies pre `physicsTickPre` runs before queueing and can affect same-tick `move_vector`, and Mineflayer-compatible `physicsTick` fires after `player_auth_input` is queued.
+- `2026-05-17` - `pnpm run test:static` - PASS. Notes: 99 passing; Node emitted the existing `punycode` deprecation warning.
+- `2026-05-17` - corrected event naming after Mineflayer timing review - PASS. Notes: pre-send hook is `physicsTickPre`; post-send compatibility hook is `physicsTick`.
+- `2026-05-17` - `node -c src/builtins/physics/index.js`; `npx mocha test/static/physics-events.test.js`; `pnpm run test:static` - PASS. Notes: focused test 1 passing, full static suite 99 passing; Node emitted the existing `punycode` deprecation warning.
 
 ## Architecture Notes
 
@@ -59,6 +66,7 @@ Produce a concrete compatibility review for using `mineflayer-pathfinder` as the
 - Entity state is optional for static block navigation if `movements.allowEntityDetection = false`. If left enabled, upstream iterates `Object.values(bot.entities)` and expects each entity to have `position`, `width`, `height`, and `name`; `GoalFollow` and free-motion entity goals also require a live entity position.
 - Upstream `Physics` depends on Java `prismarine-physics` and `bot.physics.simulatePlayer`. For Bedrock this should be replaced with this repo's Bedrock movement predictor or a simpler path execution heuristic, because the current runtime is `player_auth_input` with server corrections.
 - This repo already has many needed surfaces: `BotState` is an event emitter; `botState.registry`, `botState.self`, `botState.entities`/`players`, `botState.inventory`, `botState.world.sync.getBlock`, `setControlState`, `clearControlStates`, `look`, and `lookAt`. Gaps include Mineflayer alias shape (`bot.entity`, `bot.blockAt`, object-form `bot.entities`), `physicsTick` emission, `blockUpdate` / `chunkColumnLoad` event aliases, and a Bedrock-native replacement for upstream `lib/physics.js`.
+- `physicsTickPre` now fires before control evaluation, local simulation, and packet send so Bedrock-native movement executors can choose controls for the same outgoing auth-input tick. `physicsTick` fires after the send path returns, matching Mineflayer's post-physics event timing, and includes the intended packet name.
 
 ## Handoff
 
@@ -66,15 +74,15 @@ The next agent can implement a small movement-only adapter or forked plugin laye
 
 ## Resume Notes
 
-- Next step: implement a prototype pathfinder facade with `bot.entity`, `bot.blockAt`, object-form `bot.entities`, `physicsTick` emission, movement-only `Movements` defaults, and Bedrock-native straight-line/jump checks.
+- Next step: implement a prototype pathfinder facade with `bot.entity`, `bot.blockAt`, object-form `bot.entities`, `physicsTickPre` / `physicsTick` handling, movement-only `Movements` defaults, and Bedrock-native straight-line/jump checks.
 - Do not repeat: initial dirty-worktree, reference clone, and source review.
 - Raw logs: none.
 
 ## Final Summary
 
-- Result: `mineflayer-pathfinder` is plausible as a planner/reference for movement-only navigation, but not as a clean drop-in. It needs a Mineflayer-shaped facade plus a Bedrock-native replacement for Java physics simulation.
-- Files changed: `docs/tasks/TASK-22-mineflayer-pathfinder-adapter-review.md`.
-- Verification: source inspection only; no static tests run because no production code changed.
+- Result: `mineflayer-pathfinder` is plausible as a planner/reference for movement-only navigation, but not as a clean drop-in. It needs a Mineflayer-shaped facade plus a Bedrock-native replacement for Java physics simulation. The runtime now has pre/post physics tick events for a movement executor.
+- Files changed: `docs/tasks/TASK-22-mineflayer-pathfinder-adapter-review.md`, `src/builtins/physics/index.js`, `test/static/physics-events.test.js`.
+- Verification: `node -c src/builtins/physics/index.js`; `npx mocha test/static/physics-events.test.js`; `pnpm run test:static`.
 - Follow-up tasks: prototype movement-only adapter, then add static planner tests and a live superflat `GoalBlock` walking test.
 
 ## Failure Summary

@@ -38,6 +38,7 @@
     "bedrock-protocol": "^3.55.0",
     "minecraft-data": "^3.109.1",
     "mineflayer-crafting-util": "^0.5.0",
+    "mineflayer-pathfinder": "^2.4.5",
     "prismarine-block": "^1.23.0",
     "prismarine-chat": "^1.13.0",
     "prismarine-chunk": "link:./prismarine-chunk-fork",

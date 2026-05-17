@@ -69,8 +69,10 @@ function hasSupportingBlock (botState, C) {
   }
 }
 
-function createMovementPacketSender (botState, C) {
+function createMovementPacketSender (botState, C, options = {}) {
   const client = botState.client
+  const yawStepSpeed = Number(options.yawStepSpeed ?? 180)
+  const pitchStepSpeed = Number(options.pitchStepSpeed ?? 180)
 
   let lastSentYaw = null
   let lastSentPitch = null
@@ -93,8 +95,8 @@ function createMovementPacketSender (botState, C) {
 
     const dYaw = deltaDeg(botState.self.yaw, lastSentYaw)
     const dPitch = botState.self.pitch - lastSentPitch
-    const maxYaw = 180 * dt
-    const maxPitch = 180 * dt
+    const maxYaw = yawStepSpeed * dt
+    const maxPitch = pitchStepSpeed * dt
 
     lastSentYaw += Math.max(-maxYaw, Math.min(maxYaw, dYaw))
     lastSentPitch += Math.max(-maxPitch, Math.min(maxPitch, dPitch))

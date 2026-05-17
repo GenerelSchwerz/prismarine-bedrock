@@ -31,10 +31,16 @@ function normalizeRuntimeOptions(options = {}) {
     throw new Error('[bot] physicsEnabled requires worldDecodeEnabled: true');
   }
 
+  const physicsEngine = options.physicsEngine ?? process.env.BEDROCK_PHYSICS_ENGINE ?? 'native';
+  if (!['native', 'nxg', 'nxg-org'].includes(physicsEngine)) {
+    throw new Error('[bot] physicsEngine must be "native" or "nxg"');
+  }
+
   return {
     ...options,
     worldDecodeEnabled,
-    physicsEnabled
+    physicsEnabled,
+    physicsEngine: physicsEngine === 'nxg-org' ? 'nxg' : physicsEngine
   };
 }
 

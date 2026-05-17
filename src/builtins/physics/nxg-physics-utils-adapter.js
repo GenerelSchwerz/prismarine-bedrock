@@ -22,7 +22,6 @@ const {
 
 const {
   BotcraftPhysics,
-  EntityState,
   PlayerState,
   EPhysicsCtx,
   ControlStateHandler,
@@ -30,6 +29,7 @@ const {
 } = require('@nxg-org/mineflayer-physics-util');
 
 const { convInpToAxes } = require('@nxg-org/mineflayer-physics-util/dist/physics/states/playerState')
+const SelfEntityProxy = require('./self-entity-proxy')
 
 // ===================================================================
 // Logger helper (same as original)
@@ -224,6 +224,7 @@ function normalizeGameMode(gamemode) {
 // ===================================================================
 function normalizePose(pose) {
   if (!pose) return PlayerPoses.STANDING;
+  if (typeof pose === 'number') return PlayerPoses[pose] ? pose : PlayerPoses.STANDING;
   if (typeof pose === 'string') {
     switch (pose.toLowerCase()) {
       case 'standing': return PlayerPoses.STANDING;
@@ -236,7 +237,7 @@ function normalizePose(pose) {
       default: return PlayerPoses.STANDING;
     }
   }
-  return pose;
+  return PlayerPoses.STANDING;
 }
 
 function degreesToRadians(value) {
@@ -253,8 +254,6 @@ function bedrockYawToNxgYaw(yawDegrees) {
 // Create the physics adapter
 // ===================================================================
 function createNxgPhysicsAdapter(options = {}) {
-  throw new Error('[physics] createNxgPhysicsAdapter is retired; current physics mutates botState.self directly')
-
   const dataVersion = options.physicsDataVersion || '1.21.1';
   const mcData = options.mcData || mcDataLoader(dataVersion);
 
@@ -289,6 +288,8 @@ function createNxgPhysicsAdapter(options = {}) {
       throw new Error('[physics] Cannot simulate without botState.self being set');
     }
 
+    self.attributes = self.attributes || {};
+
     // Build the proxy from the full botState instance
     const proxy = new SelfEntityProxy(botState, engine);
 
@@ -309,27 +310,6 @@ function createNxgPhysicsAdapter(options = {}) {
     // Clone previous control (must be stored on self beforehand)
     const prevControl = proxy.prevControl ? proxy.prevControl.clone() : control.clone();
 
-    // Build PlayerState from proxy + current controls
-    const state = new PlayerState(engine, proxy, world, control, prevControl);
-
-    // Override world settings if provided
-    if (simOptions.worldSettings) {
-      // (EPhysicsCtx will use default settings; we can't easily override per-tick,
-      //  but the user can pass worldSettings in the options to createNxgPhysicsAdapter)
-    }
-
-    // The engine expects heading to be set before AI step
-    const heading = convInpToAxes(state);
-    state.heading = heading;
-    state.prevHeading = proxy.prevHeading || { forward: 0, strafe: 0 };
-
-    // Copy all fields from proxy to PlayerState that the engine uses
-    // This is done inside PlayerState constructor (via proxy getters)
-    // But we must set attributes, effects, etc. on the PlayerState object
-    // Actually PlayerState constructor expects raw values, not proxy.
-    // We'll implement a custom factory.
-
-    // --- Build a PlayerState manually ---
     const playerState = new PlayerState(engine, proxy)
 
     // Now fill in all the fields that BotcraftPhysics reads
@@ -345,8 +325,6 @@ function createNxgPhysicsAdapter(options = {}) {
     playerState.depthStrider = proxy.depthStrider;
     playerState.swiftSneak = proxy.swiftSneak;
     playerState.soulSpeed = proxy.soulSpeed;
-    playerState.heading = heading;
-    playerState.prevHeading = proxy.prevHeading || { forward: 0, strafe: 0 };
     playerState.validElytraEquipped = proxy.validElytraEquipped;
     playerState.fireworkRocketDuration = proxy.fireworkRocketDuration;
     playerState.isInWater = proxy.isInWater;
@@ -362,7 +340,7 @@ function createNxgPhysicsAdapter(options = {}) {
     playerState.jumpTicks = proxy.jumpTicks;
     playerState.jumpQueued = proxy.jumpQueued;
     playerState.onClimbable = proxy.onClimbable;
-    playerState.pose = proxy.pose;
+    playerState.pose = normalizePose(proxy.pose);
     playerState.gameMode = proxy.gameMode;
     playerState.flying = proxy.flying;
     playerState.mayFly = proxy.mayFly;
@@ -380,9 +358,15 @@ function createNxgPhysicsAdapter(options = {}) {
     playerState.age = proxy.age;
     playerState.yaw = bedrockYawToNxgYaw(self.yaw);
     playerState.pitch = degreesToRadians(self.pitch);
+    playerState.control = control;
+    playerState.prevControl = prevControl;
+    const heading = convInpToAxes(playerState);
+    playerState.heading = heading;
+    playerState.prevHeading = proxy.prevHeading || { forward: 0, strafe: 0 };
 
     // Create the entity physics context
     const ctx = EPhysicsCtx.FROM_ENTITY_STATE(engine, playerState, playerEntityType);
+    Object.assign(ctx.worldSettings, options.worldSettings || simOptions.worldSettings || BEDROCK_WORLD_SETTINGS);
 
     // Run simulation
     const result = engine.simulate(ctx, world);
@@ -393,10 +377,13 @@ function createNxgPhysicsAdapter(options = {}) {
     self.onGround = result.onGround;
     self.lastOnGround = playerState.lastOnGround;
     self.horizontalCollision = result.isCollidedHorizontally;
+    self.isCollidedHorizontally = result.isCollidedHorizontally;
     self.isCollidedHorizontallyMinor = result.isCollidedHorizontallyMinor;
     self.verticalCollision = result.isCollidedVertically;
+    self.isCollidedVertically = result.isCollidedVertically;
     self.onClimbable = result.onClimbable;
     self.touchingWater = result.isInWater;
+    self.isInWater = result.isInWater;
     self.isUnderWater = result.isUnderWater;
     self.inLava = result.isInLava;
     self.isUnderLava = result.isUnderLava;
@@ -417,13 +404,17 @@ function createNxgPhysicsAdapter(options = {}) {
 
     // Store prevControl for next tick
     self.prevControl = control.clone();
+    botState.prevControl = control.clone();
     self.prevHeading = { forward: heading.forward, strafe: heading.strafe };
+    botState.prevHeading = { forward: heading.forward, strafe: heading.strafe };
     self.prevJump = !!controls.jump;
     self.prevSneak = !!controls.sneak;
 
     return {
       position: self.position,
       velocity: self.velocity,
+      requestedMove: result.vel,
+      appliedMove: result.vel,
       onGround: self.onGround,
       horizontalCollision: self.horizontalCollision,
       verticalCollision: self.verticalCollision,

@@ -4,7 +4,7 @@ const { sameRuntimeId, sleep } = require('../../utils');
 const { getConstants } = require('../physics-constants');
 const { DEFAULT_BEDROCK_VERSION } = require('../../version');
 const { createBedrockWorldAdapter } = require('./bedrock-world-adapter');
-const { installBedrockMovementStateHandlers } = require('./nxg-physics-utils-adapter');
+const { createNxgPhysicsAdapter, installBedrockMovementStateHandlers } = require('./nxg-physics-utils-adapter');
 const { createBedrockPhysicsEngine } = require('./bedrock-physics-engine');
 const { installControls, updateEyeDeltaAndTick } = require('./input-controls');
 const { createMovementPacketSender } = require('./movement-packets');
@@ -18,11 +18,15 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
 
   const client = botState.client;
   const C = getConstants(botState.version || DEFAULT_BEDROCK_VERSION);
+  const physicsOptions = { ...botState.options, ...options };
   const controls = installControls(botState, C);
   installBedrockMovementStateHandlers(botState);
   const world = createBedrockWorldAdapter(botState);
-  const physics = createBedrockPhysicsEngine(options);
-  const movementPackets = createMovementPacketSender(botState, C, options);
+  const physicsEngine = physicsOptions.physicsEngine === 'nxg-org' ? 'nxg' : (physicsOptions.physicsEngine || 'native');
+  const physics = physicsEngine === 'nxg'
+    ? createNxgPhysicsAdapter(physicsOptions)
+    : createBedrockPhysicsEngine(physicsOptions);
+  const movementPackets = createMovementPacketSender(botState, C, physicsOptions);
 
   let tickInterval = null;
   let movementMode = 'server';

@@ -19,6 +19,15 @@ function createBedrockWorldAdapter(botState) {
         );
       }
 
+      if (block && (!block.position || typeof block.getProperties !== 'function')) {
+        return {
+          ...block,
+          position: block.position || floorVec3(pos),
+          getProperties: typeof block.getProperties === 'function'
+            ? block.getProperties.bind(block)
+            : () => block.properties || {}
+        };
+      }
       return block;
     }
   };

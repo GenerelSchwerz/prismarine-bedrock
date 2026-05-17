@@ -31,6 +31,16 @@ describe('runtime options', function () {
 
     assert.strictEqual(bot.options.worldDecodeEnabled, true)
     assert.strictEqual(bot.options.physicsEnabled, true)
+    assert.strictEqual(bot.options.physicsEngine, 'native')
+  })
+
+  it('supports selecting the nxg physics wrapper', function () {
+    const bot = new BotState({
+      username: 'RuntimeOptionsBot',
+      physicsEngine: 'nxg-org'
+    })
+
+    assert.strictEqual(bot.options.physicsEngine, 'nxg')
   })
 
   it('supports explicitly disabled physics', function () {

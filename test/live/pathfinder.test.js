@@ -24,6 +24,7 @@ const TARGET = new Vec3(5, 67, 7)
 const TARGET_BLOCK = 'minecraft:diamond_block'
 const START_DELAY_MS = Number(process.env.PATHFINDER_START_DELAY_MS || 0)
 const GOAL_DELAY_MS = Number(process.env.PATHFINDER_GOAL_DELAY_MS || 0)
+const PHYSICS_ENGINE = process.env.PATHFINDER_PHYSICS_ENGINE || process.env.BEDROCK_PHYSICS_ENGINE || 'native'
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 function waitForSpawn (botState, timeoutMs = 30000) {
@@ -131,6 +132,7 @@ describe('live mineflayer pathfinder compatibility', function () {
       offline: OFFLINE,
       version: VERSION,
       skipPing: true,
+      physicsEngine: PHYSICS_ENGINE,
       yawStepSpeed: 100000,
       pitchStepSpeed: 100000
     })

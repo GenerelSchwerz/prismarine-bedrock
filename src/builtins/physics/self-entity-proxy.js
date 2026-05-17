@@ -14,6 +14,7 @@ function normalizeGameMode(gamemode) {
 
 function normalizePose(pose) {
   if (!pose) return PlayerPoses.STANDING;
+  if (typeof pose === 'number') return PlayerPoses[pose] ? pose : PlayerPoses.STANDING;
   if (typeof pose === 'string') {
     switch (pose.toLowerCase()) {
       case 'standing': return PlayerPoses.STANDING;
@@ -26,7 +27,7 @@ function normalizePose(pose) {
       default: return PlayerPoses.STANDING;
     }
   }
-  return pose;
+  return PlayerPoses.STANDING;
 }
 
 // Map Bedrock attribute names to full names used by the engine
@@ -99,6 +100,10 @@ class SelfEntityProxy {
 
     e.effects = e.effects && typeof e.effects === 'object' ? e.effects : {};
     e.rawEffects = e.rawEffects && typeof e.rawEffects === 'object' ? e.rawEffects : {};
+    if (!Array.isArray(e.metadata)) {
+      if (e.metadata && typeof e.metadata === 'object') e.bedrockMetadata = e.metadata;
+      e.metadata = [];
+    }
 
     // equipment array – used for depth strider / swift sneak
     if (!Array.isArray(e.equipment)) {
@@ -245,7 +250,10 @@ class SelfEntityProxy {
   }
 
   get game() {
-    return this._bot.game;
+    return {
+      ...this._bot.game,
+      gameMode: normalizeGameMode(this._bot.game?.gameMode || this._self.gamemode || 'survival')
+    };
   }
   set game(v) {
     this._bot.game = v;
@@ -366,8 +374,8 @@ class SelfEntityProxy {
   set supportingBlockPos(v)     { this._self.supportingBlockPos = v; }
   get stuckSpeedMultiplier()    { return this._self.stuckSpeedMultiplier || new Vec3(0, 0, 0); }
   set stuckSpeedMultiplier(v)   { this._self.stuckSpeedMultiplier = v; }
-  get pose()                    { return this._self.pose || PlayerPoses.STANDING; }
-  set pose(v)                   { this._self.pose = v; }
+  get pose()                    { return normalizePose(this._self.pose); }
+  set pose(v)                   { this._self.pose = normalizePose(v); }
   get gameMode()                { return normalizeGameMode(this._bot.game?.gameMode || this._self.gamemode || 'survival'); }
   set gameMode(v)               { this._bot.game = this._bot.game || {}; this._bot.game.gameMode = v; }
   get age()                     { return Number(this._bot.tick || 0n); }

@@ -35,6 +35,7 @@ Provide a Mineflayer-shaped wrapper/facade for plugin injection, prioritizing up
 - Completed: live Endstone/BDS pathfinder run passes for the original flat lane.
 - In progress: broaden the live pathfinder course to include a longer forward walk, a longer right turn, a one-block gap, a jump-up target, plus watch-friendly launch delays.
 - Current strict jump/turn/gap result: passing on the extended course. The bot reaches the exact raised diamond target block after a five-block forward leg, five-block right turn, one-block air gap, and one-block upward jump.
+- Follow-up complete: added an explicit runtime switch between the native Bedrock simulator and the `@nxg-org/mineflayer-physics-util` wrapper so the live pathfinder scenario can be run against either engine.
 - Known mismatch between notes and worktree: none for this task.
 - Known mismatch between notes and worktree: none for this task.
 
@@ -48,8 +49,12 @@ Provide a Mineflayer-shaped wrapper/facade for plugin injection, prioritizing up
 | `src/builtins/mineflayer-compat.js` | changed | Adds Mineflayer entity defaults needed by upstream pathfinder physics probes and exposes the Minecraft data version as `bedrock_<version>`. |
 | `src/builtins/mineflayer-compat.js` | changed | Exposes a Mineflayer entity facade with feet-position and Mineflayer yaw, converts upstream `bot.look()` yaw into Bedrock yaw, and fixes the simple pathfinder physics shim to use Mineflayer yaw/feet coordinates. |
 | `src/builtins/mineflayer-compat.js` | changed | Keeps `bot.look()` compatibility as a yaw conversion only; test-specific snapping is handled by physics rotation speed options. |
+| `src/state.js` | changed | Adds `physicsEngine: 'native' | 'nxg'` normalization, with `nxg-org` accepted as an alias and `BEDROCK_PHYSICS_ENGINE` as the env fallback. |
+| `src/builtins/physics/nxg-physics-utils-adapter.js` | changed | Revives the nxg-org wrapper adapter behind the explicit physics engine switch, using Java `minecraft-data` for the wrapper while adapting Bedrock state, controls, yaw, pose, and world settings. |
+| `src/builtins/physics/self-entity-proxy.js` | changed | Bridges Bedrock self state into the nxg player-state shape, including metadata array shape, normalized game mode, and normalized nxg poses. |
+| `src/builtins/physics/bedrock-world-adapter.js` | changed | Adds Java-style block adapter fields required by nxg physics: positioned blocks and a `getProperties()` helper. |
 | `src/builtins/physics/movement-packets.js` | changed | Adds configurable `yawStepSpeed` and `pitchStepSpeed` for look interpolation. |
-| `src/builtins/physics/index.js` | changed | Passes physics options into the movement packet sender. |
+| `src/builtins/physics/index.js` | changed | Passes physics options into the movement packet sender and selects native vs nxg physics engines. |
 | `test/static/mineflayer-compat.test.js` | changed | Verifies facade shape and that upstream `mineflayer-pathfinder` injects through `state.loadPlugin(pathfinder)`. |
 | `test/static/mineflayer-compat.test.js` | changed | Asserts the compat facade reports a Bedrock minecraft-data key such as `bedrock_1.26.10`. |
 | `test/static/mineflayer-compat.test.js` | changed | Asserts the entity facade does not replace native `self` and exposes feet-position to Mineflayer consumers. |
@@ -62,6 +67,8 @@ Provide a Mineflayer-shaped wrapper/facade for plugin injection, prioritizing up
 | `test/live/pathfinder.test.js` | changed | Sets high `yawStepSpeed` and `pitchStepSpeed` for the pathfinder scenario instead of adding compat-layer snap behavior. |
 | `test/live/pathfinder.test.js` | changed | Marks the target footing block as `minecraft:diamond_block`, uses `GoalBlock`, and asserts the bot's floored feet position is exactly inside the target block. |
 | `test/live/pathfinder.test.js` | changed | Reshapes the course to walk forward five blocks, turn right five blocks, then jump across one block of air onto a one-block-higher diamond target; enables pathfinder parkour for this explicit gap-jump scenario. |
+| `test/live/pathfinder.test.js` | changed | Passes through `PATHFINDER_PHYSICS_ENGINE` / `BEDROCK_PHYSICS_ENGINE` so the same pathfinder course can run against native or nxg physics. |
+| `test/static/runtime-options.test.js` | changed | Covers default native physics and the `nxg-org` alias normalization. |
 
 ## Parallel Subtasks
 
@@ -100,6 +107,12 @@ Provide a Mineflayer-shaped wrapper/facade for plugin injection, prioritizing up
 - `2026-05-17` - local `mineflayer-pathfinder/lib/physics` reproduction - PASS/DIAG. Notes: reproduced `canStraightLine=false` with path nodes from the live trace; after Mineflayer yaw conversion in the shim it returned `true`.
 - `2026-05-17` - `node scripts/e2e-servers.js launch --target=endstone --world=superflat --exit-after-client --client-timeout-ms=600000 --client "pnpm exec mocha --config .mocharc.live.json test/live/pathfinder.test.js"` - PASS. Notes: Endstone/BDS `1.26.12.2` launched on UDP `19132`; client test passed `1 passing (4s)`. Endstone logged a harmless cleanup `No targets matched selector` after OpBot disconnected.
 - `2026-05-17` - `pnpm run test:static` - PASS. Notes: 101 passing; Node emitted the existing `punycode` deprecation warning.
+- `2026-05-17` - `node -c src/state.js`; `node -c src/builtins/physics/index.js`; `node -c src/builtins/physics/nxg-physics-utils-adapter.js`; `node -c src/builtins/physics/self-entity-proxy.js`; `node -c src/builtins/physics/bedrock-world-adapter.js`; `node -c test/live/pathfinder.test.js` - PASS. Notes: syntax checks after adding the native/nxg physics engine switch.
+- `2026-05-17` - `npx mocha test/static/runtime-options.test.js test/static/mineflayer-compat.test.js` - PASS. Notes: 11 passing; Node emitted the existing `punycode` deprecation warning.
+- `2026-05-17` - isolated nxg tick probes - PASS. Notes: `createNxgPhysicsAdapter().simulateSelf(...)` can tick a simple Bedrock world wrapper, including `gameMode: 'fallback'` and string pose metadata, after normalizing the proxy state.
+- `2026-05-17` - interrupted nxg pathfinder run `PATHFINDER_PHYSICS_ENGINE=nxg node scripts/e2e-servers.js launch --target=endstone --world=superflat --exit-after-client --client-timeout-ms=600000 --client "pnpm exec mocha --config .mocharc.live.json test/live/pathfinder.test.js"` - FAIL. Notes: first live nxg run repeatedly threw `Unknown game mode: fallback` from nxg `PlayerState.update()`, leaving `pathTrace=[]` and the bot at start.
+- `2026-05-17` - interrupted nxg pathfinder rerun after game-mode normalization - FAIL. Notes: next live nxg run repeatedly threw `Cannot destructure property 'width' of 'exports.playerPoseCtx[entityPose]' as it is undefined` from nxg `getCollider()`, caused by Bedrock/string pose values reaching nxg.
+- `2026-05-17` - `PATHFINDER_PHYSICS_ENGINE=nxg node scripts/e2e-servers.js launch --target=endstone --world=superflat --exit-after-client --client-timeout-ms=600000 --client "pnpm exec mocha --config .mocharc.live.json test/live/pathfinder.test.js"` - PASS. Notes: Endstone/BDS `1.26.12.2`; focused pathfinder scenario passed `1 passing (9s)` using the nxg physics wrapper. Endstone process exited during launcher shutdown after the successful client exit.
 
 ## Architecture Notes
 

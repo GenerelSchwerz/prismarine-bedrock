@@ -3,7 +3,7 @@
 - **Status:** `[/]` active
 - **Owner:** Codex / 2026-05-17
 - **Scope:** Add a builtin compatibility wrapper that lets upstream `mineflayer-pathfinder` run against this Bedrock bot as the first supported Mineflayer plugin target.
-- **Owned files:** `docs/tasks/TASK-24-mineflayer-compat-wrapper.md`, `package.json`, `src/builtins/mineflayer-compat.js`, `src/builtins/physics/index.js`, `src/builtins/physics/movement-packets.js`, `test/static/mineflayer-compat.test.js`, `test/live/pathfinder.test.js`
+- **Owned files:** `docs/tasks/TASK-24-mineflayer-compat-wrapper.md`, `package.json`, `src/builtins/mineflayer-compat.js`, `src/builtins/dig.js`, `src/builtins/physics/index.js`, `src/builtins/physics/movement-packets.js`, `test/static/mineflayer-compat.test.js`, `test/static/dig.test.js`, `test/live/pathfinder.test.js`
 - **Related docs:** `AGENTS.md`, `docs/tasks/TASK-22-mineflayer-pathfinder-adapter-review.md`, `docs/reference/mineflayer-feature-comparison.md`
 
 ## Goal
@@ -27,6 +27,9 @@ Provide a Mineflayer-shaped wrapper/facade for plugin injection, prioritizing up
 - `[/]` Tighten the live scenario so jump/turn completion requires reaching the exact marked target block.
 - `[ ]` Fix or explicitly track the remaining pathfinder/physics failure on the strict jump/turn course.
 - `[ ]` Run focused and static tests after the strict scenario is stable.
+- `[x]` Add Mineflayer event/API aliases for pathfinder replanning.
+- `[x]` Make native `dig()` await matching block update completion.
+- `[x]` Add Mineflayer-shaped `equip(item, 'hand')` and `placeBlock(refBlock, faceVec)` compat shims.
 
 ## Current State
 
@@ -36,6 +39,8 @@ Provide a Mineflayer-shaped wrapper/facade for plugin injection, prioritizing up
 - In progress: broaden the live pathfinder course to include a longer forward walk, a longer right turn, a one-block gap, a jump-up target, plus watch-friendly launch delays.
 - Current strict jump/turn/gap result: passing on the extended course. The bot reaches the exact raised diamond target block after a five-block forward leg, five-block right turn, one-block air gap, and one-block upward jump.
 - Follow-up complete: added an explicit runtime switch between the native Bedrock simulator and the `@nxg-org/mineflayer-physics-util` wrapper so the live pathfinder scenario can be run against either engine.
+- Follow-up complete: hardened Mineflayer compatibility aliases for `blockUpdate`, `chunkColumnLoad`, event method normalization, plugin loaded checks, `findBlock(s)`, and `waitForChunks`.
+- Follow-up complete: cloned upstream Mineflayer into ignored `ref/mineflayer` at `03eba44f` (`Release 4.37.1`, 2026-05-03) and broadened the current shims against its source contracts. Native `dig()` now supports Mineflayer `forceLook` / `digFace` arguments and awaits matching block update completion; the compat facade exposes `equip`, `unequip`, `getEquipmentDestSlot`, `placeBlock`, and `_placeBlockWithOptions` where current Bedrock primitives can support them. `activateBlock`, scaffolding-specific behavior, offhand placement, and armor/offhand equipment movement are intentionally deferred or explicit errors.
 - Known mismatch between notes and worktree: none for this task.
 - Known mismatch between notes and worktree: none for this task.
 
@@ -49,6 +54,13 @@ Provide a Mineflayer-shaped wrapper/facade for plugin injection, prioritizing up
 | `src/builtins/mineflayer-compat.js` | changed | Adds Mineflayer entity defaults needed by upstream pathfinder physics probes and exposes the Minecraft data version as `bedrock_<version>`. |
 | `src/builtins/mineflayer-compat.js` | changed | Exposes a Mineflayer entity facade with feet-position and Mineflayer yaw, converts upstream `bot.look()` yaw into Bedrock yaw, and fixes the simple pathfinder physics shim to use Mineflayer yaw/feet coordinates. |
 | `src/builtins/mineflayer-compat.js` | changed | Keeps `bot.look()` compatibility as a yaw conversion only; test-specific snapping is handled by physics rotation speed options. |
+| `src/builtins/mineflayer-compat.js` | changed | Adds Mineflayer event/API aliases without replacing native Bedrock state shapes: `blockUpdate`, `chunkColumnLoad`, `physicTick` normalization, `hasPlugin`, `findBlock(s)`, and `waitForChunks`. |
+| `src/builtins/mineflayer-compat.js` | changed | Adds `equip(item, 'hand')` and `placeBlock(refBlock, faceVec)` signature shims for pathfinder digging/placing paths. |
+| `src/builtins/mineflayer-compat.js` | changed | Broadens shims from upstream Mineflayer `simple_inventory`, `place_block`, and `generic_place`: `getEquipmentDestSlot`, `unequip`, `_placeBlockWithOptions`, force-look/delta/half placement options, and explicit unsupported errors for non-hand equipment/offhand placement. |
+| `src/builtins/dig.js` | changed | Changes `dig(block)` from fire-and-forget scheduling to a promise that resolves after the matching block update confirms completion, and emits Mineflayer-style completion/abort events. |
+| `src/builtins/dig.js` | changed | Broadens native `dig` toward upstream Mineflayer `dig(block, forceLook, digFace)`, plus `digTime`, `canDigBlock`, and `stopDigging`. |
+| `src/builtins/place.js` | changed | Accepts an optional third options object used by compat placement shims for force-look and cursor-offset behavior; offhand placement remains unsupported. |
+| `ref/mineflayer/` | inspected / gitignored | Local reference clone of PrismarineJS `mineflayer` at `03eba44f`; not repo source. |
 | `src/state.js` | changed | Adds `physicsEngine: 'native' | 'nxg'` normalization, with `nxg-org` accepted as an alias and `BEDROCK_PHYSICS_ENGINE` as the env fallback. |
 | `src/builtins/physics/nxg-physics-utils-adapter.js` | changed | Revives the nxg-org wrapper adapter behind the explicit physics engine switch, using Java `minecraft-data` for the wrapper while adapting Bedrock state, controls, yaw, pose, and world settings. |
 | `src/builtins/physics/self-entity-proxy.js` | changed | Bridges Bedrock self state into the nxg player-state shape, including metadata array shape, normalized game mode, and normalized nxg poses. |
@@ -58,6 +70,10 @@ Provide a Mineflayer-shaped wrapper/facade for plugin injection, prioritizing up
 | `test/static/mineflayer-compat.test.js` | changed | Verifies facade shape and that upstream `mineflayer-pathfinder` injects through `state.loadPlugin(pathfinder)`. |
 | `test/static/mineflayer-compat.test.js` | changed | Asserts the compat facade reports a Bedrock minecraft-data key such as `bedrock_1.26.10`. |
 | `test/static/mineflayer-compat.test.js` | changed | Asserts the entity facade does not replace native `self` and exposes feet-position to Mineflayer consumers. |
+| `test/static/mineflayer-compat.test.js` | changed | Adds focused static coverage for compat event/API aliases and packet-backed world event bridges. |
+| `test/static/mineflayer-compat.test.js` | changed | Adds focused static coverage for Mineflayer `equip` and `placeBlock` shim signatures. |
+| `test/static/dig.test.js` | changed | Adds focused static coverage that `dig()` remains unresolved after `predict_break` and resolves only after the matching block update. |
+| `test/static/dig.test.js` | changed | Adds focused coverage for Mineflayer dig helper options and `stopDigging` abort behavior. |
 | `test/live/pathfinder.test.js` | changed | Adds a live scenario that builds a flat lane, loads upstream `mineflayer-pathfinder`, sets movement-only `Movements`, and waits for the bot to walk near a target. |
 | `test/live/pathfinder.test.js` | changed | Sets `skipPing: true` for this focused scenario after Endstone/BDS answered launcher readiness but the bot client's pre-connect RakNet ping timed out before initialization. |
 | `test/live/pathfinder.test.js` | changed | Adds failure-only path/control/auth-input traces so future movement regressions show whether planning or Bedrock control handoff failed. |
@@ -113,6 +129,18 @@ Provide a Mineflayer-shaped wrapper/facade for plugin injection, prioritizing up
 - `2026-05-17` - interrupted nxg pathfinder run `PATHFINDER_PHYSICS_ENGINE=nxg node scripts/e2e-servers.js launch --target=endstone --world=superflat --exit-after-client --client-timeout-ms=600000 --client "pnpm exec mocha --config .mocharc.live.json test/live/pathfinder.test.js"` - FAIL. Notes: first live nxg run repeatedly threw `Unknown game mode: fallback` from nxg `PlayerState.update()`, leaving `pathTrace=[]` and the bot at start.
 - `2026-05-17` - interrupted nxg pathfinder rerun after game-mode normalization - FAIL. Notes: next live nxg run repeatedly threw `Cannot destructure property 'width' of 'exports.playerPoseCtx[entityPose]' as it is undefined` from nxg `getCollider()`, caused by Bedrock/string pose values reaching nxg.
 - `2026-05-17` - `PATHFINDER_PHYSICS_ENGINE=nxg node scripts/e2e-servers.js launch --target=endstone --world=superflat --exit-after-client --client-timeout-ms=600000 --client "pnpm exec mocha --config .mocharc.live.json test/live/pathfinder.test.js"` - PASS. Notes: Endstone/BDS `1.26.12.2`; focused pathfinder scenario passed `1 passing (9s)` using the nxg physics wrapper. Endstone process exited during launcher shutdown after the successful client exit.
+- `2026-05-17` - `git status --short`; read `test/rules.md`; searched native event names and upstream `mineflayer-pathfinder` listener expectations - PASS. Notes: pathfinder listens for `blockUpdate` and `chunkColumnLoad`; native code currently has Bedrock packet/update handlers and no general Mineflayer event alias layer.
+- `2026-05-17` - `node -c src/builtins/mineflayer-compat.js`; `node -c test/static/mineflayer-compat.test.js`; `npx mocha test/static/mineflayer-compat.test.js` - PASS. Notes: focused compat suite now has 4 passing tests covering wrapper shape, upstream pathfinder injection, event bridges, and event method aliases.
+- `2026-05-17` - `pnpm run test:static` - PASS. Notes: 105 passing; Node emitted the existing `punycode` deprecation warning.
+- `2026-05-17` - `git status --short`; searched native `dig`, `placeBlock`, `equipItem`, and upstream pathfinder action calls - PASS. Notes: native `dig` returned immediately after scheduling; upstream pathfinder calls `bot.dig(block, true)`, `bot.equip(item, 'hand')`, and `bot.placeBlock(refBlock, faceVec)`.
+- `2026-05-17` - `node -c src/builtins/dig.js`; `node -c src/builtins/mineflayer-compat.js`; `node -c test/static/dig.test.js`; `node -c test/static/mineflayer-compat.test.js` - PASS. Notes: syntax checks for the dig completion and compat shim changes.
+- `2026-05-17` - `npx mocha test/static/dig.test.js test/static/mineflayer-compat.test.js` - PASS. Notes: 6 passing; focused coverage for awaited dig completion and Mineflayer `equip`/`placeBlock` shims.
+- `2026-05-17` - `pnpm run test:static` - PASS. Notes: 107 passing; Node emitted the existing `punycode` deprecation warning.
+- `2026-05-17` - `git clone https://github.com/PrismarineJS/mineflayer.git ref/mineflayer`; `git -C ref/mineflayer log -1 --format="%h %ad %s" --date=short` - PASS. Notes: cloned ignored reference checkout at `03eba44f 2026-05-03 Release 4.37.1 (#3897)`.
+- `2026-05-17` - inspected `ref/mineflayer/lib/plugins/digging.js`, `simple_inventory.js`, `place_block.js`, `generic_place.js`, and `inventory.js` activation section - PASS. Notes: upstream contracts include `dig(block, forceLook, digFace)`, `digTime`, `canDigBlock`, `stopDigging`, `equip/unequip/getEquipmentDestSlot`, `placeBlock`, `_placeBlockWithOptions`, and `activateBlock`.
+- `2026-05-17` - `node -c src/builtins/dig.js`; `node -c src/builtins/place.js`; `node -c src/builtins/mineflayer-compat.js`; `node -c test/static/dig.test.js`; `node -c test/static/mineflayer-compat.test.js` - PASS. Notes: syntax checks after broadening shims from upstream Mineflayer source.
+- `2026-05-17` - `npx mocha test/static/dig.test.js test/static/mineflayer-compat.test.js` - PASS. Notes: 7 passing; adds coverage for `forceLook`, `digFace`, `stopDigging`, `getEquipmentDestSlot`, `_placeBlockWithOptions`, placement cursor options, swing options, and explicit unsupported errors.
+- `2026-05-17` - `pnpm run test:static` - PASS. Notes: 108 passing; Node emitted the existing `punycode` deprecation warning.
 
 ## Architecture Notes
 
@@ -128,6 +156,13 @@ Provide a Mineflayer-shaped wrapper/facade for plugin injection, prioritizing up
 - Mineflayer/pathfinder yaw is not Bedrock yaw. Convert using `bedrockYawRadians = Math.PI - mineflayerYawRadians`; the same convention is already documented in the NXG adapter.
 - Pathfinder scenarios that need instant-looking behavior should raise physics `yawStepSpeed`/`pitchStepSpeed`, not special-case Mineflayer compat `look()`.
 - The live scenario remains movement-only with no digging, no scaffolding, no sprinting, and no entity detection. The current course explicitly enables pathfinder parkour because the scenario includes a one-block air gap and a one-block-up diamond target after a five-block forward leg and five-block right turn.
+- The compat plugin now installs packet-backed bridges for Mineflayer `blockUpdate` and `chunkColumnLoad` when a Bedrock client is available. The bridge keeps native Bedrock state authoritative, then emits Mineflayer-shaped events for plugin consumers.
+- `bot.once('event')` on the facade supports a promise-style form as a convenience for Mineflayer-adjacent code, while normal listener registration still delegates to the native `EventEmitter`.
+- `activateBlock` and scaffolding-specific pathfinder behavior are intentionally still outside this shim pass. `placeBlock` compatibility is only signature conversion into the existing Bedrock placement primitive.
+- Native `dig(block)` now keeps its break hook active after `predict_break` and resolves on matching `update_block`, `update_block_synced`, or `update_subchunk_blocks`; timeout rejects emit `diggingAborted`.
+- The Mineflayer `equip(item, destination)` shim resolves item objects back to native inventory slots before calling `equipItem(slot)` for `hand`/`null`; non-hand destinations currently throw explicit unsupported errors because this repo does not yet have a proven Bedrock armor/offhand equipment action path.
+- `_placeBlockWithOptions` supports upstream-compatible `forceLook`, `half`, `delta`, `swingArm`, and `showHand` translation into native placement. `offhand` placement throws explicitly because native `placeBlock` uses the selected hand only.
+- `activateBlock` remains deferred per user direction from the previous turn; upstream source is now available under `ref/mineflayer` for a future targeted pass.
 
 ## Handoff
 
@@ -135,7 +170,7 @@ The wrapper supports upstream pathfinder injection and has passing Endstone/BDS 
 
 ## Resume Notes
 
-- Next step: optional follow-up is broader terrain coverage or replacing the intentionally small compat physics shim with a Bedrock-native predictor. Keep the exact feet-block assertion for target completion.
+- Next step: optional follow-up is broader terrain coverage, a targeted `activateBlock` Bedrock transaction shim, armor/offhand equipment actions, more Mineflayer event aliases as plugin gaps appear, or replacing the intentionally small compat physics shim with a Bedrock-native predictor. Keep the exact feet-block assertion for target completion.
 - Do not repeat: TASK-22 source review or wrapper injection tests.
 - Raw logs: none.
 

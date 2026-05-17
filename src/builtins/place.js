@@ -67,16 +67,21 @@ function inject (botState, options) {
    * @param {number} [face] - block face to click (0=bottom, 1=top, 2=z-, 3=z+, 4=x-, 5=x+)
    * @returns {Promise<void>} resolves after the look and packet send
    */
-  botState.placeBlock = async function (targetPos, face) {
+  botState.placeBlock = async function (targetPos, face, placeOptions = {}) {
     if (!(targetPos instanceof Vec3)) {
       throw new TypeError('placeBlock: targetPos must be a Vec3')
     }
     face ??= blockFace(targetPos)
 
-    // Look at the centre of the target block
-    if (typeof botState.lookAt === 'function') {
-      const lookPos = targetPos.offset(0.5, 0.5, 0.5)
-      await botState.lookAt(lookPos)
+    if (placeOptions.offhand) {
+      throw new Error('Bedrock placeBlock does not support offhand placement yet')
+    }
+
+    // Look at the requested point on the target block.
+    if (placeOptions.forceLook !== 'ignore' && typeof botState.lookAt === 'function') {
+      const lookOffset = placeOptions.lookOffset || { x: 0.5, y: 0.5, z: 0.5 }
+      const lookPos = targetPos.offset(lookOffset.x, lookOffset.y, lookOffset.z)
+      await botState.lookAt(lookPos, placeOptions.forceLook)
     }
 
     // Determine the hotbar slot holding the item we want to place
@@ -103,6 +108,7 @@ function inject (botState, options) {
     }
 
     sendPlaceTransaction(useItemData)
+    botState.emit('blockPlaceRequested', { targetPos, face, options: placeOptions })
   }
 
   // ------------------------------------------------------------------

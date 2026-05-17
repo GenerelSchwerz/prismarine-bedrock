@@ -6,6 +6,20 @@ const { bedrockRegistryName } = require('../version')
 const FACADE = Symbol('mineflayerCompatFacade')
 const ENTITY_FACADE = Symbol('mineflayerCompatEntityFacade')
 const REGISTRY_FACADE = Symbol('mineflayerCompatRegistryFacade')
+const EVENT_BRIDGES = Symbol('mineflayerCompatEventBridges')
+
+const EVENT_NAME_ALIASES = {
+  physicTick: 'physicsTick'
+}
+
+const MINEFLAYER_EQUIPMENT_SLOTS = {
+  hand: 36,
+  head: 5,
+  torso: 6,
+  legs: 7,
+  feet: 8,
+  'off-hand': 45
+}
 
 function bindFunction (target, value) {
   return typeof value === 'function' ? value.bind(target) : value
@@ -165,6 +179,218 @@ function blockAt (botState, pos) {
   return block || null
 }
 
+function blockMatches (block, matching, useExtraInfo) {
+  if (!block) return false
+  if (typeof matching === 'function') return !!matching(block)
+
+  const id = block.type ?? block.id
+  const name = block.name
+  const candidates = Array.isArray(matching) || matching instanceof Set
+    ? matching
+    : [matching]
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'function') {
+      if (candidate(block)) return true
+    } else if (typeof candidate === 'number') {
+      if (id === candidate) return true
+    } else if (typeof candidate === 'string') {
+      if (name === candidate || name === `minecraft:${candidate}`) return true
+    } else if (candidate && typeof candidate === 'object') {
+      if (candidate.type === id || candidate.id === id || candidate.name === name) return true
+    }
+  }
+
+  return typeof useExtraInfo === 'function' ? !!useExtraInfo(block) : false
+}
+
+function findBlocks (botState, options = {}) {
+  const origin = options.point || toMineflayerPosition(botState.self) || botState.self?.position
+  const matching = options.matching
+  if (!origin || matching == null) return []
+
+  const maxDistance = Math.max(0, Math.floor(options.maxDistance ?? 16))
+  const count = Number.isFinite(options.count) ? Math.max(0, options.count) : Infinity
+  const center = floorVec3Like(origin)
+  const matches = []
+
+  for (let y = -maxDistance; y <= maxDistance; y++) {
+    for (let x = -maxDistance; x <= maxDistance; x++) {
+      for (let z = -maxDistance; z <= maxDistance; z++) {
+        const distanceSq = x * x + y * y + z * z
+        if (distanceSq > maxDistance * maxDistance) continue
+
+        const pos = center.offset(x, y, z)
+        const block = blockAt(botState, pos)
+        if (!blockMatches(block, matching, options.useExtraInfo)) continue
+
+        matches.push({ pos: block.position || pos, distanceSq })
+      }
+    }
+  }
+
+  matches.sort((a, b) => a.distanceSq - b.distanceSq)
+  return matches.slice(0, count).map(match => match.pos)
+}
+
+function findBlock (botState, options = {}) {
+  const positions = findBlocks(botState, { ...options, count: 1 })
+  return positions.length > 0 ? blockAt(botState, positions[0]) : null
+}
+
+function waitForChunks (botState, options = {}) {
+  const waiter = botState.waitForChunksToLoad
+  if (typeof waiter !== 'function') return Promise.resolve()
+
+  const point = options.point || botState.self?.position
+  const radius = options.radius ?? options.maxDistance ?? 16
+  const timeout = options.timeout ?? options.timeoutMs
+  const verticalSectionRadius = options.verticalSectionRadius
+
+  return waiter.call(botState, radius, point, timeout, verticalSectionRadius)
+}
+
+function inventorySlots (botState) {
+  return botState.inventory?.slots || []
+}
+
+function inventorySlotMatchesItem (slotItem, item) {
+  if (!slotItem || !item) return false
+  if (slotItem === item) return true
+
+  const sameType = slotItem.type === item.type || slotItem.id === item.id
+  if (!sameType) return false
+
+  if (item.name && slotItem.name && item.name !== slotItem.name) return false
+  if (item.metadata != null && slotItem.metadata != null && item.metadata !== slotItem.metadata) return false
+  if (item.count != null && slotItem.count != null && item.count !== slotItem.count) return false
+
+  return true
+}
+
+function findInventorySlotForItem (botState, item) {
+  if (Number.isInteger(item)) return item
+  if (Number.isInteger(item?.slot) && inventorySlots(botState)[item.slot]) return item.slot
+
+  const slots = inventorySlots(botState)
+  const exact = slots.findIndex(slotItem => slotItem === item)
+  if (exact >= 0) return exact
+
+  return slots.findIndex(slotItem => inventorySlotMatchesItem(slotItem, item))
+}
+
+function normalizeEquipmentDestination (destination) {
+  return destination == null || destination === 'heldItem' ? 'hand' : destination
+}
+
+function getEquipmentDestSlotCompat (botState, destination) {
+  destination = normalizeEquipmentDestination(destination)
+  const slot = MINEFLAYER_EQUIPMENT_SLOTS[destination]
+  if (slot == null) throw new Error(`invalid destination: ${destination}`)
+  if (destination === 'hand') return 36 + (botState.heldItemSlot ?? 0)
+  return slot
+}
+
+async function equipCompat (botState, item, destination = 'hand') {
+  destination = normalizeEquipmentDestination(destination)
+
+  const slot = findInventorySlotForItem(botState, item)
+  if (slot < 0) throw new Error(`Cannot equip missing item: ${item?.name || item?.type || item}`)
+
+  if (destination === 'hand') {
+    if (typeof botState.equipItem === 'function') return botState.equipItem(slot)
+    if (typeof botState.selectHotbarSlot === 'function' && slot >= 0 && slot <= 8) {
+      botState.selectHotbarSlot(slot)
+      return inventorySlots(botState)[slot]
+    }
+
+    throw new Error('Cannot equip item: no Bedrock equipItem/selectHotbarSlot helper is available')
+  }
+
+  throw new Error(`Mineflayer compat equip destination ${destination} is not backed by a Bedrock equipment action yet`)
+}
+
+async function unequipCompat (botState, destination = 'hand') {
+  destination = normalizeEquipmentDestination(destination)
+
+  if (destination === 'hand') {
+    const emptyHotbarSlot = inventorySlots(botState).findIndex((item, slot) => slot >= 0 && slot <= 8 && !item)
+    if (emptyHotbarSlot >= 0 && typeof botState.selectHotbarSlot === 'function') {
+      botState.selectHotbarSlot(emptyHotbarSlot)
+      return
+    }
+    throw new Error('Cannot unequip hand: no empty hotbar slot is available')
+  }
+
+  throw new Error(`Mineflayer compat unequip destination ${destination} is not backed by a Bedrock equipment action yet`)
+}
+
+function faceVectorToBedrockFace (face) {
+  if (Number.isInteger(face)) return face
+  if (!face) return undefined
+
+  const x = Number(face.x) || 0
+  const y = Number(face.y) || 0
+  const z = Number(face.z) || 0
+
+  if (Math.abs(y) >= Math.abs(x) && Math.abs(y) >= Math.abs(z)) return y >= 0 ? 1 : 0
+  if (Math.abs(x) >= Math.abs(z)) return x >= 0 ? 5 : 4
+  return z >= 0 ? 3 : 2
+}
+
+function blockPosition (blockOrPos) {
+  if (!blockOrPos) return null
+  const pos = blockOrPos.position || blockOrPos
+  if (pos instanceof Vec3) return pos
+  if (Number.isFinite(pos.x) && Number.isFinite(pos.y) && Number.isFinite(pos.z)) return new Vec3(pos.x, pos.y, pos.z)
+  return null
+}
+
+async function placeBlockCompat (botState, referenceBlock, faceVector) {
+  return placeBlockWithOptionsCompat(botState, referenceBlock, faceVector, { swingArm: 'right' })
+}
+
+function placeLookOffset (faceVector, options = {}) {
+  let dx = 0.5 + (Number(faceVector?.x) || 0) * 0.5
+  let dy = 0.5 + (Number(faceVector?.y) || 0) * 0.5
+  let dz = 0.5 + (Number(faceVector?.z) || 0) * 0.5
+
+  if (dy === 0.5) {
+    if (options.half === 'top') dy += 0.25
+    else if (options.half === 'bottom') dy -= 0.25
+  }
+
+  if (options.delta) {
+    dx = Number(options.delta.x) || 0
+    dy = Number(options.delta.y) || 0
+    dz = Number(options.delta.z) || 0
+  }
+
+  return { x: dx, y: dy, z: dz }
+}
+
+async function placeBlockWithOptionsCompat (botState, referenceBlock, faceVector, options = {}) {
+  if (typeof botState.placeBlock !== 'function') {
+    throw new Error('Cannot place block: native placeBlock helper is not available')
+  }
+
+  const position = blockPosition(referenceBlock)
+  if (!position) throw new Error('Cannot place block: reference block has no position')
+
+  if (options.offhand) {
+    throw new Error('Mineflayer compat offhand block placement is not backed by a Bedrock action yet')
+  }
+
+  if (options.swingArm && typeof botState.swingArm === 'function') {
+    botState.swingArm(options.swingArm, options.showHand)
+  }
+
+  return botState.placeBlock(position, faceVectorToBedrockFace(faceVector), {
+    ...options,
+    lookOffset: placeLookOffset(faceVector, options)
+  })
+}
+
 function radiansToDegrees (value) {
   return (Number(value) || 0) * 180 / Math.PI
 }
@@ -228,6 +454,122 @@ function createSimplePhysicsShim (botState) {
   }
 }
 
+function normalizeEventName (eventName) {
+  return EVENT_NAME_ALIASES[eventName] || eventName
+}
+
+function eventMethod (target, prop) {
+  return (eventName, ...args) => {
+    const nativeName = normalizeEventName(eventName)
+    return target[prop](nativeName, ...args)
+  }
+}
+
+function oncePromiseOrListener (target, eventName, listener) {
+  const nativeName = normalizeEventName(eventName)
+  if (typeof listener === 'function') return target.once(nativeName, listener)
+
+  return new Promise(resolve => {
+    target.once(nativeName, (...args) => resolve(args.length > 1 ? args : args[0]))
+  })
+}
+
+function chunkEventPayload (botState, cx, cz) {
+  const key = `${cx},${cz}`
+  const column = botState.networkChunks?.get?.(key)
+  if (column && typeof column === 'object') {
+    if (!Number.isFinite(column.x)) column.x = cx << 4
+    if (!Number.isFinite(column.z)) column.z = cz << 4
+    column.chunkX ??= cx
+    column.chunkZ ??= cz
+    return column
+  }
+
+  return {
+    x: cx << 4,
+    z: cz << 4,
+    chunkX: cx,
+    chunkZ: cz,
+    column: column || null
+  }
+}
+
+function emitChunkColumnLoad (botState, emittedChunks, cx, cz) {
+  const key = `${cx},${cz}`
+  if (emittedChunks.has(key)) return
+  emittedChunks.add(key)
+
+  setImmediate(() => {
+    const chunk = chunkEventPayload(botState, cx, cz)
+    botState.emit('chunkColumnLoad', chunk)
+    botState.emit('chunkColumnLoaded', chunk)
+  })
+}
+
+function emitBlockUpdate (botState, oldBlock, position) {
+  if (!position) return
+
+  setImmediate(() => {
+    const newBlock = blockAt(botState, position)
+    botState.emit('blockUpdate', oldBlock || null, newBlock || null)
+    botState.emit('blockUpdated', oldBlock || null, newBlock || null)
+  })
+}
+
+function isSubchunkLoadedResult (result) {
+  return result === 1 || result === 6 || result === 'success' || result === 'success_all_air'
+}
+
+function installMineflayerEventBridges (botState) {
+  const client = botState.client
+  if (!client || typeof client.on !== 'function') return
+  if (botState[EVENT_BRIDGES]) return
+
+  const emittedChunks = new Set()
+  const oldBlockAt = position => {
+    try {
+      return blockAt(botState, position)
+    } catch {
+      return null
+    }
+  }
+
+  client.on('level_chunk', packet => {
+    if (!Number.isFinite(packet?.x) || !Number.isFinite(packet?.z)) return
+    emitChunkColumnLoad(botState, emittedChunks, packet.x, packet.z)
+  })
+
+  client.on('subchunk', packet => {
+    const origin = packet?.origin
+    if (!origin || !Array.isArray(packet.entries)) return
+
+    for (const entry of packet.entries) {
+      if (!entry) continue
+      if (!isSubchunkLoadedResult(entry.result)) continue
+      emitChunkColumnLoad(botState, emittedChunks, origin.x + entry.dx, origin.z + entry.dz)
+    }
+  })
+
+  const updateBlock = packet => {
+    if (packet?.layer !== undefined && packet.layer !== 0) return
+    const position = packet?.position
+    const oldBlock = oldBlockAt(position)
+    emitBlockUpdate(botState, oldBlock, position)
+  }
+
+  client.on('update_block', updateBlock)
+  client.on('update_block_synced', updateBlock)
+  client.on('update_subchunk_blocks', packet => {
+    if (!Array.isArray(packet?.blocks)) return
+    for (const entry of packet.blocks) {
+      const oldBlock = oldBlockAt(entry?.position)
+      emitBlockUpdate(botState, oldBlock, entry?.position)
+    }
+  })
+
+  botState[EVENT_BRIDGES] = true
+}
+
 function createMineflayerFacade (botState) {
   if (botState[FACADE]) return botState[FACADE]
 
@@ -242,11 +584,26 @@ function createMineflayerFacade (botState) {
       if (prop === 'registry') return registryFacade(target)
       if (prop === 'version') return mineflayerDataVersion(target)
       if (prop === 'blockAt') return (pos) => blockAt(target, pos)
-      if (prop === 'findBlock') return target.findBlock
+      if (prop === 'findBlock') return target.findBlock || (options => findBlock(target, options))
+      if (prop === 'findBlocks') return target.findBlocks || (options => findBlocks(target, options))
+      if (prop === 'waitForChunks') return target.waitForChunks || (options => waitForChunks(target, options))
+      if (prop === 'equip') return (item, destination) => equipCompat(target, item, destination)
+      if (prop === 'unequip') return destination => unequipCompat(target, destination)
+      if (prop === 'getEquipmentDestSlot') return destination => getEquipmentDestSlotCompat(target, destination)
+      if (prop === 'placeBlock') return (referenceBlock, faceVector) => placeBlockCompat(target, referenceBlock, faceVector)
+      if (prop === '_placeBlockWithOptions') return (referenceBlock, faceVector, options) => placeBlockWithOptionsCompat(target, referenceBlock, faceVector, options)
       if (prop === 'physics') return target.physics || createSimplePhysicsShim(target)
       if (prop === 'look') {
         return (yaw, pitch = 0, force = false) => target.look?.(mineflayerYawToBedrockDegrees(yaw), radiansToDegrees(pitch), force)
       }
+      if (prop === 'on' || prop === 'addListener' || prop === 'prependListener' || prop === 'removeListener' || prop === 'off') return eventMethod(target, prop)
+      if (prop === 'once') return (eventName, listener) => oncePromiseOrListener(target, eventName, listener)
+      if (prop === 'removeAllListeners') return (eventName) => {
+        if (eventName === undefined) return target.removeAllListeners()
+        return target.removeAllListeners(normalizeEventName(eventName))
+      }
+      if (prop === 'listeners' || prop === 'rawListeners' || prop === 'listenerCount') return (eventName, ...args) => target[prop](normalizeEventName(eventName), ...args)
+      if (prop === 'emit') return (eventName, ...args) => target.emit(normalizeEventName(eventName), ...args)
       if (prop === 'loadPlugin') {
         return (plugin) => {
           if (loadedPlugins.has(plugin)) return facade
@@ -255,6 +612,7 @@ function createMineflayerFacade (botState) {
           return facade
         }
       }
+      if (prop === 'hasPlugin') return plugin => loadedPlugins.has(plugin)
       if (prop === 'loadPlugins') {
         return (plugins = []) => {
           for (const plugin of plugins) facade.loadPlugin(plugin)
@@ -278,6 +636,7 @@ function createMineflayerFacade (botState) {
 }
 
 module.exports = function mineflayerCompatPlugin (botState) {
+  installMineflayerEventBridges(botState)
   const facade = createMineflayerFacade(botState)
 
   Object.defineProperty(botState, 'mineflayer', {
@@ -291,8 +650,10 @@ module.exports = function mineflayerCompatPlugin (botState) {
   botState.asMineflayerBot = () => facade
   botState.loadMineflayerPlugin = plugin => facade.loadPlugin(plugin)
   botState.loadMineflayerPlugins = plugins => facade.loadPlugins(plugins)
+  botState.hasMineflayerPlugin = plugin => facade.hasPlugin(plugin)
   if (typeof botState.loadPlugin !== 'function') botState.loadPlugin = plugin => facade.loadPlugin(plugin)
   if (typeof botState.loadPlugins !== 'function') botState.loadPlugins = plugins => facade.loadPlugins(plugins)
+  if (typeof botState.hasPlugin !== 'function') botState.hasPlugin = plugin => facade.hasPlugin(plugin)
 }
 
 module.exports.createMineflayerFacade = createMineflayerFacade

@@ -4,7 +4,7 @@
 
 const { logAction, toVec3i } = require('../utils')
 
-module.exports = (botState) => {
+module.exports = (botState, options = {}) => {
   const digState = {
     target: null,
     startTime: null,
@@ -12,7 +12,12 @@ module.exports = (botState) => {
     digTicks: null,
     face: null,
     started: false,
-    unhook: null
+    predicted: false,
+    unhook: null,
+    timeout: null,
+    resolve: null,
+    reject: null,
+    block: null
   }
 
   botState.currentDig = digState
@@ -38,7 +43,45 @@ module.exports = (botState) => {
     digState.digTicks = null
     digState.face = null
     digState.started = false
+    digState.predicted = false
     digState.unhook = null
+    digState.timeout = null
+    digState.resolve = null
+    digState.reject = null
+    digState.block = null
+  }
+
+  function finishDigState (status, value) {
+    const resolve = digState.resolve
+    const reject = digState.reject
+    const block = digState.block
+    const target = digState.target?.clone?.() || digState.target
+    const timeout = digState.timeout
+
+    if (timeout) clearTimeout(timeout)
+    clearDigState()
+
+    if (status === 'completed') {
+      botState.emit('diggingCompleted', block, target)
+      resolve?.(value ?? block)
+    } else {
+      const error = value instanceof Error ? value : new Error(String(value || 'Digging aborted'))
+      botState.emit('diggingAborted', block, target, error)
+      reject?.(error)
+    }
+  }
+
+  function armDigTimeout (ms) {
+    const timeoutMs = Math.max(
+      Number(options.digCompletionTimeoutMs ?? botState.options?.digCompletionTimeoutMs ?? 10000),
+      ms + Number(options.digCompletionGraceMs ?? botState.options?.digCompletionGraceMs ?? 5000)
+    )
+
+    digState.timeout = setTimeout(() => {
+      if (!digState.target) return
+      finishDigState('aborted', new Error(`Timed out waiting for dig completion at ${digState.target}`))
+    }, timeoutMs)
+    digState.timeout.unref?.()
   }
 
   function blockFace (pos) {
@@ -55,6 +98,32 @@ module.exports = (botState) => {
     if (Math.abs(dy) >= Math.abs(dx) && Math.abs(dy) >= Math.abs(dz)) return dy > 0 ? 1 : 0
     if (Math.abs(dx) >= Math.abs(dz)) return dx > 0 ? 5 : 4
     return dz > 0 ? 3 : 2
+  }
+
+  function faceVectorToBlockFace (face) {
+    if (Number.isInteger(face)) return face
+    if (!face || face === 'auto' || face === 'raycast') return null
+
+    const x = Number(face.x) || 0
+    const y = Number(face.y) || 0
+    const z = Number(face.z) || 0
+
+    if (Math.abs(y) >= Math.abs(x) && Math.abs(y) >= Math.abs(z)) return y >= 0 ? 1 : 0
+    if (Math.abs(x) >= Math.abs(z)) return x >= 0 ? 5 : 4
+    return z >= 0 ? 3 : 2
+  }
+
+  function targetPointForDigFace (block, digFace) {
+    const pos = block.position
+    if (digFace && typeof digFace === 'object') {
+      return pos.offset(
+        0.5 + (Number(digFace.x) || 0) * 0.5,
+        0.5 + (Number(digFace.y) || 0) * 0.5,
+        0.5 + (Number(digFace.z) || 0) * 0.5
+      )
+    }
+
+    return pos.offset(0.5, 0.5, 0.5)
   }
 
   function appendBlockActions (packet, actions, pos, face) {
@@ -80,8 +149,9 @@ module.exports = (botState) => {
       if (!digState.started) {
         digState.startTime = Date.now()
         actions = ['start_break']
-      } else if (elapsedTicks >= digState.digTicks) {
+      } else if (!digState.predicted && elapsedTicks >= digState.digTicks) {
         actions = ['continue_break', 'predict_break']
+        digState.predicted = true
       } else {
         actions = ['continue_break']
       }
@@ -96,12 +166,15 @@ module.exports = (botState) => {
           dugTicks: elapsedTicks
         })
 
-        clearDigState()
       }
     })
   }
 
-  async function digBlock (block) {
+  async function digBlock (block, forceLook = true, digFace = 'auto') {
+    if (block == null) {
+      throw new Error('dig was called with an undefined or null block')
+    }
+
     if (digState.target) {
       throw new Error(`Already digging ${digState.target}`)
     }
@@ -112,33 +185,56 @@ module.exports = (botState) => {
 
     const pos = block.position
 
-    // if (typeof botState.lookAt === 'function') {
-    //   await botState.lookAt(pos)
-    // }
+    if (!digFace || typeof digFace === 'function') digFace = 'auto'
+    if (forceLook !== 'ignore' && typeof botState.lookAt === 'function') {
+      await botState.lookAt(targetPointForDigFace(block, digFace), forceLook)
+    }
 
     const ms = digTime(block)
+    if (ms === Infinity) {
+      throw new Error(`dig time for ${block?.name ?? block} is Infinity`)
+    }
 
-    digState.target = pos.clone()
-    digState.startTime = null
-    digState.startTick = null
-    digState.digTicks = Math.max(1, Math.ceil(ms / 50))
-    digState.face = blockFace(pos)
-    installDigHook()
+    return new Promise((resolve, reject) => {
+      digState.target = pos.clone()
+      digState.startTime = null
+      digState.startTick = null
+      digState.digTicks = Math.max(1, Math.ceil(ms / 50))
+      digState.face = faceVectorToBlockFace(digFace) ?? blockFace(pos)
+      digState.started = false
+      digState.predicted = false
+      digState.resolve = resolve
+      digState.reject = reject
+      digState.block = block
+      installDigHook()
+      armDigTimeout(ms)
 
-    logAction('[dig]', 'start break', {
-      block: block.name,
-      pos: pos.toString(),
-      digMs: ms,
-      tool: heldItem()?.name || 'empty'
+      logAction('[dig]', 'start break', {
+        block: block.name,
+        pos: pos.toString(),
+        digMs: ms,
+        tool: heldItem()?.name || 'empty'
+      })
     })
   }
 
   botState.dig = digBlock
-
-  botState.client.on('update_block', (packet) => {
+  botState.digTime = digTime
+  botState.canDigBlock = block => {
+    if (!block?.diggable) return false
+    if (!block.position || !botState.self?.position) return false
+    return block.position.offset(0.5, 0.5, 0.5).distanceTo(botState.self.position) <= 5.1
+  }
+  botState.stopDigging = () => {
     if (!digState.target) return
+    finishDigState('aborted', new Error('Digging aborted'))
+  }
 
-    const pos = packet.position
+  function handlePossibleDigUpdate (position) {
+    if (!digState.target) return
+    if (!position) return
+
+    const pos = position
     if (
       pos.x !== digState.target.x ||
       pos.y !== digState.target.y ||
@@ -149,6 +245,18 @@ module.exports = (botState) => {
       pos: digState.target.toString()
     })
 
-    clearDigState()
+    finishDigState('completed')
+  }
+
+  botState.client.on('update_block', (packet) => {
+    handlePossibleDigUpdate(packet.position)
+  })
+
+  botState.client.on('update_block_synced', (packet) => {
+    handlePossibleDigUpdate(packet.position)
+  })
+
+  botState.client.on('update_subchunk_blocks', (packet) => {
+    for (const entry of packet.blocks || []) handlePossibleDigUpdate(entry.position)
   })
 }

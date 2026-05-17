@@ -27,7 +27,7 @@ Move floating primitive values such as world bounds, dimension, health, XP, and 
 ## Current State
 
 - Worktree state: `docs/tasks/TASK-22-mineflayer-pathfinder-adapter-review.md` is untracked user/peer work and is not owned by this task.
-- Already implemented: `BotState` now owns `lifecycle`, `playerState`, `game`, `worldSettings`, `chunkState`, and `protocolState` groups. Top-level primitive aliases/accessors for these values were not kept.
+- Already implemented: `BotState` now owns `lifecycle`, `playerState`, `game`, `worldSettings`, `chunkState`, and `protocolState` groups. Top-level primitive aliases/accessors for these values were not kept. The temporary `runtimeState` duplicate was removed; normalized runtime options remain under `botState.options`, while `botState.version` remains the direct public version field.
 - In progress: none.
 - Not started: none.
 - Known mismatch between notes and worktree: none.
@@ -37,7 +37,7 @@ Move floating primitive values such as world bounds, dimension, health, XP, and 
 | File | State | Notes |
 | --- | --- | --- |
 | `docs/tasks/TASK-23-botstate-categorized-state.md` | changed | Task log for the categorized state refactor. |
-| `src/state.js` | changed | Added grouped category objects and removed top-level primitive state fields for dimension, player health/spawn, world bounds, chunk publisher metadata, and protocol handshakes. |
+| `src/state.js` | changed | Added grouped category objects and removed top-level primitive state fields for dimension, player health/spawn, world bounds, chunk publisher metadata, protocol handshakes, and the duplicate `runtimeState`. |
 | `src/builtins/setup.js` | changed | Writes lifecycle/player/protocol/game state into grouped objects. |
 | `src/builtins/chunks.js` | changed | Writes world bounds and chunk publisher/count data into `worldSettings` and `chunkState`; reads dimension/protocol flags from groups. |
 | `src/builtins/environment.js` | changed | Uses `environment` as the source of truth; removed top-level time/day/weather mirrors. |
@@ -46,7 +46,9 @@ Move floating primitive values such as world bounds, dimension, health, XP, and 
 | `src/builtins/place.js` | changed | Reads fallback position from `playerState.spawnPosition`. |
 | `src/builtins/containers/index.js` | changed | Reads fallback position from `playerState.spawnPosition`. |
 | `src/builtins/physics/index.js` | changed | Reads usable movement world bounds from `worldSettings`. |
-| `test/static/runtime-options.test.js` | changed | Updated dimension assertion and added coverage that categorized state does not exist as top-level primitive aliases. |
+| `src/plugin-loader.js` | changed | Uses normalized `botState.options` for builtin runtime gating instead of top-level flags or duplicate runtime state. |
+| `test/static/runtime-options.test.js` | changed | Updated dimension/runtime assertions and added coverage that categorized state does not exist as top-level primitive aliases or duplicate `runtimeState`. |
+| `test/static/bedrock-rotation.test.js` | changed | Removed test-only `runtimeState` setup; plugin options cover the explicit physics enablement in handcrafted fixtures. |
 | `test/static/chunks-readiness.test.js` | changed | Updated fixture and assertions for `game`, `protocolState`, and `chunkState`. |
 | `test/static/environment.test.js` | changed | Updated assertions to use `environment`/`getEnvironment()`. |
 | `test/static/food.test.js` | changed | Updated fixture spawn position into `playerState`. |
@@ -62,12 +64,15 @@ Move floating primitive values such as world bounds, dimension, health, XP, and 
 - `2026-05-17` - `git status --short` - PASS. Notes: only pre-existing untracked `TASK-22...` before this task log.
 - `2026-05-17` - `npx mocha test/static/runtime-options.test.js test/static/chunks-readiness.test.js test/static/environment.test.js test/static/food.test.js test/static/crafting.test.js` - PASS. Notes: 34 passing after removing compatibility shims.
 - `2026-05-17` - `pnpm run test:static` - PASS. Notes: 98 passing.
+- `2026-05-17` - `npx mocha test/static/runtime-options.test.js test/static/bedrock-rotation.test.js test/static/chunks-readiness.test.js` - PASS. Notes: 26 passing after removing `runtimeState`.
+- `2026-05-17` - `pnpm run test:static` - PASS. Notes: 98 passing after removing `runtimeState`.
 - `2026-05-17` - Packet round-trip/live tests - NOT RUN. Notes: no packet shapes or live server behavior changed.
 
 ## Architecture Notes
 
 - State categories are explicit objects on `botState`: `lifecycle`, `playerState`, `game`, `worldSettings`, `chunkState`, and `protocolState`.
 - No top-level compatibility accessors were kept for the moved primitive values.
+- Normalized construction options, including `worldDecodeEnabled` and `physicsEnabled`, live only under `botState.options`; `runtimeState` is intentionally absent to avoid duplicating `options` and `bot.version`.
 
 ## Handoff
 
@@ -81,7 +86,7 @@ Task complete. Future state additions should prefer an existing grouped object o
 
 ## Final Summary
 
-- Result: grouped loose primitive `botState` values and removed the compatibility/accessor shims at the user's request.
+- Result: grouped loose primitive `botState` values and removed the compatibility/accessor shims and duplicate `runtimeState` at the user's request.
 - Files changed: `src/state.js`, relevant builtins, focused static tests, and this task log.
 - Verification: `pnpm run test:static` passed with 98 tests.
 - Follow-up tasks: consider grouping other public mutable roots such as inventory action booleans in a separate API-aware pass.

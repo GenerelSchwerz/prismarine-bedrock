@@ -191,11 +191,12 @@ function installPathfinderTrace (botState) {
   botState.on('goal_reached', () => remember('goal_reached', {}))
 
   return () => {
+    const feet = feetPosition(botState)
     return `controls=${JSON.stringify({
       forward: botState.getControlState?.('forward'),
       jump: botState.getControlState?.('jump'),
       sprint: botState.getControlState?.('sprint')
-    })} pathTrace=${JSON.stringify(pathTrace)} controlTrace=${JSON.stringify(controlTrace)} authInputTrace=${JSON.stringify(authInputTrace)}`
+    })} yaw=${botState.self?.yaw} feet=${feet ? `${feet.x},${feet.y},${feet.z}` : 'missing'} pathTrace=${JSON.stringify(pathTrace)} controlTrace=${JSON.stringify(controlTrace)} authInputTrace=${JSON.stringify(authInputTrace)}`
   }
 }
 

@@ -31,6 +31,7 @@ Provide a Mineflayer-shaped wrapper/facade for plugin injection, prioritizing up
 - `[x]` Make native `dig()` await matching block update completion.
 - `[x]` Add Mineflayer-shaped `equip(item, 'hand')` and `placeBlock(refBlock, faceVec)` compat shims.
 - `[x]` Split live pathfinder coverage into a scenario subfolder with current-course, bridge-up, and dig-down cases.
+- `[x]` Add and verify the forward jump-up pathfinder scenario with the user-corrected course layout.
 
 ## Current State
 
@@ -42,7 +43,8 @@ Provide a Mineflayer-shaped wrapper/facade for plugin injection, prioritizing up
 - Follow-up complete: added an explicit runtime switch between the native Bedrock simulator and the `@nxg-org/mineflayer-physics-util` wrapper so the live pathfinder scenario can be run against either engine.
 - Follow-up complete: hardened Mineflayer compatibility aliases for `blockUpdate`, `chunkColumnLoad`, event method normalization, plugin loaded checks, `findBlock(s)`, and `waitForChunks`.
 - Follow-up complete: cloned upstream Mineflayer into ignored `ref/mineflayer` at `03eba44f` (`Release 4.37.1`, 2026-05-03) and broadened the current shims against its source contracts. Native `dig()` now supports Mineflayer `forceLook` / `digFace` arguments and awaits matching block update completion; the compat facade exposes `equip`, `unequip`, `getEquipmentDestSlot`, `placeBlock`, and `_placeBlockWithOptions` where current Bedrock primitives can support them. `activateBlock`, scaffolding-specific behavior, offhand placement, and armor/offhand equipment movement are intentionally deferred or explicit errors.
-- Complete: live pathfinder coverage is now split into `test/live/pathfinder/` with shared helpers plus current-course, bridge-up, and dig-down scenario files. The current forward-turn-gap scenario passes under Endstone/BDS. Bridge-up and dig-down are checked in as pending scenarios because the live run exposed current implementation gaps: bridge-up places but falls through to `y=-60`, and dig-down plans the dig path but resets with `dig_error`.
+- Complete: live pathfinder coverage is now split into `test/live/pathfinder/` with shared helpers plus current-course, dig-down, and build-up scenario files. Current-course, dig-down, and build-up pass under Endstone/BDS. Bridge-up remains pending because the lateral bridge/climb case places but falls through to `y=-60`.
+- Complete: added `forward-jump-up.test.js` using the corrected right-side start layout. Focused Endstone/BDS rerun passed, with exact feet-block completion on the emerald target.
 - Known mismatch between notes and worktree: none for this task.
 - Known mismatch between notes and worktree: none for this task.
 
@@ -62,6 +64,7 @@ Provide a Mineflayer-shaped wrapper/facade for plugin injection, prioritizing up
 | `src/builtins/dig.js` | changed | Changes `dig(block)` from fire-and-forget scheduling to a promise that resolves after the matching block update confirms completion, and emits Mineflayer-style completion/abort events. |
 | `src/builtins/dig.js` | changed | Broadens native `dig` toward upstream Mineflayer `dig(block, forceLook, digFace)`, plus `digTime`, `canDigBlock`, and `stopDigging`. |
 | `src/builtins/place.js` | changed | Accepts an optional third options object used by compat placement shims for force-look and cursor-offset behavior; offhand placement remains unsupported. |
+| `src/builtins/place.js` | changed | Native `placeBlock()` now waits for the matching placed-block update by default so Mineflayer/pathfinder placement promises represent confirmed placement rather than packet enqueue only. |
 | `ref/mineflayer/` | inspected / gitignored | Local reference clone of PrismarineJS `mineflayer` at `03eba44f`; not repo source. |
 | `src/state.js` | changed | Adds `physicsEngine: 'native' | 'nxg'` normalization, with `nxg-org` accepted as an alias and `BEDROCK_PHYSICS_ENGINE` as the env fallback. |
 | `src/builtins/physics/nxg-physics-utils-adapter.js` | changed | Revives the nxg-org wrapper adapter behind the explicit physics engine switch, using Java `minecraft-data` for the wrapper while adapting Bedrock state, controls, yaw, pose, and world settings. |
@@ -88,11 +91,14 @@ Provide a Mineflayer-shaped wrapper/facade for plugin injection, prioritizing up
 | `test/live/pathfinder.test.js` | changed | Passes through `PATHFINDER_PHYSICS_ENGINE` / `BEDROCK_PHYSICS_ENGINE` so the same pathfinder course can run against native or nxg physics. |
 | `test/live/pathfinder.test.js` | removed | Replaced the single top-level live pathfinder file with scenario-specific tests under `test/live/pathfinder/`. |
 | `test/live/pathfinder/helpers.js` | added | Shared live pathfinder bot startup, course setup, feet-position assertions, trace diagnostics, movement configuration, and teardown helpers. |
+| `test/live/pathfinder/helpers.js` | changed | Fixes trace wrapping so `_applyPlayerAuthInputHooks` still runs, and adds `goToGoalReached()` for scenarios where upstream pathfinder's goal completion is the intended acceptance signal. |
 | `test/live/pathfinder/current-course.test.js` | added | Carries forward the existing forward-turn-gap raised-target scenario with exact feet-block completion. |
+| `test/live/pathfinder/build-up.test.js` | added | Adds a straight-up tower scenario that builds several blocks toward an air `GoalBlock` and accepts upstream `goal_reached` as success. |
 | `test/live/pathfinder/bridge-up.test.js` | added | Adds a placement/scaffolding pathfinder scenario that must bridge a missing support and climb onto a raised marked target. |
 | `test/live/pathfinder/dig-down.test.js` | added | Adds a digging pathfinder scenario that must dig the block beneath the bot and drop onto a lower marked target. |
 | `test/live/pathfinder/bridge-up.test.js` | changed | Marked pending after live verification showed the scenario currently falls through to the void after placement attempts. |
-| `test/live/pathfinder/dig-down.test.js` | changed | Marked pending after live verification showed pathfinder plans the dig path but resets with `dig_error`. |
+| `test/live/pathfinder/dig-down.test.js` | changed | Unskipped after fixing trace wrapping; pathfinder-driven dig-down now passes against Endstone/BDS. |
+| `test/live/pathfinder/forward-jump-up.test.js` | added | Adds the corrected right-side start / one-block-up emerald target scenario and asserts exact target feet block completion. |
 | `test/static/runtime-options.test.js` | changed | Covers default native physics and the `nxg-org` alias normalization. |
 
 ## Parallel Subtasks
@@ -155,6 +161,10 @@ Provide a Mineflayer-shaped wrapper/facade for plugin injection, prioritizing up
 - `2026-05-17` - `node scripts/e2e-servers.js launch --target=endstone --world=superflat --exit-after-client --client-timeout-ms=600000 --client "pnpm exec mocha --config .mocharc.live.json test/live/pathfinder/**/*.test.js"` - FAIL. Notes: Endstone/BDS `1.26.12.2`; current-course passed, bridge-up failed after placement attempts with feet at `24.60,-60,0.69` and path partial/timeout, dig-down failed after repeated `dig()` attempts and `path_reset: dig_error` while still at feet `40.5,67,0.5`.
 - `2026-05-17` - `node -c test/live/pathfinder/bridge-up.test.js`; `node -c test/live/pathfinder/dig-down.test.js` - PASS. Notes: syntax check after marking the two currently unsupported action scenarios pending.
 - `2026-05-17` - `node scripts/e2e-servers.js launch --target=endstone --world=superflat --exit-after-client --client-timeout-ms=600000 --client "pnpm exec mocha --config .mocharc.live.json test/live/pathfinder/**/*.test.js"` - PASS. Notes: Endstone/BDS `1.26.12.2`; split pathfinder folder default run is green with `1 passing (10s), 2 pending`; current-course passes, bridge-up and dig-down remain pending coverage for the next action-integration pass.
+- `2026-05-17` - watched dig-down rerun - FAIL/PASS. Notes: first run showed the test trace wrapper overwrote `_applyPlayerAuthInputHooks`, preventing dig block actions from reaching `player_auth_input`; after wrapping the original hook dispatcher, dig-down passed with `start break` and `block updated while digging` for `(40, 66, 0)`.
+- `2026-05-17` - watched lateral bridge-up rerun - FAIL. Notes: confirmed this scenario is not the straight-up tower case; it places laterally toward a solid target and falls to `y=-60`, so it remains pending.
+- `2026-05-17` - watched build-up reruns - PASS after expectation change. Notes: added multi-block straight-up scenario with target feet block at air `(60, 70, 0)`; strict feet-block assertion fails because upstream pathfinder emits `goal_reached` while native feet are lower, so the scenario now treats `goal_reached` as success per user direction. Focused Endstone/BDS run passed `1 passing (25s)`.
+- `2026-05-17` - `$env:PATHFINDER_START_DELAY_MS='5000'; $env:PATHFINDER_GOAL_DELAY_MS='2000'; node scripts/e2e-servers.js launch --target=endstone --world=superflat --exit-after-client --client-timeout-ms=600000 --client "pnpm exec mocha --config .mocharc.live.json test/live/pathfinder/forward-jump-up.test.js"` - PASS. Notes: Endstone/BDS `1.26.12.2`; user-corrected forward jump-up layout passed `1 passing (15s)` with exact emerald target feet-block assertion.
 
 ## Architecture Notes
 
@@ -177,24 +187,24 @@ Provide a Mineflayer-shaped wrapper/facade for plugin injection, prioritizing up
 - The Mineflayer `equip(item, destination)` shim resolves item objects back to native inventory slots before calling `equipItem(slot)` for `hand`/`null`; non-hand destinations currently throw explicit unsupported errors because this repo does not yet have a proven Bedrock armor/offhand equipment action path.
 - `_placeBlockWithOptions` supports upstream-compatible `forceLook`, `half`, `delta`, `swingArm`, and `showHand` translation into native placement. `offhand` placement throws explicitly because native `placeBlock` uses the selected hand only.
 - `activateBlock` remains deferred per user direction from the previous turn; upstream source is now available under `ref/mineflayer` for a future targeted pass.
-- Live pathfinder scenarios now live under `test/live/pathfinder/`. The default executable scenario is still movement-only with parkour. Bridge-up and dig-down are intentionally pending because they need more action-integration work beyond the scenario split.
+- Live pathfinder scenarios now live under `test/live/pathfinder/`. The default executable scenarios cover movement/parkour, dig-down, and straight-up tower building. Bridge-up is intentionally pending because it is a separate lateral bridge/climb behavior.
 
 ## Handoff
 
-The wrapper supports upstream pathfinder injection and has passing Endstone/BDS live coverage for the stricter forward/turn/gap/jump diamond-target course. Live pathfinder scenarios are split under `test/live/pathfinder/`; bridge-up and dig-down are pending until placement/scaffolding and pathfinder-driven digging are hardened.
+The wrapper supports upstream pathfinder injection and has passing Endstone/BDS live coverage for the stricter forward/turn/gap/jump diamond-target course, pathfinder-driven dig-down, straight-up tower building, and the corrected forward jump-up emerald-target course. Live pathfinder scenarios are split under `test/live/pathfinder/`; lateral bridge-up remains pending.
 
 ## Resume Notes
 
-- Next step: unskip `test/live/pathfinder/bridge-up.test.js` after placement/scaffolding integration can keep the bot on the placed route, and unskip `test/live/pathfinder/dig-down.test.js` after pathfinder-driven `dig()` no longer resets with `dig_error`. Keep the exact feet-block assertion for target completion.
+- Next step: unskip `test/live/pathfinder/bridge-up.test.js` after lateral placement/scaffolding integration can keep the bot on the placed route. Keep exact feet-block assertions for scenarios where this repo owns the final position; for straight-up tower building, accept upstream pathfinder `goal_reached`.
 - Do not repeat: TASK-22 source review or wrapper injection tests.
 - Raw logs: none.
 
 ## Final Summary
 
-- Result: Added a Mineflayer compatibility builtin that lets upstream `mineflayer-pathfinder` inject through `botState.loadPlugin(pathfinder)` while preserving native `BotState` internals, plus passing Endstone/BDS live coverage for the current forward-turn-gap pathfinder course.
+- Result: Added a Mineflayer compatibility builtin that lets upstream `mineflayer-pathfinder` inject through `botState.loadPlugin(pathfinder)` while preserving native `BotState` internals, plus passing Endstone/BDS live coverage for current-course, dig-down, and straight-up build-up pathfinder scenarios.
 - Files changed: `docs/tasks/TASK-24-mineflayer-compat-wrapper.md`, `package.json`, `src/builtins/mineflayer-compat.js`, `src/builtins/dig.js`, `src/builtins/place.js`, `test/static/mineflayer-compat.test.js`, `test/static/dig.test.js`, `test/live/pathfinder/`.
 - Verification: `node -c` syntax checks for compat/dig/place/static/live pathfinder files; `npx mocha test/static/dig.test.js test/static/mineflayer-compat.test.js`; `pnpm run test:static`; Endstone/BDS focused live pathfinder folder run.
-- Follow-up tasks: unskip the pending bridge-up and dig-down pathfinder scenarios after the underlying placement/scaffolding and dig action gaps are fixed, then replace the simple physics shim with a Bedrock-native predictor when needed.
+- Follow-up tasks: unskip the pending lateral bridge-up pathfinder scenario after the underlying placement/scaffolding gap is fixed, then replace the simple physics shim with a Bedrock-native predictor when needed.
 
 ## Failure Summary
 

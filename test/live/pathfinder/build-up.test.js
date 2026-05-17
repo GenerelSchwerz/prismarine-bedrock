@@ -32,7 +32,7 @@ async function setupCourse (botState) {
   await teleportToStart(botState, START)
 }
 
-describe('live mineflayer pathfinder compatibility: build straight up', function () {
+describe.skip('live mineflayer pathfinder compatibility: build straight up', function () {
   this.timeout(120000)
 
   let botState

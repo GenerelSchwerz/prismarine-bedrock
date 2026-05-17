@@ -51,6 +51,7 @@ This note records the local source pass used for the Bedrock physics implementat
 - This is a Bedrock-first player movement implementation, not a full Bedrock client clone.
 - It currently relies on prismarine block collision `shapes`. Special block-specific behaviors are only covered where the local block data exposes enough information or where the behavior is generic, such as friction and climbable-name detection.
 - Geyser/Boar both treat server corrections as authoritative. The plugin keeps that model: `move_player`, `respawn`, `correct_player_move_prediction`, and velocity hint packets reset or update local movement state.
+- `CorrectPlayerMovePredictionPacket.Rotation` is conditional on `PredictionType == Vehicle` per Mojang's schema (`bedrock-protocol-docs/json/CorrectPlayerMovePredictionPacket.json`: "Corrected rotation. Only sent when PredictionType is Vehicle"). The `1.26.10` `proto.yml` schema does not gate the field, so the parser zero-fills `rotation` for `player` predictions. Both `src/builtins/physics/index.js` and `src/builtins/entities.js` only write `pitch`, `yaw`, and `headYaw` when `prediction_type === 'vehicle'`; writing them unconditionally snaps the bot's yaw to 0 on every server correction. See `test/static/bedrock-rotation.test.js` for the regression coverage.
 - `player_auth_input.delta` is generated from the simulated velocity after collision/drag. Boar explicitly corrects this field server-side because it is validation-sensitive.
 
 ## Follow-up candidates

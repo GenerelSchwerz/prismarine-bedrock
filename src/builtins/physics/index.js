@@ -325,9 +325,11 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
       pkt.position.z
     );
 
-    botState.self.pitch = rotationPitch(pkt.rotation);
-    botState.self.yaw = rotationYaw(pkt.rotation);
-    botState.self.headYaw = botState.self.yaw;
+    if (pkt.prediction_type === 'vehicle') {
+      botState.self.pitch = rotationPitch(pkt.rotation);
+      botState.self.yaw = rotationYaw(pkt.rotation);
+      botState.self.headYaw = botState.self.yaw;
+    }
     botState.self.onGround = !!pkt.on_ground;
     botState.self.velocity.set(0, 0, 0);
     botState.self.unvalidatedPosition = botState.self.position.clone();

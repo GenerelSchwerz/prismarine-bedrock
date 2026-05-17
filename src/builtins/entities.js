@@ -225,9 +225,11 @@ module.exports = (botState, options) => {
   botState.client.on('correct_player_move_prediction', (packet) => {
     if (!botState.self) return;
     botState.self.position.set(packet.position.x, packet.position.y, packet.position.z);
-    botState.self.pitch = packet.rotation.x;
-    botState.self.yaw = packet.rotation.z;
-    botState.self.headYaw = packet.rotation.z;
+    if (packet.prediction_type === 'vehicle') {
+      botState.self.pitch = packet.rotation.x;
+      botState.self.yaw = packet.rotation.z;
+      botState.self.headYaw = packet.rotation.z;
+    }
     botState.self.onGround = packet.on_ground;
     // delta and tick are available but not stored by default
   });

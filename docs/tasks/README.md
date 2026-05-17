@@ -59,8 +59,9 @@ If a task has no code changes yet, say that explicitly in `Current State` and `C
 When a task depends on external or generated data, name where the data came from:
 
 - `minecraft-data`: installed Bedrock schema used by `bedrock-protocol`.
-- `temp-gophertunnel-inspect/`: local Gophertunnel protocol reference for packet/action/status semantics.
-- `temp-geyser-inspect/`: local Geyser translator reference for proxy behavior.
+- `ref/gophertunnel/`: local Gophertunnel protocol reference for packet/action/status semantics.
+- `ref/geyser/`: local Geyser translator reference for proxy behavior.
+- `ref/boar/`: local Boar anticheat reference for physics behavior.
 - Runtime packets: captured from the active server during a test or example run.
 - `logs/`: raw debug output kept out of git.
 

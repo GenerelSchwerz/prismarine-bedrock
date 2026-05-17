@@ -45,7 +45,7 @@ None.
 ## Evidence Log
 
 - `2026-05-16` - Schema inspection of `node_modules/minecraft-data/minecraft-data/data/bedrock/1.26.10/proto.yml` - PASS. Notes: `packet_level_chunk.sub_chunk_count` can be negative for subchunk polling; `highest_subchunk_count` is present only when `sub_chunk_count` is `-2`; `packet_subchunk_request.requests` is an array of signed byte offsets from an absolute subchunk origin.
-- `2026-05-16` - Gophertunnel inspection of `temp-gophertunnel-inspect/minecraft/protocol/packet/level_chunk.go` and `sub_chunk_request.go` - PASS. Notes: `SubChunkRequestModeLimited` uses `HighestSubChunk`; request position uses absolute chunk X/Z and absolute subchunk Y with signed byte offsets.
+- `2026-05-16` - Gophertunnel inspection of `ref/gophertunnel/minecraft/protocol/packet/level_chunk.go` and `sub_chunk_request.go` - PASS. Notes: `SubChunkRequestModeLimited` uses `HighestSubChunk`; request position uses absolute chunk X/Z and absolute subchunk Y with signed byte offsets.
 - `2026-05-16` - `npx mocha test/static/chunks-readiness.test.js` - PASS. Notes: 12 passing; includes limited mode regression.
 - `2026-05-16` - `node scripts/roundtrip-packet.js scripts/tmp/task21-subchunk-request.json` - PASS. Notes: 1.26.10 serializer preserved the batched `subchunk_request` offsets from `dy=-8` through `dy=2`.
 

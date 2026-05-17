@@ -289,7 +289,7 @@ The cache is shared across all Java/Geyser instances. Installing an instance cop
 Supported extension specs:
 
 - `astrox`: downloads the latest jar from `Eangly99/AstroX-AntiCheat`.
-- `boar`: downloads the latest primary jar from Modrinth project `boar`. The local `Boar/` checkout is only for code reference and is not built by this harness.
+- `boar`: downloads the latest primary jar from Modrinth project `boar`. The local `ref/boar/` checkout is only for code reference and is not built by this harness.
 - `github:owner/repo`: downloads the first `.jar` asset from the latest GitHub release.
 - `https://.../file.jar`: downloads a direct jar URL.
 

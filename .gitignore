@@ -1,10 +1,7 @@
 node_modules/
 .env/
 pnpm-lock.yaml
-temp-geyser-inspect
-temp-gophertunnel-inspect
-temp-bedrock-protocol-docs
-Boar
+ref/
 .test-lock.json
 .e2e-servers/
 logs/

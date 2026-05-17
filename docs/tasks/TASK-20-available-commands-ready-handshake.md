@@ -4,7 +4,7 @@
 - **Owner:** Codex / 2026-05-16; follow-up Codex / 2026-05-17
 - **Scope:** Add the missing client-ready packets sent after `available_commands` and fix Bedrock rotation yaw mapping needed for movement.
 - **Owned files:** `src/builtins/setup.js`, `src/builtins/physics/index.js`, `src/builtins/entities.js`, `test/static/bedrock-rotation.test.js`, `docs/tasks/TASK-20-available-commands-ready-handshake.md`
-- **Related docs:** `AGENTS.md`, `docs/in-dev/bedrock-first-physics-implementation-notes.md`, `node_modules/minecraft-data/minecraft-data/data/bedrock/1.26.10/proto.yml`, `temp-bedrock-protocol-docs/json/CorrectPlayerMovePredictionPacket.json`
+- **Related docs:** `AGENTS.md`, `docs/in-dev/bedrock-first-physics-implementation-notes.md`, `node_modules/minecraft-data/minecraft-data/data/bedrock/1.26.10/proto.yml`, `ref/bedrock-protocol-docs/json/CorrectPlayerMovePredictionPacket.json`
 
 ## Goal
 
@@ -29,7 +29,7 @@ Do not change physics packet cadence, entity interaction helpers, container-open
 
 - Worktree state: dirty before this task and before the 2026-05-17 follow-up. Unrelated edits in other task logs, recorded-BDS scenario files, packet-recorder code, and several builtins were left untouched.
 - Already implemented: `src/builtins/setup.js` now queues the missing ready packets once on `available_commands`; `src/builtins/physics/index.js` and `src/builtins/entities.js` now use `rotation.z` for Bedrock `vec2f` yaw.
-- Follow-up implemented on 2026-05-17: cloned Mojang's Bedrock protocol docs to gitignored `temp-bedrock-protocol-docs/`; `CorrectPlayerMovePredictionPacket.Rotation` is documented as vehicle-only, so player corrections now update position/ground state without changing `pitch`, `yaw`, or `headYaw`.
+- Follow-up implemented on 2026-05-17: cloned Mojang's Bedrock protocol docs to gitignored `ref/bedrock-protocol-docs/`; `CorrectPlayerMovePredictionPacket.Rotation` is documented as vehicle-only, so player corrections now update position/ground state without changing `pitch`, `yaw`, or `headYaw`.
 - In progress: none.
 - Not started: live server verification; deferred because serializer and static tests passed and no live server run was requested.
 - Known mismatch between notes and worktree: none for this task.
@@ -42,10 +42,10 @@ Do not change physics packet cadence, entity interaction helpers, container-open
 | `src/builtins/physics/index.js` | changed | Added rotation helpers, fixed `start_game` self yaw to use `rotation.z`, and later stopped player `correct_player_move_prediction` from overwriting local look rotation. |
 | `src/builtins/entities.js` | changed | Updated duplicate self `correct_player_move_prediction` handling so player corrections preserve existing `pitch`, `yaw`, and `headYaw`. |
 | `test/static/bedrock-rotation.test.js` | changed | Added regression tests for self yaw mapping, correction handlers preserving local look rotation, and existing eye/feet position behavior. |
-| `AGENTS.md` | changed | Added `temp-bedrock-protocol-docs/` to the repo map, protocol source guidance, and data-source list. |
-| `.gitignore` | changed | Added `temp-bedrock-protocol-docs` so the local Mojang protocol docs clone stays hidden from git. |
+| `AGENTS.md` | changed | Added `ref/bedrock-protocol-docs/` to the repo map, protocol source guidance, and data-source list. |
+| `.gitignore` | changed | Added `ref/` so local reference checkouts stay hidden from git. |
 | `docs/in-dev/bedrock-first-physics-implementation-notes.md` | changed | Recorded that Mojang docs mark movement correction rotation as vehicle-only and that player corrections must preserve local look rotation. |
-| `temp-bedrock-protocol-docs/json/CorrectPlayerMovePredictionPacket.json` | inspected | Confirmed `Rotation` description says it is only sent when `PredictionType` is `Vehicle`. Local clone HEAD `c2ed9ad`. |
+| `ref/bedrock-protocol-docs/json/CorrectPlayerMovePredictionPacket.json` | inspected | Confirmed `Rotation` description says it is only sent when `PredictionType` is `Vehicle`. Local clone HEAD `c2ed9ad`. |
 | `src/builtins/chunks.js` | skipped | Pre-existing worktree modification; unrelated to this task and not inspected or changed. |
 | `node_modules/minecraft-data/minecraft-data/data/bedrock/1.26.10/proto.yml` | inspected | Confirmed `packet_serverbound_loading_screen`, `packet_interact`, and `packet_set_local_player_as_initialized` shapes. |
 | `node_modules/minecraft-data/minecraft-data/data/bedrock/1.26.10/types.yml` | inspected | Confirmed `vec2f` fields are `x` and `z`; yaw-bearing packet rotations must read `z`. |
@@ -65,7 +65,7 @@ Do not change physics packet cadence, entity interaction helpers, container-open
 - `2026-05-16` - `node -c src/builtins/physics/index.js; node -c src/builtins/entities.js; node -c test/static/bedrock-rotation.test.js` - PASS. Notes: syntax checks passed.
 - `2026-05-16` - `npx mocha test/static/bedrock-rotation.test.js` - PASS. Notes: 2 passing.
 - `2026-05-16` - `pnpm run test:static` - PASS. Notes: 93 passing after adding rotation regression tests.
-- `2026-05-17` - `git clone --depth 1 https://github.com/Mojang/bedrock-protocol-docs.git temp-bedrock-protocol-docs` - PASS. Notes: local gitignored clone at HEAD `c2ed9ad`.
+- `2026-05-17` - `git clone --depth 1 https://github.com/Mojang/bedrock-protocol-docs.git ref/bedrock-protocol-docs` - PASS. Notes: local gitignored clone at HEAD `c2ed9ad`.
 - `2026-05-17` - `node -c src/builtins/physics/index.js`; `node -c src/builtins/entities.js`; `node -c test/static/bedrock-rotation.test.js` - PASS. Notes: syntax checks passed.
 - `2026-05-17` - `npx mocha test/static/bedrock-rotation.test.js` - PASS. Notes: 5 passing, including physics and entities correction handlers preserving existing look rotation.
 - `2026-05-17` - `pnpm run test:static` - PASS. Notes: 97 passing. Node printed the existing `punycode` deprecation warning.

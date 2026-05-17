@@ -9,7 +9,7 @@ This note records the local source pass used for the Bedrock physics implementat
   - `InputFlag`
   - `packet_correct_player_move_prediction`
   - `packet_set_movement_authority`
-- `temp-bedrock-protocol-docs/json/CorrectPlayerMovePredictionPacket.json`
+- `ref/bedrock-protocol-docs/json/CorrectPlayerMovePredictionPacket.json`
   - `Rotation` is documented as vehicle-only correction data, so player corrections should not change local look rotation.
 - `node_modules/@nxg-org/mineflayer-util-plugin/lib/calcs/aabb.js`
   - Reused `AABB` for player and block collision volumes.
@@ -17,17 +17,17 @@ This note records the local source pass used for the Bedrock physics implementat
 - `node_modules/@nxg-org/mineflayer-physics-util/dist/physics/states/playerState.js`
   - Confirmed its control vector convention: `forward - back`, `left - right`.
   - Kept as reference material, but the active movement step is now Bedrock-first.
-- `Boar/src/main/java/ac/boar/anticheat/player/BoarPlayer.java`
+- `ref/boar/src/main/java/ac/boar/anticheat/player/BoarPlayer.java`
   - Jump handling uses `JUMPING` / `AUTO_JUMPING_IN_WATER` in fluids and `START_JUMPING` on ground.
   - Sprint jump adds horizontal velocity from yaw.
   - Movement speed is affected by friction, sprinting, effects, and ground state.
-- `Boar/src/main/java/ac/boar/anticheat/prediction/engine/impl/GroundAndAirPredictionEngine.java`
+- `ref/boar/src/main/java/ac/boar/anticheat/prediction/engine/impl/GroundAndAirPredictionEngine.java`
   - Movement order is relative movement, collision/move, gravity, vertical drag, then horizontal drag from slipperiness.
-- `Boar/src/main/java/ac/boar/anticheat/collision/Collider.java`
+- `ref/boar/src/main/java/ac/boar/anticheat/collision/Collider.java`
   - Collision clips Y, then horizontal axes, with a step-up retry when grounded and horizontally blocked.
-- `Boar/src/main/java/ac/boar/anticheat/packets/input/legacy/LegacyAuthInputPackets.java`
+- `ref/boar/src/main/java/ac/boar/anticheat/packets/input/legacy/LegacyAuthInputPackets.java`
   - Collision flags and packet delta are derived from the predicted movement rather than trusted from the client.
-- `temp-geyser-inspect/core/src/main/java/org/geysermc/geyser/level/physics/CollisionManager.java`
+- `ref/geyser/core/src/main/java/org/geysermc/geyser/level/physics/CollisionManager.java`
   - Player box is 0.6 x 1.8.
   - Bedrock/Geyser step-up is 0.6.
   - Collision is resolved with AABB offset clipping and step-up comparison.

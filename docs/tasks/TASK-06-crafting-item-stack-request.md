@@ -95,7 +95,7 @@ The bot should craft vanilla recipes through Bedrock `crafting_data` and `item_s
 | Planner bridge review | Unassigned | `src/builtins/crafting.js`, `docs/in-dev/crafting-util-implementation-notes.md` | Confirm utility step resolution and live recipe matching constraints | `[ ]` |
 | Packet shape verification | Unassigned | `scripts/roundtrip-packet.js`, temp JSON under `logs/` | Round-trip evidence for craft request shapes | `[ ]` |
 | Live BDS evidence | Unassigned | `test/live/crafting.test.js`, `logs/` | Focused Endstone/BDS pass/fail with packet evidence if needed | `[ ]` |
-| Live Geyser evidence | Unassigned | `test/live/crafting.test.js`, `temp-geyser-inspect/` notes only | Focused Java/Geyser pass/fail and translator notes if behavior diverges | `[ ]` |
+| Live Geyser evidence | Unassigned | `test/live/crafting.test.js`, `ref/geyser/` notes only | Focused Java/Geyser pass/fail and translator notes if behavior diverges | `[ ]` |
 
 ## Evidence Log
 
@@ -163,8 +163,8 @@ The bot should craft vanilla recipes through Bedrock `crafting_data` and `item_s
 ## Protocol Notes
 
 - Verify packet shape in `node_modules/minecraft-data/minecraft-data/data/bedrock/1.26.10/proto.yml` and `types.yml` before changing craft packet construction. This is the installed protocol data used against BDS 1.26.12.
-- Use `temp-gophertunnel-inspect/minecraft/protocol/item_stack.go` for craft action enum and response status context.
-- Use `temp-gophertunnel-inspect/minecraft/protocol/packet/crafting_data.go` and `temp-gophertunnel-inspect/minecraft/protocol/recipe.go` when validating recipe packet semantics.
+- Use `ref/gophertunnel/minecraft/protocol/item_stack.go` for craft action enum and response status context.
+- Use `ref/gophertunnel/minecraft/protocol/packet/crafting_data.go` and `ref/gophertunnel/minecraft/protocol/recipe.go` when validating recipe packet semantics.
 - Use string enum names such as `craft_recipe`, `craft_recipe_auto`, `consume`, and `take`.
 - Include `custom_names: []` and `cause: 'chat_public'` in `ItemStackRequest`.
 - Include `dynamic_container_id` in `FullContainerName` slot objects unless a packet round-trip and live server test prove a narrower shape is accepted.

@@ -144,9 +144,11 @@ Before stopping, even on failure:
 - `test/live/`: tests that connect to a local Bedrock/Geyser target.
 - `scripts/roundtrip-packet.js`: local Bedrock protocol serializer/deserializer check.
 - `scripts/e2e-servers.js`: local Endstone/BDS and Java/Geyser launcher.
-- `temp-bedrock-protocol-docs/`: local clone of Mojang Bedrock protocol docs. Do not treat it as repo source.
-- `temp-geyser-inspect/`: local Geyser checkout for translator inspection. Do not treat it as repo source.
-- `temp-gophertunnel-inspect/`: local Gophertunnel checkout for Bedrock protocol reference. Do not treat it as repo source.
+- `ref/`: gitignored external/reference checkouts. Do not treat these as repo source.
+- `ref/bedrock-protocol-docs/`: local clone of Mojang Bedrock protocol docs.
+- `ref/geyser/`: local Geyser checkout for translator inspection.
+- `ref/gophertunnel/`: local Gophertunnel checkout for Bedrock protocol reference.
+- `ref/boar/`: local Boar anticheat checkout for Bedrock physics reference.
 
 ## Required Reading By Area
 
@@ -170,7 +172,7 @@ Use `src/version.js` for the default version and helpers such as `minecraftDataB
 Use Mojang's protocol docs as the first semantic reference when a packet field's meaning is ambiguous. A local gitignored clone lives at:
 
 ```powershell
-cd C:\Users\owner\Documents\github\bedrock-test\temp-bedrock-protocol-docs
+cd C:\Users\owner\Documents\github\bedrock-test\ref\bedrock-protocol-docs
 ```
 
 Useful docs entrypoints:
@@ -193,7 +195,7 @@ For crafting, inventory, or trading behavior, verify these schema entries:
 Use Gophertunnel as an additional protocol reference when `minecraft-data` names are unclear or when you need action/status enum context. The local checkout is intentionally gitignored:
 
 ```powershell
-cd C:\Users\owner\Documents\github\bedrock-test\temp-gophertunnel-inspect
+cd C:\Users\owner\Documents\github\bedrock-test\ref\gophertunnel
 ```
 
 Useful Gophertunnel entrypoints:
@@ -208,8 +210,8 @@ Useful Gophertunnel entrypoints:
 Fast navigation:
 
 ```powershell
-rg -n "CraftRecipe|CraftRecipeAuto|StackRequestAction|ItemStackResponseStatus" temp-gophertunnel-inspect\minecraft\protocol
-rg -n "type ItemStackRequest|type ItemStackResponse|type CraftingData" temp-gophertunnel-inspect\minecraft\protocol
+rg -n "CraftRecipe|CraftRecipeAuto|StackRequestAction|ItemStackResponseStatus" ref\gophertunnel\minecraft\protocol
+rg -n "type ItemStackRequest|type ItemStackResponse|type CraftingData" ref\gophertunnel\minecraft\protocol
 ```
 
 Do not copy Gophertunnel structs into this JavaScript repo as a substitute for checking the installed `minecraft-data` schema and local serializer. Use it to explain intent, enum ordering, and packet semantics.
@@ -219,9 +221,9 @@ Do not copy Gophertunnel structs into this JavaScript repo as a substitute for c
 When recording evidence in a task log, name the source class:
 
 - Protocol schema: `minecraft-data` files under `node_modules/minecraft-data/minecraft-data/data/bedrock/<MC_VERSION>/`.
-- Protocol field semantics: Mojang Bedrock protocol docs under `temp-bedrock-protocol-docs/json/`.
-- Protocol semantics: local Gophertunnel checkout under `temp-gophertunnel-inspect/`.
-- Proxy/server translation behavior: local Geyser checkout under `temp-geyser-inspect/`.
+- Protocol field semantics: Mojang Bedrock protocol docs under `ref/bedrock-protocol-docs/json/`.
+- Protocol semantics: local Gophertunnel checkout under `ref/gophertunnel/`.
+- Proxy/server translation behavior: local Geyser checkout under `ref/geyser/`.
 - Runtime server data: packets observed from the active server, especially `crafting_data`, `item_registry`, `inventory_content`, `inventory_slot`, `item_stack_request`, and `item_stack_response`.
 - Raw local evidence: `logs/` and `scripts/tmp/`, which are gitignored.
 - E2E server artifacts: `.e2e-servers/`, which is gitignored.
@@ -308,7 +310,7 @@ Treat Geyser as part of the system under test, not as a perfect oracle. After lo
 Local checkout:
 
 ```powershell
-cd C:\Users\owner\Documents\github\bedrock-test\temp-geyser-inspect
+cd C:\Users\owner\Documents\github\bedrock-test\ref\geyser
 ```
 
 Useful entrypoints:
@@ -322,9 +324,9 @@ Useful entrypoints:
 Fast navigation:
 
 ```powershell
-rg -n "PERFORM_ITEM_STACK_REQUEST|ItemStackRequestPacket|translateRequests" temp-geyser-inspect\core\src\main\java
-rg -n "TransferItemStackRequestAction|DestroyStackRequestAction|DropStackRequestAction" temp-geyser-inspect\core\src\main\java\org\geysermc\geyser\translator\inventory
-rg -n "bedrockSlotToJava|javaSlotToBedrock|ContainerSlotType" temp-geyser-inspect\core\src\main\java\org\geysermc\geyser\translator\inventory
+rg -n "PERFORM_ITEM_STACK_REQUEST|ItemStackRequestPacket|translateRequests" ref\geyser\core\src\main\java
+rg -n "TransferItemStackRequestAction|DestroyStackRequestAction|DropStackRequestAction" ref\geyser\core\src\main\java\org\geysermc\geyser\translator\inventory
+rg -n "bedrockSlotToJava|javaSlotToBedrock|ContainerSlotType" ref\geyser\core\src\main\java\org\geysermc\geyser\translator\inventory
 ```
 
 ## Testing

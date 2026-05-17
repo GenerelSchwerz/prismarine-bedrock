@@ -53,7 +53,7 @@ function hungerValue (botState) {
 }
 
 function makeUseItemData (botState, slot, item, actionType) {
-  const playerPos = botState.self?.position ?? botState.spawnPosition ?? { x: 0, y: 0, z: 0 }
+  const playerPos = botState.self?.position ?? botState.playerState?.spawnPosition ?? { x: 0, y: 0, z: 0 }
   const blockPos = floorVec3(playerPos)
 
   return {
@@ -82,7 +82,7 @@ function makeItemUsePacket (botState, slot, item) {
 }
 
 function makeItemReleasePacket (botState, slot, item) {
-  const playerPos = botState.self?.position ?? botState.spawnPosition ?? { x: 0, y: 0, z: 0 }
+  const playerPos = botState.self?.position ?? botState.playerState?.spawnPosition ?? { x: 0, y: 0, z: 0 }
 
   return {
     transaction: {

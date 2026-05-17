@@ -29,8 +29,6 @@ describe('runtime options', function () {
   it('defaults to world decoding with physics mode for compatibility', function () {
     const bot = new BotState({ username: 'RuntimeOptionsBot' })
 
-    assert.strictEqual(bot.worldDecodeEnabled, true)
-    assert.strictEqual(bot.physicsEnabled, true)
     assert.strictEqual(bot.options.worldDecodeEnabled, true)
     assert.strictEqual(bot.options.physicsEnabled, true)
   })
@@ -41,8 +39,8 @@ describe('runtime options', function () {
       physicsEnabled: false
     })
 
-    assert.strictEqual(bot.worldDecodeEnabled, true)
-    assert.strictEqual(bot.physicsEnabled, false)
+    assert.strictEqual(bot.options.worldDecodeEnabled, true)
+    assert.strictEqual(bot.options.physicsEnabled, false)
     assert.strictEqual(pluginLoader.shouldLoadBuiltin(bot, 'physics.js'), false)
     assert.strictEqual(pluginLoader.shouldLoadBuiltin(bot, 'chunks.js'), true)
   })
@@ -53,8 +51,8 @@ describe('runtime options', function () {
       worldDecodeEnabled: false
     })
 
-    assert.strictEqual(bot.worldDecodeEnabled, false)
-    assert.strictEqual(bot.physicsEnabled, false)
+    assert.strictEqual(bot.options.worldDecodeEnabled, false)
+    assert.strictEqual(bot.options.physicsEnabled, false)
     assert.strictEqual(pluginLoader.shouldLoadBuiltin(bot, 'physics.js'), false)
     assert.strictEqual(pluginLoader.shouldLoadBuiltin(bot, 'chunks.js'), false)
   })
@@ -80,7 +78,29 @@ describe('runtime options', function () {
     bot.setDimension(1, { resetWorld: true })
 
     assert.notStrictEqual(bot.world, originalWorld)
-    assert.strictEqual(bot.dimension, 1)
+    assert.strictEqual(bot.game.dimension, 1)
+  })
+
+  it('keeps categorized state off top-level primitive aliases', function () {
+    const bot = new BotState({
+      username: 'RuntimeOptionsBot',
+      physicsEnabled: false
+    })
+
+    for (const key of [
+      'dimension',
+      'playerHealth',
+      'spawnPosition',
+      'worldMinY',
+      'chunkCount',
+      'blockNetworkIdsAreHashes',
+      'sentAvailableCommandsReadyPackets',
+      'worldDecodeEnabled',
+      'physicsEnabled',
+      'runtimeState'
+    ]) {
+      assert.strictEqual(Object.hasOwn(bot, key), false, key)
+    }
   })
 
   it('does not request chunk radius when world decoding is disabled', function () {

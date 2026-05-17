@@ -20,9 +20,9 @@ describe('environment builtin', function () {
 
     client.emit('set_time', { time: 25000 })
 
-    assert.strictEqual(botState.time, 25000)
-    assert.strictEqual(botState.timeOfDay, 1000)
-    assert.strictEqual(botState.day, 1)
+    assert.strictEqual(botState.environment.time, 25000)
+    assert.strictEqual(botState.environment.timeOfDay, 1000)
+    assert.strictEqual(botState.environment.day, 1)
     assert.strictEqual(botState.environment.time, 25000)
     assert.strictEqual(seen.length, 1)
     assert.strictEqual(seen[0].timeOfDay, 1000)
@@ -36,7 +36,7 @@ describe('environment builtin', function () {
       lightning_level: 0.25
     })
 
-    assert.deepStrictEqual(botState.weather, {
+    assert.deepStrictEqual(botState.getEnvironment().weather, {
       rainLevel: 0.5,
       lightningLevel: 0.25,
       raining: true,
@@ -53,18 +53,18 @@ describe('environment builtin', function () {
     client.emit('level_event', { event: 'start_rain', data: 0, position: { x: 0, y: 0, z: 0 } })
     client.emit('level_event', { event: 'start_thunder', data: 0, position: { x: 0, y: 0, z: 0 } })
 
-    assert.strictEqual(botState.weather.raining, true)
-    assert.strictEqual(botState.weather.thundering, true)
-    assert.strictEqual(botState.weather.rainLevel, 1)
-    assert.strictEqual(botState.weather.lightningLevel, 1)
+    assert.strictEqual(botState.getEnvironment().weather.raining, true)
+    assert.strictEqual(botState.getEnvironment().weather.thundering, true)
+    assert.strictEqual(botState.getEnvironment().weather.rainLevel, 1)
+    assert.strictEqual(botState.getEnvironment().weather.lightningLevel, 1)
 
     client.emit('level_event', { event: 'stop_thunder', data: 0, position: { x: 0, y: 0, z: 0 } })
     client.emit('level_event', { event: 'stop_rain', data: 0, position: { x: 0, y: 0, z: 0 } })
 
-    assert.strictEqual(botState.weather.raining, false)
-    assert.strictEqual(botState.weather.thundering, false)
-    assert.strictEqual(botState.weather.rainLevel, 0)
-    assert.strictEqual(botState.weather.lightningLevel, 0)
+    assert.strictEqual(botState.getEnvironment().weather.raining, false)
+    assert.strictEqual(botState.getEnvironment().weather.thundering, false)
+    assert.strictEqual(botState.getEnvironment().weather.rainLevel, 0)
+    assert.strictEqual(botState.getEnvironment().weather.lightningLevel, 0)
     assert.strictEqual(seen.length, 4)
     assert.strictEqual(seen.at(-1).lastWeatherEvent, 'stop_rain')
   })

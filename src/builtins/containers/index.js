@@ -208,7 +208,7 @@ module.exports = function containersPlugin (botState, options = {}) {
     const resultPosition = resultPositionForFace(target, face)
     const heldSlot = botState.heldItemSlot ?? 0
     const heldItem = botState.inventory?.slots?.[heldSlot] ?? null
-    const playerPos = botState.self?.position ?? botState.spawnPosition
+    const playerPos = botState.self?.position ?? botState.playerState?.spawnPosition
     const clickPos = opts.clickPosition ?? rayClickPositionForFace(
       playerPos,
       target,

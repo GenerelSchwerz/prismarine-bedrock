@@ -28,12 +28,17 @@ module.exports = (botState, options) => {
   const client = botState.client;
   const registry = botState.registry;
 
+  botState.lifecycle ??= {};
+  botState.playerState ??= {};
+  botState.protocolState ??= {};
+  botState.game ??= {};
+
   // ── Shared state for respawn ──
-  botState.isDead = false;
-  botState.respawnTimeout = null;
-  botState.playerHealth = null;
-  botState.experience = 0;
-  botState.experienceLevel = 0;
+  botState.lifecycle.isDead = false;
+  botState.lifecycle.respawnTimeout = null;
+  botState.playerState.health = null;
+  botState.playerState.experience = 0;
+  botState.playerState.experienceLevel = 0;
   botState.bedrockCraftingRecipes = [];
   botState.blockRuntimeIdsByName = {};
 
@@ -120,8 +125,8 @@ module.exports = (botState, options) => {
 
   // ── Initial connection ──
   function queueAvailableCommandsReadyPackets() {
-    if (botState.sentAvailableCommandsReadyPackets) return;
-    botState.sentAvailableCommandsReadyPackets = true;
+    if (botState.protocolState.sentAvailableCommandsReadyPackets) return;
+    botState.protocolState.sentAvailableCommandsReadyPackets = true;
 
     client.queue('serverbound_loading_screen', { type: 1 });
     client.queue('serverbound_loading_screen', { type: 2 });
@@ -146,16 +151,16 @@ module.exports = (botState, options) => {
   // ── Start Game ──
   client.on('start_game', (pkt) => {
     // Current Bedrock protocol: start_game carries spawn info but NOT itemstates/block_states.
-    botState.spawnPosition = new Vec3(
+    botState.playerState.spawnPosition = new Vec3(
       pkt.player_position.x, pkt.player_position.y, pkt.player_position.z
     );
-    botState.spawnRotation = pkt.rotation;
+    botState.playerState.spawnRotation = pkt.rotation;
     botState.game.gameMode = pkt.player_gamemode;
     if (typeof botState.setDimension === 'function') botState.setDimension(pkt.dimension);
-    else botState.dimension = pkt.dimension;
-    botState.blockNetworkIdsAreHashes = !!pkt.block_network_ids_are_hashes;
-    botState.playerHealth = 20;
-    botState.isDead = false;
+    else botState.game.dimension = pkt.dimension;
+    botState.protocolState.blockNetworkIdsAreHashes = !!pkt.block_network_ids_are_hashes;
+    botState.playerState.health = 20;
+    botState.lifecycle.isDead = false;
 
     pkt.itemstates ??= [];
     registry.handleStartGame(pkt);
@@ -164,8 +169,8 @@ module.exports = (botState, options) => {
     logAction('[←]', 'start_game', {
       entity_id: String(pkt.entity_id),
       runtime_entity_id: String(pkt.runtime_entity_id),
-      pos: botState.spawnPosition,
-      rotation: botState.spawnRotation,
+      pos: botState.playerState.spawnPosition,
+      rotation: botState.playerState.spawnRotation,
       gamemode: botState.game.gameMode,
       block_network_ids_are_hashes: !!pkt.block_network_ids_are_hashes,
       block_properties: pkt.block_properties?.length ?? 0,
@@ -259,24 +264,24 @@ module.exports = (botState, options) => {
 
   // ── Health updates (from any source, including respawn) ──
   client.on('set_health', (packet) => {
-    botState.playerHealth = packet.health;
+    botState.playerState.health = packet.health;
     logAction('[←]', 'set_health', {
-      health: botState.playerHealth,
-      isDead: botState.isDead,
+      health: botState.playerState.health,
+      isDead: botState.lifecycle.isDead,
     });
-    if (botState.playerHealth > 0 && botState.isDead) {
-      botState.isDead = false;
+    if (botState.playerState.health > 0 && botState.lifecycle.isDead) {
+      botState.lifecycle.isDead = false;
       logAction('[→]', 'set_health -> alive');
     }
   });
 
   client.on('game_rules_changed', (packet) => {
-    botState.gamerules = packet.gamerules ?? packet.rules ?? packet;
+    botState.game.gamerules = packet.gamerules ?? packet.rules ?? packet;
   });
 
   client.on('change_dimension', (packet) => {
     if (typeof botState.setDimension === 'function') botState.setDimension(packet.dimension);
-    else botState.dimension = packet.dimension;
+    else botState.game.dimension = packet.dimension;
   });
 
   client.on('update_attributes', (packet) => {
@@ -284,18 +289,18 @@ module.exports = (botState, options) => {
 
     for (const attr of packet.attributes || []) {
       if (attr.name === 'minecraft:player.experience') {
-        botState.experience = attr.current ?? attr.value ?? 0;
+        botState.playerState.experience = attr.current ?? attr.value ?? 0;
       } else if (attr.name === 'minecraft:player.level') {
-        botState.experienceLevel = attr.current ?? attr.value ?? 0;
+        botState.playerState.experienceLevel = attr.current ?? attr.value ?? 0;
       }
     }
   });
 
   // ── Death Info ──
   client.on('death_info', (packet) => {
-    if (botState.isDead) return;
-    botState.isDead = true;
-    botState.playerHealth = 0;
+    if (botState.lifecycle.isDead) return;
+    botState.lifecycle.isDead = true;
+    botState.playerState.health = 0;
     logAction('[←]', 'death_info', {
       cause: packet.cause,
       message: packet.messages?.[0],
@@ -307,7 +312,7 @@ module.exports = (botState, options) => {
   client.on('respawn', (packet) => {
     logAction('[←]', 'respawn', { state: packet.state, position: packet.position });
 
-    clearTimeout(botState.respawnTimeout);
+    clearTimeout(botState.lifecycle.respawnTimeout);
 
     if (packet.state === 0) {
       // Server sent state 0 (dimension change or death response) – ack with state 1
@@ -318,7 +323,7 @@ module.exports = (botState, options) => {
         runtime_entity_id: client.entityId,
       });
 
-      botState.respawnTimeout = setTimeout(() => {
+      botState.lifecycle.respawnTimeout = setTimeout(() => {
         logAction('[→]', 'respawn(state=2) fallback after server state=0');
         client.queue('respawn', {
           position: packet.position,
@@ -333,7 +338,7 @@ module.exports = (botState, options) => {
     }
 
     if (packet.state === 1) {
-      clearTimeout(botState.respawnTimeout);
+      clearTimeout(botState.lifecycle.respawnTimeout);
       logAction('[→]', 'respawn(state=2 ack) + set_local_player_as_initialized');
       client.queue('respawn', {
         position: packet.position,
@@ -351,10 +356,10 @@ module.exports = (botState, options) => {
 
   // ── Spawn (indicates respawn completion) ──
   client.on('spawn', () => {
-    if (botState.isDead) {
+    if (botState.lifecycle.isDead) {
       logAction('[←]', 'spawn', { msg: 'respawn completed' });
-      botState.isDead = false;
-      botState.playerHealth = 20;
+      botState.lifecycle.isDead = false;
+      botState.playerState.health = 20;
     } else {
       logAction('[←]', 'spawn', { msg: 'initial join' });
     }
@@ -374,9 +379,9 @@ module.exports = (botState, options) => {
 
   // ── Internal helpers ──
   function scheduleRespawn(delay = 300) {
-    clearTimeout(botState.respawnTimeout);
-    botState.respawnTimeout = setTimeout(() => {
-      if (!botState.isDead) {
+    clearTimeout(botState.lifecycle.respawnTimeout);
+    botState.lifecycle.respawnTimeout = setTimeout(() => {
+      if (!botState.lifecycle.isDead) {
         logAction('[→]', 'respawn', { msg: 'skipped – already alive' });
         return;
       }
@@ -389,8 +394,8 @@ module.exports = (botState, options) => {
       });
 
       // Fallback: if no server reply within 1.5s, force state=2 + init
-      botState.respawnTimeout = setTimeout(() => {
-        if (!botState.isDead) return;
+      botState.lifecycle.respawnTimeout = setTimeout(() => {
+        if (!botState.lifecycle.isDead) return;
         logAction('[→]', 'respawn(state=2) fallback after no server state=1 response');
         client.queue('respawn', {
           position: { x: 0, y: 0, z: 0 },

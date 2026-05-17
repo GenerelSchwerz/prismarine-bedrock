@@ -11,8 +11,8 @@ const { createMovementPacketSender } = require('./movement-packets');
 const { setSelfEyePosition, toFeetPosition, withSelfFeetPosition } = require('./position');
 
 module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
-  if (options.physicsEnabled === false || botState.physicsEnabled === false) return;
-  if (options.worldDecodeEnabled === false || botState.worldDecodeEnabled === false) {
+  if (options.physicsEnabled === false || botState.options?.physicsEnabled === false) return;
+  if (options.worldDecodeEnabled === false || botState.options?.worldDecodeEnabled === false) {
     throw new Error('[physics] physicsEnabled requires worldDecodeEnabled: true');
   }
 
@@ -219,8 +219,8 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
 
   function isUsableMovementPosition (position) {
     if (!Number.isFinite(position?.x) || !Number.isFinite(position?.y) || !Number.isFinite(position?.z)) return false;
-    const minY = botState.worldMinY ?? botState.minY ?? -64;
-    const height = botState.worldHeight ?? 384;
+    const minY = botState.worldSettings?.minY ?? -64;
+    const height = botState.worldSettings?.height ?? 384;
     return position.y >= minY - C.EYE_HEIGHT && position.y <= minY + height + C.EYE_HEIGHT;
   }
 

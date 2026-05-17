@@ -65,9 +65,10 @@ module.exports = (botState, options) => {
 
   // Spawn point (mirrors mineflayer's spawn_point.js)
   botState.client.on('set_spawn_position', (packet) => {
-    if (!botState.spawnPosition) botState.spawnPosition = new Vec3(0, 0, 0);
-    botState.spawnPosition.set(packet.player_position.x, packet.player_position.y, packet.player_position.z);
-    logAction('[→]', 'set_spawn_position', { pos: botState.spawnPosition });
+    botState.playerState ??= {};
+    if (!botState.playerState.spawnPosition) botState.playerState.spawnPosition = new Vec3(0, 0, 0);
+    botState.playerState.spawnPosition.set(packet.player_position.x, packet.player_position.y, packet.player_position.z);
+    logAction('[→]', 'set_spawn_position', { pos: botState.playerState.spawnPosition });
     botState.emit('game');
   });
 

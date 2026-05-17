@@ -22,7 +22,11 @@ function createBotState () {
       this.sections = []
       this.networkDecodeSubChunkNoCache = async () => {}
     },
-    spawnPosition: new Vec3(0, 64, 0)
+    game: { dimension: 0 },
+    protocolState: { blockNetworkIdsAreHashes: false },
+    playerState: {
+      spawnPosition: new Vec3(0, 64, 0)
+    }
   }
 }
 
@@ -78,8 +82,8 @@ describe('chunk readiness helpers', function () {
 
     await waitImmediate()
 
-    assert.deepStrictEqual(botState.rawChunkPublisherCenter, { x: 0, y: 117, z: 0 })
-    assert.deepStrictEqual(botState.chunkPublisherCenter, { x: 0, y: -59, z: 0 })
+    assert.deepStrictEqual(botState.chunkState.rawPublisherCenter, { x: 0, y: 117, z: 0 })
+    assert.deepStrictEqual(botState.chunkState.publisherCenter, { x: 0, y: -59, z: 0 })
 
     const request = botState.client.queued.find(packet => packet.name === 'subchunk_request')
     assert.ok(request)
@@ -111,8 +115,8 @@ describe('chunk readiness helpers', function () {
 
     await waitImmediate()
 
-    assert.deepStrictEqual(botState.rawChunkPublisherCenter, { x: 0, y: 65, z: 0 })
-    assert.deepStrictEqual(botState.chunkPublisherCenter, { x: 0, y: 65, z: 0 })
+    assert.deepStrictEqual(botState.chunkState.rawPublisherCenter, { x: 0, y: 65, z: 0 })
+    assert.deepStrictEqual(botState.chunkState.publisherCenter, { x: 0, y: 65, z: 0 })
 
     const request = botState.client.queued.find(packet => packet.name === 'subchunk_request')
     assert.ok(request)
@@ -233,7 +237,7 @@ describe('chunk readiness helpers', function () {
 
     await waitImmediate()
 
-    assert.deepStrictEqual(botState.chunkPublisherCenter, { x: 0, y: 32769, z: 0 })
+    assert.deepStrictEqual(botState.chunkState.publisherCenter, { x: 0, y: 32769, z: 0 })
 
     const request = botState.client.queued.find(packet => packet.name === 'subchunk_request')
     assert.ok(request)
@@ -323,8 +327,8 @@ describe('chunk readiness helpers', function () {
   it('requests chunk data around the player after server teleport', function () {
     const botState = createBotState()
     botState.client.entityId = 1n
-    botState.dimension = 0
-    botState.blockNetworkIdsAreHashes = true
+    botState.game.dimension = 0
+    botState.protocolState.blockNetworkIdsAreHashes = true
     injectChunks(botState)
 
     botState.client.emit('move_player', {
@@ -349,8 +353,8 @@ describe('chunk readiness helpers', function () {
   it('does not send subchunk requests after Geyser-style teleports', function () {
     const botState = createBotState()
     botState.client.entityId = 1n
-    botState.dimension = 0
-    botState.blockNetworkIdsAreHashes = false
+    botState.game.dimension = 0
+    botState.protocolState.blockNetworkIdsAreHashes = false
     injectChunks(botState)
 
     botState.client.emit('move_player', {
@@ -414,21 +418,21 @@ describe('chunk readiness helpers', function () {
     botState.pendingSubchunkRequests.set(chunkKey(0, 0), { sectionYs: new Set([-4]) })
     botState.loadedChunks.add(chunkKey(0, 0))
     botState.loadedChunkSections.set(chunkKey(0, 0), new Set([-4]))
-    botState.chunkCount = 1
-    botState.chunkPublisherCenter = { x: 0, y: 64, z: 0 }
-    botState.chunkPublisherRadius = 64
+    botState.chunkState.count = 1
+    botState.chunkState.publisherCenter = { x: 0, y: 64, z: 0 }
+    botState.chunkState.publisherRadius = 64
 
     botState.client.emit('change_dimension', { dimension: 1 })
 
-    assert.strictEqual(botState.dimension, 1)
+    assert.strictEqual(botState.game.dimension, 1)
     assert.strictEqual(botState.blobCache.size, 0)
     assert.strictEqual(botState.pendingBlobRequests.size, 0)
     assert.strictEqual(botState.networkChunks.size, 0)
     assert.strictEqual(botState.pendingSubchunkRequests.size, 0)
     assert.strictEqual(botState.loadedChunks.size, 0)
     assert.strictEqual(botState.loadedChunkSections.size, 0)
-    assert.strictEqual(botState.chunkCount, 0)
-    assert.strictEqual(botState.chunkPublisherCenter, null)
-    assert.strictEqual(botState.chunkPublisherRadius, null)
+    assert.strictEqual(botState.chunkState.count, 0)
+    assert.strictEqual(botState.chunkState.publisherCenter, null)
+    assert.strictEqual(botState.chunkState.publisherRadius, null)
   })
 })

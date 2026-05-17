@@ -29,8 +29,6 @@ describe('Bedrock rotation mapping', function () {
     const botState = new EventEmitter()
     botState.client = client
     botState.version = '1.26.10'
-    botState.worldDecodeEnabled = true
-    botState.physicsEnabled = true
     botState.self = new TestEntity(1n)
     botState.self.runtimeId = 1n
     botState.world = {
@@ -56,8 +54,6 @@ describe('Bedrock rotation mapping', function () {
     const botState = new EventEmitter()
     botState.client = client
     botState.version = '1.26.10'
-    botState.worldDecodeEnabled = true
-    botState.physicsEnabled = true
     botState.self = new TestEntity(1n)
     botState.self.runtimeId = 1n
     botState.self.pitch = 5

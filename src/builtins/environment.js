@@ -37,18 +37,9 @@ module.exports = function environmentPlugin (botState) {
   const client = botState.client
 
   botState.environment = createEnvironmentState()
-  botState.time = null
-  botState.timeOfDay = null
-  botState.day = null
-  botState.weather = {
-    rainLevel: 0,
-    lightningLevel: 0,
-    raining: false,
-    thundering: false
-  }
 
-  function updateTopLevelWeather () {
-    botState.weather = {
+  function currentWeather () {
+    return {
       rainLevel: botState.environment.rainLevel,
       lightningLevel: botState.environment.lightningLevel,
       raining: botState.environment.raining,
@@ -62,9 +53,6 @@ module.exports = function environmentPlugin (botState) {
     botState.environment.time = time
     botState.environment.timeOfDay = normalizeTimeOfDay(time)
     botState.environment.day = Math.floor(time / DAY_TICKS)
-    botState.time = botState.environment.time
-    botState.timeOfDay = botState.environment.timeOfDay
-    botState.day = botState.environment.day
 
     const payload = {
       time: botState.environment.time,
@@ -87,10 +75,9 @@ module.exports = function environmentPlugin (botState) {
 
     botState.environment.raining = botState.environment.rainLevel > 0
     botState.environment.thundering = botState.environment.lightningLevel > 0
-    updateTopLevelWeather()
 
     const payload = {
-      ...botState.weather,
+      ...currentWeather(),
       lastWeatherEvent: botState.environment.lastWeatherEvent,
       rawPacket
     }
@@ -147,7 +134,7 @@ module.exports = function environmentPlugin (botState) {
 
   botState.getEnvironment = () => ({
     ...botState.environment,
-    weather: { ...botState.weather }
+    weather: currentWeather()
   })
 }
 

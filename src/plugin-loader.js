@@ -41,8 +41,9 @@ function injectPlugins (botState) {
 }
 
 function shouldLoadBuiltin (botState, entry) {
-  if (entry === 'chunks.js' && !botState.worldDecodeEnabled) return false
-  if ((entry === 'physics.js' || entry === 'physics') && !botState.physicsEnabled) return false
+  const options = botState.options ?? {}
+  if (entry === 'chunks.js' && options.worldDecodeEnabled === false) return false
+  if ((entry === 'physics.js' || entry === 'physics') && options.physicsEnabled === false) return false
   return true
 }
 

@@ -49,24 +49,43 @@ class BotState extends EventEmitter {
 
     this.registry = registry;
     this.version = this.options.version;
-    this.worldDecodeEnabled = this.options.worldDecodeEnabled;
-    this.physicsEnabled = this.options.physicsEnabled;
 
     this.client = null;
 
-    // Shared state
+    this.lifecycle = {
+      isDead: false,
+      respawnTimeout: null
+    };
+    this.playerState = {
+      health: null,
+      experience: 0,
+      experienceLevel: 0,
+      spawnPosition: null,
+      spawnRotation: null
+    };
+    this.game = {
+      gameMode: null,
+      dimension: 0,
+      gamerules: null
+    };
+    this.worldSettings = {
+      minY: -64,
+      height: 384,
+      minSectionY: -4,
+      maxSectionY: 19
+    };
+    this.chunkState = {
+      count: 0,
+      rawPublisherCenter: null,
+      publisherCenter: null,
+      publisherRadius: null
+    };
+    this.protocolState = {
+      blockNetworkIdsAreHashes: false,
+      sentAvailableCommandsReadyPackets: false
+    };
     this.currentTargetBlock = null;
     this.targetStateIds = null;
-    this.isDead = false;
-    this.respawnTimeout = null;
-    this.playerHealth = null;
-    this.spawnPosition = null;
-    this.spawnRotation = null;
-    this.game = {
-      gameMode: null
-    };
-    this.chunkCount = 0;
-    this.dimension = 0;
 
     pluginLoader.ensureState(this);
 
@@ -109,8 +128,8 @@ class BotState extends EventEmitter {
   }
 
   setDimension (dimension, options = {}) {
-    const changed = this.dimension !== dimension;
-    this.dimension = dimension;
+    const changed = this.game.dimension !== dimension;
+    this.game.dimension = dimension;
     if (changed && options.resetWorld) this.resetWorld();
   }
 }

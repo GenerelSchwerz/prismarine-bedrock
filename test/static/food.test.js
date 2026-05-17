@@ -24,7 +24,7 @@ function createBotState () {
   const botState = new EventEmitter()
   botState.client = client
   botState.itemClass = null
-  botState.spawnPosition = new Vec3(0, 64, 0)
+  botState.playerState = { spawnPosition: new Vec3(0, 64, 0) }
   botState.self = { position: new Vec3(1, 65, 1), food: 10 }
   botState.heldItemSlot = 0
   botState.inventory = {

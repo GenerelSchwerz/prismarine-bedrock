@@ -128,7 +128,7 @@ describe('crafting builtin', function () {
   it('uses native BDS inventory slot identities for normal craft transfers in hash mode', function () {
     const { buildGridTakeActions, buildNormalActions } = injectCrafting._craftingHelpers
     const { botState, craft } = createCraftFixture()
-    botState.blockNetworkIdsAreHashes = true
+    botState.protocolState = { blockNetworkIdsAreHashes: true }
 
     const gridTake = buildGridTakeActions(botState, craft.placements[0])
     const normal = buildNormalActions(botState, craft)

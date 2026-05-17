@@ -5,7 +5,7 @@
 // Assumes:
 //   - bot.lookAt(pos) exists (user stated it is available)
 //   - botState.heldItemSlot is maintained by the inventory plugin
-//   - botState.spawnPosition reflects current player position
+//   - botState.playerState.spawnPosition reflects current player position
 //   - botState.world.getBlock(pos) returns a block with .stateId
 //   - botState.itemClass.toNotch(stack) exists (prismarine-item provides it)
 
@@ -87,7 +87,7 @@ function inject (botState, options) {
     }
 
     // Build the TransactionUseItem data
-    const playerPos = botState.self?.position ?? botState.spawnPosition
+    const playerPos = botState.self?.position ?? botState.playerState?.spawnPosition
     const useItemData = {
       action_type: 'click_block',
       trigger_type: 'player_input',
@@ -129,7 +129,7 @@ function inject (botState, options) {
     }
 
     // Use item on air (action_type = 1)
-    const playerPos = botState.self?.position ?? botState.spawnPosition
+    const playerPos = botState.self?.position ?? botState.playerState?.spawnPosition
     const useItemData = {
       action_type: 'click_air',
       trigger_type: 'player_input',

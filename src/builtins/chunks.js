@@ -10,11 +10,16 @@ const BlobType = { ChunkSection: 0, Biomes: 1 };
  * @param {object} [options]
  */
 module.exports = (botState, options = {}) => {
-  if (options.worldDecodeEnabled === false || botState.worldDecodeEnabled === false) return;
+  if (options.worldDecodeEnabled === false || botState.options?.worldDecodeEnabled === false) return;
 
   const client = botState.client;
   const registry = botState.registry;
   const ChunkColumn = botState.chunkColumn;
+  botState.worldSettings ??= {};
+  botState.chunkState ??= {};
+  botState.protocolState ??= {};
+  botState.game ??= {};
+  botState.playerState ??= {};
 
   // Bedrock modern overworld height.
   //
@@ -25,20 +30,20 @@ module.exports = (botState, options = {}) => {
   const WORLD_MIN_Y =
     options.minY ??
     options.worldMinY ??
-    botState.minY ??
-    botState.worldMinY ??
+    botState.worldSettings?.minY ??
     -64;
 
   const WORLD_HEIGHT =
     options.worldHeight ??
-    botState.worldHeight ??
+    botState.worldSettings?.height ??
     384;
   const WORLD_MIN_SECTION_Y = Math.floor(WORLD_MIN_Y / 16);
   const WORLD_MAX_SECTION_Y = Math.floor((WORLD_MIN_Y + WORLD_HEIGHT - 1) / 16);
 
-  botState.minY = WORLD_MIN_Y;
-  botState.worldMinY = WORLD_MIN_Y;
-  botState.worldHeight = WORLD_HEIGHT;
+  botState.worldSettings.minY = WORLD_MIN_Y;
+  botState.worldSettings.height = WORLD_HEIGHT;
+  botState.worldSettings.minSectionY = WORLD_MIN_SECTION_Y;
+  botState.worldSettings.maxSectionY = WORLD_MAX_SECTION_Y;
 
   function createChunkColumn(cx, cz) {
     return new ChunkColumn({
@@ -135,7 +140,7 @@ module.exports = (botState, options = {}) => {
     if (typeof botState.setDimension === 'function') {
       botState.setDimension(dimension, { resetWorld: true });
     } else {
-      botState.dimension = dimension;
+      botState.game.dimension = dimension;
     }
 
     botState.blobCache.clear();
@@ -144,10 +149,10 @@ module.exports = (botState, options = {}) => {
     botState.pendingSubchunkRequests.clear();
     botState.loadedChunks.clear();
     botState.loadedChunkSections.clear();
-    botState.chunkCount = 0;
-    botState.rawChunkPublisherCenter = null;
-    botState.chunkPublisherCenter = null;
-    botState.chunkPublisherRadius = null;
+    botState.chunkState.count = 0;
+    botState.chunkState.rawPublisherCenter = null;
+    botState.chunkState.publisherCenter = null;
+    botState.chunkState.publisherRadius = null;
   }
 
   botState.getBlock = async (...args) => {
@@ -252,7 +257,7 @@ module.exports = (botState, options = {}) => {
   }
 
   function chunkPublisherSectionY() {
-    const y = botState.chunkPublisherCenter?.y;
+    const y = botState.chunkState.publisherCenter?.y;
     return sectionYFromWorldY(y);
   }
 
@@ -295,8 +300,12 @@ module.exports = (botState, options = {}) => {
     verticalSectionRadius = 1
   ) {
     const pos = center || (
-      botState.spawnPosition
-        ? new Vec3(botState.spawnPosition.x, botState.spawnPosition.y, botState.spawnPosition.z)
+      botState.playerState.spawnPosition
+        ? new Vec3(
+          botState.playerState.spawnPosition.x,
+          botState.playerState.spawnPosition.y,
+          botState.playerState.spawnPosition.z
+        )
         : new Vec3(0, WORLD_MIN_Y, 0)
     );
 
@@ -355,7 +364,7 @@ module.exports = (botState, options = {}) => {
 
     requestChunkRadius();
 
-    if (!botState.blockNetworkIdsAreHashes && !options.teleportSubchunkRequests) return;
+    if (!botState.protocolState.blockNetworkIdsAreHashes && !options.teleportSubchunkRequests) return;
 
     const minCX = Math.floor((center.x - radius) / 16);
     const maxCX = Math.floor((center.x + radius) / 16);
@@ -363,7 +372,7 @@ module.exports = (botState, options = {}) => {
     const maxCZ = Math.floor((center.z + radius) / 16);
     const originSectionY = sectionYFromWorldY(center.y) ?? subchunkOriginSectionY();
     const sectionYs = subchunkSectionYsAround(originSectionY, verticalSectionRadius);
-    const dimension = botState.dimension ?? 0;
+    const dimension = botState.game.dimension ?? 0;
 
     for (let cx = minCX; cx <= maxCX; cx++) {
       for (let cz = minCZ; cz <= maxCZ; cz++) {
@@ -563,7 +572,7 @@ module.exports = (botState, options = {}) => {
     const cx = packet.x;
     const cz = packet.z;
     const sectionCount = packet.sub_chunk_count;
-    const dimension = packet.dimension ?? botState.dimension ?? 0;
+    const dimension = packet.dimension ?? botState.game.dimension ?? 0;
 
     let chunk = botState.networkChunks.get(chunkKey(cx, cz));
     if (!chunk) chunk = createChunkColumn(cx, cz);
@@ -638,7 +647,7 @@ module.exports = (botState, options = {}) => {
         console.warn(`level_chunk unknown mode: count=${sectionCount}, cache=${packet.cache_enabled}`);
       }
 
-      botState.chunkCount = botState.networkChunks.size;
+      botState.chunkState.count = botState.networkChunks.size;
     } catch (err) {
       console.error('level_chunk decode error:', err);
     }
@@ -788,9 +797,9 @@ module.exports = (botState, options = {}) => {
 
   // ── network_chunk_publisher_update (0x79) ──
   client.on('network_chunk_publisher_update', (packet) => {
-    botState.rawChunkPublisherCenter = packet.coordinates;
-    botState.chunkPublisherCenter = normalizeNetworkChunkPublisherCoordinates(packet.coordinates);
-    botState.chunkPublisherRadius = packet.radius;
+    botState.chunkState.rawPublisherCenter = packet.coordinates;
+    botState.chunkState.publisherCenter = normalizeNetworkChunkPublisherCoordinates(packet.coordinates);
+    botState.chunkState.publisherRadius = packet.radius;
   });
 
   client.on('change_dimension', (packet) => {

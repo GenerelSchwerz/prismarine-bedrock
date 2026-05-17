@@ -181,7 +181,7 @@ Provide a Mineflayer-shaped wrapper/facade for plugin injection, prioritizing up
 
 ## Handoff
 
-The wrapper supports upstream pathfinder injection and has passing Endstone/BDS live coverage for the flat lane and the stricter forward/turn/gap/jump diamond-target course.
+The wrapper supports upstream pathfinder injection and has passing Endstone/BDS live coverage for the stricter forward/turn/gap/jump diamond-target course. Live pathfinder scenarios are split under `test/live/pathfinder/`; bridge-up and dig-down are pending until placement/scaffolding and pathfinder-driven digging are hardened.
 
 ## Resume Notes
 
@@ -191,10 +191,10 @@ The wrapper supports upstream pathfinder injection and has passing Endstone/BDS 
 
 ## Final Summary
 
-- Result: Added a Mineflayer compatibility builtin that lets upstream `mineflayer-pathfinder` inject through `botState.loadPlugin(pathfinder)` while preserving native `BotState` internals, plus a passing Endstone/BDS live e2e scenario for flat-lane pathfinder walking.
-- Files changed: `docs/tasks/TASK-24-mineflayer-compat-wrapper.md`, `package.json`, `src/builtins/mineflayer-compat.js`, `test/static/mineflayer-compat.test.js`, `test/live/pathfinder.test.js`.
-- Verification: `node -c src/builtins/mineflayer-compat.js`; `node -c test/live/pathfinder.test.js`; `npx mocha test/static/mineflayer-compat.test.js`; `pnpm run test:static`; Endstone/BDS focused live pathfinder run.
-- Follow-up tasks: add broader pathfinder terrain scenarios and replace the simple physics shim with a Bedrock-native predictor when needed.
+- Result: Added a Mineflayer compatibility builtin that lets upstream `mineflayer-pathfinder` inject through `botState.loadPlugin(pathfinder)` while preserving native `BotState` internals, plus passing Endstone/BDS live coverage for the current forward-turn-gap pathfinder course.
+- Files changed: `docs/tasks/TASK-24-mineflayer-compat-wrapper.md`, `package.json`, `src/builtins/mineflayer-compat.js`, `src/builtins/dig.js`, `src/builtins/place.js`, `test/static/mineflayer-compat.test.js`, `test/static/dig.test.js`, `test/live/pathfinder/`.
+- Verification: `node -c` syntax checks for compat/dig/place/static/live pathfinder files; `npx mocha test/static/dig.test.js test/static/mineflayer-compat.test.js`; `pnpm run test:static`; Endstone/BDS focused live pathfinder folder run.
+- Follow-up tasks: unskip the pending bridge-up and dig-down pathfinder scenarios after the underlying placement/scaffolding and dig action gaps are fixed, then replace the simple physics shim with a Bedrock-native predictor when needed.
 
 ## Failure Summary
 

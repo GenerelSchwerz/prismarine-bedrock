@@ -166,14 +166,18 @@ function installPathfinderTrace (botState) {
     rememberControl(name, value)
     return originalSetControlState(name, value)
   }
-  botState._applyPlayerAuthInputHooks = packet => {
+  const applyPlayerAuthInputHooks = botState._applyPlayerAuthInputHooks?.bind(botState)
+  botState._applyPlayerAuthInputHooks = (packet, context = {}) => {
+    applyPlayerAuthInputHooks?.(packet, context)
     authInputTrace.push({
       move: packet.move_vector,
       yaw: packet.yaw,
       up: !!packet.input_data?.up,
+      blockAction: packet.block_action?.map(action => action.action),
       tick: String(packet.tick)
     })
     if (authInputTrace.length > 8) authInputTrace.shift()
+    return packet
   }
   botState.on('path_update', result => {
     remember('path_update', {
@@ -225,6 +229,35 @@ async function goToBlock (botState, target, options = {}) {
   botState.clearControlStates()
 }
 
+async function goToGoalReached (botState, target, options = {}) {
+  const timeoutMs = options.timeoutMs ?? 20000
+  if (GOAL_DELAY_MS > 0) await sleep(GOAL_DELAY_MS)
+
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      cleanup()
+      const debug = options.debugInfo?.()
+      reject(new Error(`Timed out waiting for pathfinder goal_reached ${target.x},${target.y},${target.z}${debug ? `; ${debug}` : ''}`))
+    }, timeoutMs)
+    timeout.unref?.()
+
+    const cleanup = () => {
+      clearTimeout(timeout)
+      botState.off('goal_reached', onGoalReached)
+    }
+    const onGoalReached = () => {
+      cleanup()
+      resolve()
+    }
+
+    botState.on('goal_reached', onGoalReached)
+    botState.pathfinder.setGoal(new goals.GoalBlock(target.x, target.y, target.z))
+  })
+
+  botState.pathfinder.stop()
+  botState.clearControlStates()
+}
+
 async function giveScaffolding (botState, itemName, count = 16) {
   clearPlayer(botState, USERNAME)
   await sleep(SETUP_DELAY_MS)
@@ -243,6 +276,7 @@ module.exports = {
   feetPosition,
   giveScaffolding,
   goToBlock,
+  goToGoalReached,
   installPathfinderTrace,
   loadPathfinder,
   pathfinder,

@@ -25,6 +25,58 @@ const {
 function inject (botState, options) {
   const client = botState.client
 
+  function placedPositionForFace (targetPos, face) {
+    switch (face) {
+      case 0: return targetPos.offset(0, -1, 0)
+      case 1: return targetPos.offset(0, 1, 0)
+      case 2: return targetPos.offset(0, 0, -1)
+      case 3: return targetPos.offset(0, 0, 1)
+      case 4: return targetPos.offset(-1, 0, 0)
+      case 5: return targetPos.offset(1, 0, 0)
+      default: return targetPos.clone()
+    }
+  }
+
+  function samePos (a, b) {
+    return a && b && a.x === b.x && a.y === b.y && a.z === b.z
+  }
+
+  function waitForPlacedBlockUpdate (position, timeoutMs) {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        cleanup()
+        reject(new Error(`Timed out waiting for placed block update at ${position}`))
+      }, timeoutMs)
+      timeout.unref?.()
+
+      const cleanup = () => {
+        clearTimeout(timeout)
+        client.off('update_block', onUpdateBlock)
+        client.off('update_block_synced', onUpdateBlockSynced)
+        client.off('update_subchunk_blocks', onUpdateSubchunkBlocks)
+      }
+
+      const finish = () => {
+        cleanup()
+        resolve()
+      }
+
+      const onUpdateBlock = packet => {
+        if (samePos(packet.position, position)) finish()
+      }
+      const onUpdateBlockSynced = packet => {
+        if (samePos(packet.position, position)) finish()
+      }
+      const onUpdateSubchunkBlocks = packet => {
+        if ((packet.blocks || []).some(entry => samePos(entry.position, position))) finish()
+      }
+
+      client.on('update_block', onUpdateBlock)
+      client.on('update_block_synced', onUpdateBlockSynced)
+      client.on('update_subchunk_blocks', onUpdateSubchunkBlocks)
+    })
+  }
+
   function blockFace (pos) {
     const eye = botState.self.position
     const center = {
@@ -109,6 +161,11 @@ function inject (botState, options) {
 
     sendPlaceTransaction(useItemData)
     botState.emit('blockPlaceRequested', { targetPos, face, options: placeOptions })
+
+    if (placeOptions.waitForUpdate !== false) {
+      const timeoutMs = Number(placeOptions.placeCompletionTimeoutMs ?? options.placeCompletionTimeoutMs ?? botState.options?.placeCompletionTimeoutMs ?? 5000)
+      await waitForPlacedBlockUpdate(placedPositionForFace(targetPos, face), timeoutMs)
+    }
   }
 
   // ------------------------------------------------------------------

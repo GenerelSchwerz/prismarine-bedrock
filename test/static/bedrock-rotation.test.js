@@ -130,7 +130,7 @@ describe('Bedrock rotation mapping', function () {
 
     const feet = toFeetPosition(botState.self.position, botState.self, getConstants('1.26.10'))
     assert.strictEqual(feet.y, 65)
-    assert(Math.abs(botState.self.position.y - (65 + Math.fround(1.62))) < 1e-12)
+    assert(Math.abs(botState.self.position.y - (65 + Math.fround(1.6200100183486938))) < 1e-12)
   })
 
   it('does not change look rotation when entities handles movement correction', function () {
@@ -218,17 +218,17 @@ describe('Bedrock rotation mapping', function () {
     self.position = new Vec3(1, 65.62, 2)
 
     self.pose = 'standing'
-    assert.strictEqual(eyeHeightFor(self, C), Math.fround(1.62))
-    assert.strictEqual(toFeetPosition(self.position, self, C).y, 65.62 - Math.fround(1.62))
-    assert.strictEqual(self.eyeHeight, Math.fround(1.62))
+    assert.strictEqual(eyeHeightFor(self, C), Math.fround(1.6200100183486938))
+    assert.strictEqual(toFeetPosition(self.position, self, C).y, 65.62 - Math.fround(1.6200100183486938))
+    assert.strictEqual(self.eyeHeight, Math.fround(1.6200100183486938))
 
     self.pose = 'sneaking'
-    assert.strictEqual(eyeHeightFor(self, C), Math.fround(1.62))
-    assert.strictEqual(toFeetPosition(self.position, self, C).y, 65.62 - Math.fround(1.62))
+    assert.strictEqual(eyeHeightFor(self, C), Math.fround(1.6200100183486938))
+    assert.strictEqual(toFeetPosition(self.position, self, C).y, 65.62 - Math.fround(1.6200100183486938))
 
     self.pose = 'standing'
     self.swimming = true
-    assert.strictEqual(eyeHeightFor(self, C), Math.fround(1.62))
-    assert.strictEqual(toFeetPosition(self.position, self, C).y, 65.62 - Math.fround(1.62))
+    assert.strictEqual(eyeHeightFor(self, C), Math.fround(1.6200100183486938))
+    assert.strictEqual(toFeetPosition(self.position, self, C).y, 65.62 - Math.fround(1.6200100183486938))
   })
 })

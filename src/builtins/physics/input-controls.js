@@ -1,5 +1,18 @@
 const { numberOrZero } = require('../../utils');
 const { updateSelfEyeHeight } = require('./position');
+const { synthesizePAI, PAI_BIT_SneakCurrentRaw } = require('./pai-synth');
+
+function emptyButtonState() {
+  return {
+    forward: false,
+    back: false,
+    left: false,
+    right: false,
+    jump: { current: false },
+    sneak: { current: false },
+    sprint: false
+  };
+}
 
 function installControls(botState, C) {
   const controlState = {
@@ -13,6 +26,15 @@ function installControls(botState, C) {
     swim: false
   };
   const previousControlState = { ...controlState };
+
+  if (botState.self) {
+    botState.self.inputState = botState.self.inputState || {
+      prevButtons: emptyButtonState(),
+      currButtons: emptyButtonState(),
+      paiLo: 0n,
+      paiHi: 0
+    };
+  }
 
   botState.controlState = {};
 
@@ -120,44 +142,65 @@ function installControls(botState, C) {
     setFlag('sneak_pressed_raw', false);
   }
 
+  function buildCurrButtonState() {
+    return {
+      forward: controlState.forward,
+      back: controlState.back,
+      left: controlState.left,
+      right: controlState.right,
+      jump: { current: controlState.jump },
+      sneak: { current: controlState.sneak },
+      sprint: controlState.sprint
+    };
+  }
+
   function evaluateControls() {
     const self = botState.self;
     if (!self) return;
 
+    if (!self.inputState) {
+      self.inputState = {
+        prevButtons: emptyButtonState(),
+        currButtons: emptyButtonState(),
+        paiLo: 0n,
+        paiHi: 0
+      };
+    }
+
     clearMomentaryFlags();
 
+    const currButtons = buildCurrButtonState();
+    const prevButtons = self.inputState.currButtons;
+    const synthOut = synthesizePAI(currButtons, prevButtons);
+    self.inputState.prevButtons = prevButtons;
+    self.inputState.currButtons = currButtons;
+    self.inputState.paiLo = synthOut.paiLo;
+    self.inputState.paiHi = synthOut.paiHi;
+    let combined = synthOut.paiLo;
+    if (synthOut.paiHi & 0x1) combined |= 1n << BigInt(PAI_BIT_SneakCurrentRaw);
+    self.inputData = combined;
+
     const sprinting = controlState.sprint && controlState.forward;
-    const previousSprinting = previousControlState.sprint && previousControlState.forward;
-    const sneakPressed = controlState.sneak && !previousControlState.sneak;
-    const sneakReleased = !controlState.sneak && previousControlState.sneak;
+    const previousSprintInput = !!prevButtons.sprint;
+    const previousForwardInput = !!prevButtons.forward;
+    const previousSprinting = previousSprintInput && previousForwardInput;
+    const sneakPressed = controlState.sneak && !prevButtons.sneak.current;
+    const sneakReleased = !controlState.sneak && prevButtons.sneak.current;
     const flying = !!self.flying;
     const sneaking = controlState.sneak && !flying;
 
     setFlag('ascend', flying && controlState.jump);
     setFlag('descend', flying && controlState.sneak);
-    setFlag('jumping', controlState.jump);
-    setFlag('sprint_down', controlState.sprint);
     setFlag('sprinting', sprinting);
     setFlag('sneaking', sneaking);
-    setFlag('sneak_down', controlState.sneak);
-    setFlag('up', controlState.forward);
-    setFlag('down', controlState.back);
-    setFlag('left', controlState.left);
-    setFlag('right', controlState.right);
     setFlag('up_left', controlState.forward && controlState.left);
     setFlag('up_right', controlState.forward && controlState.right);
-    setFlag('want_up', controlState.jump);
-    setFlag('want_down', controlState.sneak);
     setFlag('start_sprinting', sprinting && !previousSprinting);
     setFlag('stop_sprinting', !sprinting && previousSprinting);
     setFlag('start_sneaking', !flying && sneakPressed);
     setFlag('stop_sneaking', !flying && sneakReleased);
     setFlag('start_swimming', controlState.swim && !previousControlState.swim);
     setFlag('stop_swimming', !controlState.swim && previousControlState.swim);
-    setFlag('start_jumping', controlState.jump && !previousControlState.jump);
-    setFlag('sneak_released_raw', sneakReleased);
-    setFlag('sneak_pressed_raw', sneakPressed);
-    setFlag('sneak_current_raw', controlState.sneak);
     setFlag('block_breaking_delay_enabled', true);
     setFlag('camera_relative_movement_enabled', false);
     setFlag('block_action', false);

@@ -322,6 +322,10 @@ function applyAttributes (entity, attributes) {
       modifiers: Array.isArray(attr.modifiers) ? attr.modifiers : []
     }
 
+    if (attr.name === 'minecraft:movement') {
+      stored.value = stored.default;
+    }
+
     entity.attributes[attr.name] = stored
     entity.attributes[normalizeName(attr.name)] = stored
     const mappedName = ATTRIBUTE_NAME_MAP[attr.name] || ATTRIBUTE_NAME_MAP[normalizeName(attr.name)]

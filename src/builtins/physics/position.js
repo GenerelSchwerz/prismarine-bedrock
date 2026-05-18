@@ -36,6 +36,16 @@ function toEyePosition (position, self, C) {
   return new Vec3(position.x, position.y + movementPositionHeightFor(C), position.z)
 }
 
+function snapGroundedMovementPosition (position, self, C, onGround) {
+  if (!position || !onGround) return position
+
+  const feet = toFeetPosition(position, self, C)
+  const snappedY = Math.round(feet.y)
+  if (Math.abs(feet.y - snappedY) > 1e-4) return position
+
+  return toEyePosition(new Vec3(feet.x, snappedY, feet.z), self, C)
+}
+
 function setSelfEyePosition (self, position, C) {
   if (!self?.position || !position) return
   updateSelfEyeHeight(self, C)
@@ -64,6 +74,7 @@ module.exports = {
   eyeHeightFor,
   movementPositionHeightFor,
   poseFor,
+  snapGroundedMovementPosition,
   setSelfEyePosition,
   toEyePosition,
   toFeetPosition,

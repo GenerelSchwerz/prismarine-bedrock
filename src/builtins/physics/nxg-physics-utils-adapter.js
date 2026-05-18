@@ -79,6 +79,22 @@ function stringifyBigInt(value) {
   return value;
 }
 
+function compactVec(value) {
+  if (!value) return null;
+  return {
+    x: Number(value.x),
+    y: Number(value.y),
+    z: Number(value.z)
+  };
+}
+
+function debugNxgState(phase, data) {
+  if (process.env.BEDROCK_DEBUG_NXG_STATE !== '1') return;
+  console.log('[nxg-state]', phase, JSON.stringify(data, (_key, value) =>
+    typeof value === 'bigint' ? value.toString() : value
+  ));
+}
+
 function toBigIntSafe(value) {
   try {
     if (value === undefined || value === null) return null;
@@ -370,6 +386,63 @@ function createNxgPhysicsAdapter(options = {}) {
 
     // Run simulation
     const result = engine.simulate(ctx, world);
+
+    if (controls.sneak || self.sneaking || playerState.crouching || result.crouching) {
+      debugNxgState('simulate', {
+        tick: stringifyBigInt(self.tick || 0n),
+        controls: {
+          forward: !!controls.forward,
+          back: !!controls.back,
+          left: !!controls.left,
+          right: !!controls.right,
+          jump: !!controls.jump,
+          sprint: !!controls.sprint,
+          sneak: !!controls.sneak
+        },
+        before: {
+          position: compactVec(self.position),
+          velocity: compactVec(self.velocity),
+          onGround: !!self.onGround,
+          sneaking: !!self.sneaking,
+          crouching: !!self.crouching,
+          pose: self.pose,
+          horizontalCollision: !!self.horizontalCollision,
+          verticalCollision: !!self.verticalCollision
+        },
+        playerState: {
+          pose: playerState.pose,
+          crouching: !!playerState.crouching,
+          sneakCollision: !!playerState.sneakCollision,
+          onGround: !!playerState.onGround,
+          isCollidedHorizontally: !!playerState.isCollidedHorizontally,
+          isCollidedVertically: !!playerState.isCollidedVertically,
+          heading,
+          control: {
+            forward: control.forward,
+            back: control.back,
+            left: control.left,
+            right: control.right,
+            jump: control.jump,
+            sprint: control.sprint,
+            sneak: control.sneak
+          }
+        },
+        result: {
+          position: compactVec(result.pos),
+          velocity: compactVec(result.vel),
+          onGround: !!result.onGround,
+          crouching: !!result.crouching,
+          sprinting: !!result.sprinting,
+          swimming: !!result.swimming,
+          flying: !!result.flying,
+          fallFlying: !!result.fallFlying,
+          isCollidedHorizontally: !!result.isCollidedHorizontally,
+          isCollidedHorizontallyMinor: !!result.isCollidedHorizontallyMinor,
+          isCollidedVertically: !!result.isCollidedVertically,
+          supportingBlockPos: compactVec(result.supportingBlockPos)
+        }
+      });
+    }
 
     // Write back results to self via proxy
     self.position = result.pos.clone();

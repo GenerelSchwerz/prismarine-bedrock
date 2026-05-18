@@ -2,7 +2,7 @@
   "id": "sneak-forward-ledge-stop",
   "autoOp": true,
   "gamemode": "survival",
-  "spawn": [0, 71, 0, 0, 0],
+  "spawn": [0.0, 71.0, 0.0, 0.0, 0.0],
   "setupCommands": [
     "clear {player}",
     "defaultgamemode survival",
@@ -20,7 +20,7 @@
     "fill -1 70 2 1 70 2 yellow_concrete",
     "fill -1 70 3 1 70 3 red_concrete",
 
-    "tp {player} 0 71 0 0 0"
+    "tp {player} 0.0 71.0 0.0 0.0 0.0"
   ],
   "commands": [
     {
@@ -71,7 +71,7 @@
           {
             "type": "player_at",
             "position": [0, 71, 4.3],
-            "radius": 0.1
+            "radius": 0.6
           },
           {
             "type": "time_elapsed",
@@ -121,7 +121,7 @@
         "ability {player} flying false",
         "fill -2 70 -7 2 73 -3 stone",
         "fill -1 71 -6 1 71 -4 air",
-        "tp {player} 0 71 -5 180 0"
+        "tp {player} 0.0 71.0 -5.0 180.0 0.0"
       ],
       "instructions": [
         "You have been teleported into a one-block-high gap.",

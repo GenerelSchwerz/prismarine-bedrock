@@ -8,7 +8,7 @@ const { createNxgPhysicsAdapter, installBedrockMovementStateHandlers } = require
 const { createBedrockPhysicsEngine } = require('./bedrock-physics-engine');
 const { installControls, updateEyeDeltaAndTick } = require('./input-controls');
 const { createMovementPacketSender } = require('./movement-packets');
-const { setSelfEyePosition, toFeetPosition, withSelfFeetPosition } = require('./position');
+const { snapGroundedMovementPosition, setSelfEyePosition, toFeetPosition, withSelfFeetPosition } = require('./position');
 
 module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
   if (options.physicsEnabled === false || botState.options?.physicsEnabled === false) return;
@@ -297,7 +297,7 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
     if (!botState.self || !sameRuntimeId(pkt.runtime_id, client.entityId)) return;
     if (!isUsableMovementPosition(pkt.position)) return;
 
-    setSelfEyePosition(botState.self, pkt.position, C);
+    setSelfEyePosition(botState.self, snapGroundedMovementPosition(pkt.position, botState.self, C, pkt.on_ground), C);
 
     botState.self.pitch = pkt.pitch;
     botState.self.yaw = pkt.yaw;
@@ -333,7 +333,13 @@ module.exports = function bedrockPhysicsPlugin(botState, options = {}) {
     if (!botState.self) return;
     if (!isUsableMovementPosition(pkt.position)) return;
 
-    setSelfEyePosition(botState.self, pkt.position, C);
+    setSelfEyePosition(botState.self, snapGroundedMovementPosition(pkt.position, botState.self, C, pkt.on_ground), C);
+
+    if (pkt.prediction_type === 'vehicle') {
+      botState.self.pitch = rotationPitch(pkt.rotation);
+      botState.self.yaw = rotationYaw(pkt.rotation);
+      botState.self.headYaw = botState.self.yaw;
+    }
 
     botState.self.onGround = !!pkt.on_ground;
     botState.self.velocity.set(0, 0, 0);

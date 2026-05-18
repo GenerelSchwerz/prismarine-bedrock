@@ -78,6 +78,61 @@ describe('Bedrock rotation mapping', function () {
     assert.strictEqual(botState.self.position.y, 65)
   })
 
+  it('uses correction rotation when physics handles vehicle movement prediction', function () {
+    const client = createClient()
+    const botState = new EventEmitter()
+    botState.client = client
+    botState.version = '1.26.10'
+    botState.self = new TestEntity(1n)
+    botState.self.runtimeId = 1n
+    botState.self.pitch = 5
+    botState.self.yaw = 25
+    botState.self.headYaw = 25
+    botState.world = {
+      sync: { getBlock: () => null },
+      waitForChunks: async () => {}
+    }
+
+    installPhysics(botState, { worldDecodeEnabled: true, physicsEnabled: true })
+
+    client.emit('correct_player_move_prediction', {
+      position: { x: 1, y: 65, z: 2 },
+      rotation: { x: 15, z: 75 },
+      on_ground: true,
+      prediction_type: 'vehicle'
+    })
+
+    assert.strictEqual(botState.self.pitch, 15)
+    assert.strictEqual(botState.self.yaw, 75)
+    assert.strictEqual(botState.self.headYaw, 75)
+    assert.strictEqual(botState.self.position.y, 65)
+  })
+
+  it('snaps tiny grounded correction noise to the block top', function () {
+    const client = createClient()
+    const botState = new EventEmitter()
+    botState.client = client
+    botState.version = '1.26.10'
+    botState.self = new TestEntity(1n)
+    botState.self.runtimeId = 1n
+    botState.world = {
+      sync: { getBlock: () => null },
+      waitForChunks: async () => {}
+    }
+
+    installPhysics(botState, { worldDecodeEnabled: true, physicsEnabled: true })
+
+    client.emit('correct_player_move_prediction', {
+      position: { x: 1, y: 66.62001037597656, z: 2 },
+      rotation: { x: 0, z: 0 },
+      on_ground: true
+    })
+
+    const feet = toFeetPosition(botState.self.position, botState.self, getConstants('1.26.10'))
+    assert.strictEqual(feet.y, 65)
+    assert(Math.abs(botState.self.position.y - (65 + Math.fround(1.62))) < 1e-12)
+  })
+
   it('does not change look rotation when entities handles movement correction', function () {
     const client = createClient()
     const botState = new EventEmitter()
@@ -103,6 +158,35 @@ describe('Bedrock rotation mapping', function () {
     assert.strictEqual(botState.self.pitch, 5)
     assert.strictEqual(botState.self.yaw, 25)
     assert.strictEqual(botState.self.headYaw, 25)
+    assert.strictEqual(botState.self.position.y, 65)
+  })
+
+  it('uses correction rotation when entities handles vehicle movement prediction', function () {
+    const client = createClient()
+    const botState = new EventEmitter()
+    botState.client = client
+    botState.registry = { entitiesArray: [] }
+    botState.entityClass = TestEntity
+    botState.itemClass = { fromNotch: () => null }
+    botState.entities = new Map()
+    botState.players = new Map()
+    botState.self = new TestEntity(1n)
+    botState.self.pitch = 5
+    botState.self.yaw = 25
+    botState.self.headYaw = 25
+
+    installEntities(botState, {})
+
+    client.emit('correct_player_move_prediction', {
+      position: { x: 1, y: 65, z: 2 },
+      rotation: { x: 15, z: 75 },
+      on_ground: true,
+      prediction_type: 'vehicle'
+    })
+
+    assert.strictEqual(botState.self.pitch, 15)
+    assert.strictEqual(botState.self.yaw, 75)
+    assert.strictEqual(botState.self.headYaw, 75)
     assert.strictEqual(botState.self.position.y, 65)
   })
 

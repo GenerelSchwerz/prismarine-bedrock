@@ -188,13 +188,14 @@ function getGravity (self, C) {
 
 function moveWithCollisions (self, movement, world, stepHeight) {
   const box = getPlayerAABB(self)
-  let adjusted = collideMovement(box.clone(), movement, world)
+  const constrainedMovement = constrainSneakMovement(self, box, movement, world)
+  let adjusted = collideMovement(box.clone(), constrainedMovement, world)
   const verticalCollision = movement.y !== adjusted.y
-  const horizontalCollision = movement.x !== adjusted.x || movement.z !== adjusted.z
+  const horizontalCollision = constrainedMovement.x !== adjusted.x || constrainedMovement.z !== adjusted.z
   const canStep = (self.onGround || (verticalCollision && movement.y < 0)) && horizontalCollision
 
   if (canStep) {
-    const stepped = tryStepMove(box, movement, adjusted, world, stepHeight)
+    const stepped = tryStepMove(box, constrainedMovement, adjusted, world, stepHeight)
     if (horizontalLengthSquared(stepped) > horizontalLengthSquared(adjusted)) adjusted = stepped
   }
 
@@ -203,6 +204,60 @@ function moveWithCollisions (self, movement, world, stepHeight) {
     horizontalCollision: movement.x !== adjusted.x || movement.z !== adjusted.z,
     verticalCollision: movement.y !== adjusted.y
   }
+}
+
+function constrainSneakMovement (self, box, movement, world) {
+  if (!(self.sneaking || self.crouching)) return movement
+  if (!self.onGround || movement.y > 0) return movement
+  if (movement.x === 0 && movement.z === 0) return movement
+
+  let x = movement.x
+  let z = movement.z
+
+  while (x !== 0 && !hasSupportBelow(box, x, 0, world)) {
+    if (Math.abs(x) < 0.05) x = 0
+    else x += x > 0 ? -0.05 : 0.05
+  }
+
+  while (z !== 0 && !hasSupportBelow(box, 0, z, world)) {
+    if (Math.abs(z) < 0.05) z = 0
+    else z += z > 0 ? -0.05 : 0.05
+  }
+
+  while (x !== 0 && z !== 0 && !hasSupportBelow(box, x, z, world)) {
+    if (Math.abs(x) < 0.05) x = 0
+    else x += x > 0 ? -0.05 : 0.05
+
+    if (Math.abs(z) < 0.05) z = 0
+    else z += z > 0 ? -0.05 : 0.05
+  }
+
+  return new Vec3(cleanOffset(x), movement.y, cleanOffset(z))
+}
+
+function hasSupportBelow (box, x, z, world) {
+  const moved = box.clone().translate(x, -0.05, z)
+  moved.maxY = box.minY + 0.05
+  const supports = getCollisionAABBs(world, moved)
+  if (supports.length === 0) return false
+
+  const supportXs = x > 0
+    ? [moved.minX]
+    : x < 0
+      ? [moved.maxX]
+      : [moved.minX, moved.maxX]
+  const supportZs = z > 0
+    ? [moved.minZ]
+    : z < 0
+      ? [moved.maxZ]
+      : [moved.minZ, moved.maxZ]
+
+  return supportXs.every(cornerX => supportZs.every(cornerZ => supports.some(support =>
+    cornerX >= support.minX - COLLISION_EPSILON &&
+    cornerX <= support.maxX + COLLISION_EPSILON &&
+    cornerZ >= support.minZ - COLLISION_EPSILON &&
+    cornerZ <= support.maxZ + COLLISION_EPSILON
+  )))
 }
 
 function tryStepMove (box, movement, current, world, stepHeight) {

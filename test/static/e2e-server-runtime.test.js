@@ -8,12 +8,44 @@ const path = require('path')
 const {
   activeScenarioPlayers,
   hasCompletedScenarioEnd,
+  joinedPlayerName,
+  normalizeServerLogLine,
   readScenarioMarkers,
   recorderPathForInstance,
   summarizeScenarioProgress
 } = require('../../scripts/e2e-server/runtime')
 
 describe('e2e server runtime helpers', function () {
+  it('recognizes Java and Geyser join lines for auto-op', function () {
+    assert.strictEqual(
+      joinedPlayerName('[20:16:51] [Server thread/INFO]: .OpBot joined the game'),
+      '.OpBot'
+    )
+    assert.strictEqual(
+      joinedPlayerName('[20:16:48] [Server thread/INFO]: .Generel7050[/[0:0:0:0:0:0:0:1]:0] logged in with entity id 2 at ([minecraft:overworld]-5.5, -60.0, 0.5)'),
+      '.Generel7050'
+    )
+    assert.strictEqual(
+      joinedPlayerName('> \r  \r[20:16:48] [Server thread/INFO]: .Generel7050 joined the game'),
+      '.Generel7050'
+    )
+    assert.strictEqual(
+      joinedPlayerName('> \r  \r[20:16:48 INFO]: \u001b[93m.Generel7050 joined the game\u001b[0m'),
+      '.Generel7050'
+    )
+    assert.strictEqual(
+      joinedPlayerName('[20:16:42] [Server thread/INFO]: .OpBot (formerly known as .Envjava1) joined the game'),
+      '.OpBot'
+    )
+  })
+
+  it('normalizes Paper console prompts before parsing server logs', function () {
+    assert.strictEqual(
+      normalizeServerLogLine('\u001b[m> \r  \r\u001b[33;1m[20:16:25 WARN]: [ViaVersion] warning text'),
+      '[20:16:25 WARN]: [ViaVersion] warning text'
+    )
+  })
+
   it('detects completed scenario end markers after player quit', function () {
     assert.strictEqual(hasCompletedScenarioEnd([
       { type: 'scenario_complete', player: 'Steve' },

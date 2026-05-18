@@ -215,6 +215,30 @@ const ATTRIBUTE_NAME_MAP = {
   'minecraft:underwater_movement': 'minecraft:underwater_movement'
 }
 
+const ABILITY_FLAGS = [
+  'build',
+  'mine',
+  'doors_and_switches',
+  'open_containers',
+  'attack_players',
+  'attack_mobs',
+  'operator_commands',
+  'teleport',
+  'invulnerable',
+  'flying',
+  'may_fly',
+  'instant_build',
+  'lightning',
+  'fly_speed',
+  'walk_speed',
+  'muted',
+  'world_builder',
+  'no_clip',
+  'privileged_builder',
+  'vertical_fly_speed',
+  'count'
+]
+
 function ensureEntityState (entity) {
   if (!entity || typeof entity !== 'object') return entity
 
@@ -327,19 +351,26 @@ function applyAbilities (entity, layers) {
   if (!Array.isArray(layers)) return
 
   entity.abilityLayers = layers
-  const baseLayer = layers.find(layer => layer?.type === 'base') || layers[0]
-  if (!baseLayer) return
+  const baseLayer = layers.find(layer => abilityLayerType(layer) === 'base') || layers[0]
+  const spectatorLayer = layers.find(layer => abilityLayerType(layer) === 'spectator')
+  if (!baseLayer && !spectatorLayer) return
 
-  const enabledSet = Number(baseLayer.enabled ?? 0)
-  const allowedSet = Number(baseLayer.allowed ?? 0)
+  const base = abilityLayerState(baseLayer)
+  const spectator = abilityLayerState(spectatorLayer)
+  const spectatorMode = isSpectatorGameMode(entity.gamemode ?? entity.gameMode) || !!spectatorLayer
 
-  entity.flying = !!(enabledSet & (1 << 9))
-  entity.mayFly = !!(enabledSet & (1 << 10)) || !!(allowedSet & (1 << 10))
+  entity.spectator = spectatorMode
+  entity.flying = !!(base.flying || spectator.flying || spectatorMode)
+  entity.mayFly = !!(base.mayFly || spectator.mayFly || spectatorMode)
   entity.allowFlight = entity.mayFly
+  entity.noClip = !!(base.noClip || spectator.noClip)
 
-  if (baseLayer.fly_speed !== undefined) entity.flySpeed = Number(baseLayer.fly_speed)
-  if (baseLayer.vertical_fly_speed !== undefined) entity.verticalFlySpeed = Number(baseLayer.vertical_fly_speed)
-  if (baseLayer.walk_speed !== undefined) entity.walkSpeed = Number(baseLayer.walk_speed)
+  const flySpeed = base.flySpeed ?? spectator.flySpeed
+  const verticalFlySpeed = base.verticalFlySpeed ?? spectator.verticalFlySpeed
+  const walkSpeed = base.walkSpeed ?? spectator.walkSpeed
+  if (flySpeed !== undefined) entity.flySpeed = Number(flySpeed)
+  if (verticalFlySpeed !== undefined) entity.verticalFlySpeed = Number(verticalFlySpeed)
+  if (walkSpeed !== undefined) entity.walkSpeed = Number(walkSpeed)
 }
 
 function applyAdventureSettings (entity, packet) {
@@ -348,6 +379,65 @@ function applyAdventureSettings (entity, packet) {
   entity.flying = !!(flags & 0x200)
   entity.mayFly = !!(flags & 0x40)
   entity.allowFlight = entity.mayFly
+}
+
+function abilityLayerState (layer) {
+  if (!layer) return {}
+
+  const allowed = layer.allowed ?? layer.abilities_set ?? layer.abilitiesSet ?? layer.ability_set
+  const enabled = layer.enabled ?? layer.ability_values ?? layer.abilityValues ?? layer.values
+
+  return {
+    mayFly: hasAbility(allowed, 'may_fly') || hasAbility(enabled, 'may_fly'),
+    flying: hasAbility(enabled, 'flying'),
+    noClip: hasAbility(enabled, 'no_clip'),
+    flySpeed: layer.fly_speed ?? layer.flySpeed,
+    verticalFlySpeed: layer.vertical_fly_speed ?? layer.verticalFlySpeed,
+    walkSpeed: layer.walk_speed ?? layer.walkSpeed
+  }
+}
+
+function abilityLayerType (layer) {
+  const type = layer?.type ?? layer?.layer_type ?? layer?.layerType
+  if (type === 1 || type === 'base') return 'base'
+  if (type === 2 || type === 'spectator') return 'spectator'
+  return normalizeName(type)
+}
+
+function hasAbility (set, ability) {
+  const bit = ABILITY_FLAGS.indexOf(ability)
+  if (bit < 0) return false
+  return (abilitySetToBigInt(set) & (1n << BigInt(bit))) !== 0n
+}
+
+function abilitySetToBigInt (set) {
+  if (set == null) return 0n
+  if (typeof set === 'bigint') return set
+  if (typeof set === 'number') return BigInt(set)
+  if (typeof set === 'string' && set !== '') return BigInt(set)
+  if (Array.isArray(set)) {
+    let flags = 0n
+    const names = set.map(normalizeName)
+    for (let i = 0; i < ABILITY_FLAGS.length; i++) {
+      if (names.includes(ABILITY_FLAGS[i])) flags |= 1n << BigInt(i)
+    }
+    return flags
+  }
+  if (set instanceof Set) return abilitySetToBigInt([...set])
+  if (typeof set === 'object') {
+    if (set._value != null) return abilitySetToBigInt(set._value)
+    if (set.value != null && typeof set.value !== 'object') return abilitySetToBigInt(set.value)
+
+    let flags = 0n
+    for (const [name, enabled] of Object.entries(set)) {
+      const bit = ABILITY_FLAGS.indexOf(normalizeName(name))
+      if (bit >= 0 && (enabled === true || enabled === 1 || enabled === 'true')) {
+        flags |= 1n << BigInt(bit)
+      }
+    }
+    return flags
+  }
+  return 0n
 }
 
 function applyEntityMetadata (entity, metadata) {
@@ -639,10 +729,22 @@ function normalizeEffectEvent (eventId) {
 }
 
 function normalizeGameMode (gamemode) {
-  if (gamemode === 'creative' || gamemode === 1) return 'creative'
-  if (gamemode === 'adventure' || gamemode === 2) return 'adventure'
-  if (gamemode === 'spectator' || gamemode === 3 || gamemode === 6) return 'spectator'
+  const normalized = normalizeName(gamemode)
+  if (gamemode === 1 || normalized === 'creative') return 'creative'
+  if (gamemode === 2 || normalized === 'adventure') return 'adventure'
+  if (
+    gamemode === 3 ||
+    gamemode === 4 ||
+    gamemode === 6 ||
+    normalized === 'spectator' ||
+    normalized === 'survival_spectator' ||
+    normalized === 'creative_spectator'
+  ) return 'spectator'
   return 'survival'
+}
+
+function isSpectatorGameMode (gamemode) {
+  return normalizeGameMode(gamemode) === 'spectator'
 }
 
 function normalizePose (pose) {
@@ -688,6 +790,7 @@ module.exports = {
   applyMobEffect,
   ensureEntityState,
   flagsToBigInt,
+  isSpectatorGameMode,
   normalizeGameMode,
   normalizePose
 }

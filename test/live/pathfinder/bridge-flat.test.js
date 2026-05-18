@@ -6,6 +6,7 @@ const {
   clearCourseVolume,
   createPathfinderBot,
   feetPosition,
+  giveScaffolding,
   goToBlock,
   installPathfinderTrace,
   loadPathfinder,
@@ -19,21 +20,22 @@ const {
 } = require('./helpers')
 const { setPlayerGamemode } = require('../../helpers/commands')
 
-const START = new Vec3(40, 67, 0)
-const TARGET = new Vec3(40, 65, 0)
-const TARGET_FOOTING = 'minecraft:diamond_block'
+const START = new Vec3(70, 66, 0)
+const TARGET = new Vec3(75, 66, 0)
+const TARGET_BLOCK = 'minecraft:emerald_block'
 
 async function setupCourse (botState) {
-  await clearCourseVolume(botState, new Vec3(37, 64, -3), new Vec3(43, 71, 3))
+  await clearCourseVolume(botState, new Vec3(66, 65, -4), new Vec3(79, 70, 4))
   await placeBlocks(botState, [
     START.offset(0, -1, 0),
     TARGET.offset(0, -1, 0)
-  ], 'minecraft:dirt')
-  await placeBlocks(botState, [TARGET.offset(0, -1, 0)], TARGET_FOOTING)
+  ], 'minecraft:stone')
+  await placeBlocks(botState, [TARGET.offset(0, -1, 0)], TARGET_BLOCK)
+  await giveScaffolding(botState, 'dirt', 16)
   await teleportToStart(botState, START)
 }
 
-describe('live mineflayer pathfinder compatibility: digging down', function () {
+describe('live mineflayer pathfinder compatibility: flat bridge', function () {
   this.timeout(120000)
 
   let botState
@@ -50,24 +52,26 @@ describe('live mineflayer pathfinder compatibility: digging down', function () {
     return teardownPathfinderBot(botState)
   })
 
-  it('digs the supporting block below itself and drops to the lower target', async function () {
+  it('places scaffolding across a flat air gap and reaches the marked target', async function () {
     assert.strictEqual(typeof botState.loadPlugin, 'function')
 
     const debugInfo = installPathfinderTrace(botState)
     await loadPathfinder(botState, {
-      canDig: true,
+      canDig: false,
       allow1by1towers: false,
       allowParkour: false,
-      digCost: 1
+      allowSprinting: false,
+      placeCost: 1,
+      scafoldingBlocks: [botState.registry.itemsByName.dirt.id]
     })
 
-    await goToBlock(botState, TARGET, { debugInfo, timeoutMs: 30000 })
+    await goToBlock(botState, TARGET, { debugInfo, timeoutMs: 45000 })
 
     const feet = feetPosition(botState)
     const feetBlock = feet.floored()
     assert(
       feetBlock.x === TARGET.x && feetBlock.y === TARGET.y && feetBlock.z === TARGET.z,
-      `Expected bot feet inside lower target block ${TARGET.x},${TARGET.y},${TARGET.z}; got feet=${feet.x},${feet.y},${feet.z} block=${feetBlock.x},${feetBlock.y},${feetBlock.z}`
+      `Expected bot feet inside bridged target block ${TARGET.x},${TARGET.y},${TARGET.z}; got feet=${feet.x},${feet.y},${feet.z} block=${feetBlock.x},${feetBlock.y},${feetBlock.z}`
     )
   })
 })

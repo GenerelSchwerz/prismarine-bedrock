@@ -8,6 +8,7 @@ const {
   applyHealth,
   applyMobEffect,
   ensureEntityState,
+  isSpectatorGameMode,
   normalizeGameMode
 } = require('../entity-metadata');
 
@@ -31,6 +32,36 @@ module.exports = (botState, options) => {
 
   function lookupEntityData (entityTypeStr) {
     return entityDataByName[entityTypeStr] || entityDataByName[entityTypeStr.replace('minecraft:', '')] || null;
+  }
+
+  function flightSnapshot (entity) {
+    if (!entity) return null;
+    return {
+      canFly: !!(entity.mayFly || entity.allowFlight),
+      flying: !!entity.flying,
+      spectator: !!entity.spectator || isSpectatorGameMode(entity.gamemode),
+      noClip: !!entity.noClip,
+      flySpeed: entity.flySpeed,
+      verticalFlySpeed: entity.verticalFlySpeed,
+      walkSpeed: entity.walkSpeed
+    };
+  }
+
+  function emitFlightChanged (entity, previous, reason, packet) {
+    const current = flightSnapshot(entity);
+    if (!previous || !current) return;
+
+    const changed = previous.canFly !== current.canFly ||
+      previous.flying !== current.flying ||
+      previous.spectator !== current.spectator ||
+      previous.noClip !== current.noClip ||
+      previous.flySpeed !== current.flySpeed ||
+      previous.verticalFlySpeed !== current.verticalFlySpeed ||
+      previous.walkSpeed !== current.walkSpeed;
+
+    if (changed) {
+      botState.emit('flightChanged', { ...current, previous, entity, reason, packet });
+    }
   }
 
   // ========== Self entity (from start_game) ==========
@@ -330,18 +361,30 @@ module.exports = (botState, options) => {
 
   botState.client.on('update_abilities', (packet) => {
     if (!botState.self) return;
+    const previous = flightSnapshot(botState.self);
     applyAbilities(botState.self, packet.abilities);
+    emitFlightChanged(botState.self, previous, 'update_abilities', packet);
   });
 
   botState.client.on('adventure_settings', (packet) => {
     if (!botState.self) return;
+    const previous = flightSnapshot(botState.self);
     applyAdventureSettings(botState.self, packet);
+    emitFlightChanged(botState.self, previous, 'adventure_settings', packet);
   });
 
   botState.client.on('update_player_game_type', (packet) => {
     if (!botState.self) return;
+    const previous = flightSnapshot(botState.self);
     botState.self.gamemode = packet.gamemode;
+    botState.self.spectator = isSpectatorGameMode(packet.gamemode);
+    if (botState.self.spectator) {
+      botState.self.mayFly = true;
+      botState.self.allowFlight = true;
+      botState.self.flying = true;
+    }
     botState.game.gameMode = normalizeGameMode(packet.gamemode);
+    emitFlightChanged(botState.self, previous, 'update_player_game_type', packet);
   });
 
   botState.client.on('mob_effect', (packet) => {

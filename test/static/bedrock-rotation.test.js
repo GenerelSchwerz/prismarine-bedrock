@@ -128,7 +128,7 @@ describe('Bedrock rotation mapping', function () {
     assert.deepStrictEqual(sentPacket.position, { x: 1, y: 65.62, z: 2 })
   })
 
-  it('derives eye-to-feet offsets from pose using f32 Bedrock heights', function () {
+  it('keeps Bedrock movement-position conversion independent of pose', function () {
     const C = getConstants('1.26.10')
     const self = new TestEntity(1n)
     self.position = new Vec3(1, 65.62, 2)
@@ -139,12 +139,12 @@ describe('Bedrock rotation mapping', function () {
     assert.strictEqual(self.eyeHeight, Math.fround(1.62))
 
     self.pose = 'sneaking'
-    assert.strictEqual(eyeHeightFor(self, C), Math.fround(1.27))
-    assert.strictEqual(toFeetPosition(self.position, self, C).y, 65.62 - Math.fround(1.27))
+    assert.strictEqual(eyeHeightFor(self, C), Math.fround(1.62))
+    assert.strictEqual(toFeetPosition(self.position, self, C).y, 65.62 - Math.fround(1.62))
 
     self.pose = 'standing'
     self.swimming = true
-    assert.strictEqual(eyeHeightFor(self, C), Math.fround(0.4))
-    assert.strictEqual(toFeetPosition(self.position, self, C).y, 65.62 - Math.fround(0.4))
+    assert.strictEqual(eyeHeightFor(self, C), Math.fround(1.62))
+    assert.strictEqual(toFeetPosition(self.position, self, C).y, 65.62 - Math.fround(1.62))
   })
 })

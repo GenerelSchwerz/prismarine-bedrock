@@ -11,11 +11,3 @@ Reference docs describe the current project shape and should stay useful to read
 ## Agent Workflow
 
 Agent-facing workflow starts at the repository root [AGENTS.md](../AGENTS.md). Durable task logs live in [tasks](tasks/), with a reusable [task template](tasks/TEMPLATE.md).
-
-## In-Dev Notes
-
-In-dev notes are working documents for implementation details, packet constraints, validation checklists, and roadmap checkpoints. These may mention unstable internals and active assumptions.
-
-- [Crafting util implementation notes](in-dev/crafting-util-implementation-notes.md)
-- [Bedrock-first physics implementation notes](in-dev/bedrock-first-physics-implementation-notes.md)
-- [Mineflayer parity checkpoints](in-dev/mineflayer-parity-checkpoints.md)

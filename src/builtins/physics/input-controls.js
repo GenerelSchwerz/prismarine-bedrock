@@ -1,4 +1,5 @@
 const { numberOrZero } = require('../../utils');
+const { updateSelfEyeHeight } = require('./position');
 
 function installControls(botState, C) {
   const controlState = {
@@ -42,9 +43,14 @@ function installControls(botState, C) {
     if (!botState.self) return;
 
     const bit = {
+      ascend: C.BIT_ASCEND,
+      descend: C.BIT_DESCEND,
       jumping: C.BIT_JUMPING,
       auto_jumping_in_water: C.BIT_AUTO_JUMPING_IN_WATER,
+      sprint_down: C.BIT_SPRINT_DOWN,
+      change_height: C.BIT_CHANGE_HEIGHT,
       sneaking: C.BIT_SNEAKING,
+      sneak_down: C.BIT_SNEAK_DOWN,
       up: C.BIT_UP,
       down: C.BIT_DOWN,
       left: C.BIT_LEFT,
@@ -61,12 +67,17 @@ function installControls(botState, C) {
       start_swimming: C.BIT_START_SWIMMING,
       stop_swimming: C.BIT_STOP_SWIMMING,
       start_jumping: C.BIT_START_JUMPING,
+      start_flying: C.BIT_START_FLYING,
+      stop_flying: C.BIT_STOP_FLYING,
       received_server_data: C.BIT_RECEIVED_SERVER_DATA,
       block_breaking_delay_enabled: C.BIT_BLOCK_BREAKING_DELAY_ENABLED,
       horizontal_collision: C.BIT_HORIZONTAL_COLLISION,
       vertical_collision: C.BIT_VERTICAL_COLLISION,
       start_using_item: C.BIT_START_USING_ITEM,
       camera_relative_movement_enabled: C.BIT_CAMERA_RELATIVE_MOVEMENT,
+      sneak_released_raw: C.BIT_SNEAK_RELEASED_RAW,
+      sneak_pressed_raw: C.BIT_SNEAK_PRESSED_RAW,
+      sneak_current_raw: C.BIT_SNEAK_CURRENT_RAW,
       block_action: C.BIT_BLOCK_ACTION
     }[name];
 
@@ -103,6 +114,10 @@ function installControls(botState, C) {
     setFlag('start_swimming', false);
     setFlag('stop_swimming', false);
     setFlag('start_jumping', false);
+    setFlag('start_flying', false);
+    setFlag('stop_flying', false);
+    setFlag('sneak_released_raw', false);
+    setFlag('sneak_pressed_raw', false);
   }
 
   function evaluateControls() {
@@ -113,9 +128,18 @@ function installControls(botState, C) {
 
     const sprinting = controlState.sprint && controlState.forward;
     const previousSprinting = previousControlState.sprint && previousControlState.forward;
+    const sneakPressed = controlState.sneak && !previousControlState.sneak;
+    const sneakReleased = !controlState.sneak && previousControlState.sneak;
+    const flying = !!self.flying;
+    const sneaking = controlState.sneak && !flying;
+
+    setFlag('ascend', flying && controlState.jump);
+    setFlag('descend', flying && controlState.sneak);
     setFlag('jumping', controlState.jump);
+    setFlag('sprint_down', controlState.sprint);
     setFlag('sprinting', sprinting);
-    setFlag('sneaking', controlState.sneak);
+    setFlag('sneaking', sneaking);
+    setFlag('sneak_down', controlState.sneak);
     setFlag('up', controlState.forward);
     setFlag('down', controlState.back);
     setFlag('left', controlState.left);
@@ -126,11 +150,14 @@ function installControls(botState, C) {
     setFlag('want_down', controlState.sneak);
     setFlag('start_sprinting', sprinting && !previousSprinting);
     setFlag('stop_sprinting', !sprinting && previousSprinting);
-    setFlag('start_sneaking', controlState.sneak && !previousControlState.sneak);
-    setFlag('stop_sneaking', !controlState.sneak && previousControlState.sneak);
+    setFlag('start_sneaking', !flying && sneakPressed);
+    setFlag('stop_sneaking', !flying && sneakReleased);
     setFlag('start_swimming', controlState.swim && !previousControlState.swim);
     setFlag('stop_swimming', !controlState.swim && previousControlState.swim);
     setFlag('start_jumping', controlState.jump && !previousControlState.jump);
+    setFlag('sneak_released_raw', sneakReleased);
+    setFlag('sneak_pressed_raw', sneakPressed);
+    setFlag('sneak_current_raw', controlState.sneak);
     setFlag('block_breaking_delay_enabled', true);
     setFlag('camera_relative_movement_enabled', false);
     setFlag('block_action', false);
@@ -139,9 +166,14 @@ function installControls(botState, C) {
     self.moveVector = moveVector;
     self.rawMoveVector = moveVector;
     self.analogueMoveVector = moveVector;
-    self.sprinting = sprinting;
-    self.sneaking = controlState.sneak;
     self.swimming = controlState.swim;
+    self.sprinting = sprinting;
+    self.sneaking = sneaking;
+    self.crouching = sneaking;
+    self.inferredPose = sneaking ? 'sneaking' : (controlState.swim ? 'swimming' : 'standing');
+    if (sneaking) self.pose = 'sneaking';
+    else if (self.pose === 'sneaking') self.pose = self.inferredPose;
+    updateSelfEyeHeightKeepingFeet(self, C);
 
     for (const key of Object.keys(controlState)) {
       previousControlState[key] = controlState[key];
@@ -160,6 +192,10 @@ function installControls(botState, C) {
     evaluateControls,
     getControlStateSnapshot
   };
+}
+
+function updateSelfEyeHeightKeepingFeet(self, C) {
+  return updateSelfEyeHeight(self, C);
 }
 
 function updateEyeDeltaAndTick(self, C) {
@@ -181,5 +217,6 @@ function updateEyeDeltaAndTick(self, C) {
 module.exports = {
   installControls,
   updateEyeDeltaAndTick,
+  updateSelfEyeHeightKeepingFeet,
   numberOrZero
 };

@@ -45,6 +45,7 @@ Provide a Mineflayer-shaped wrapper/facade for plugin injection, prioritizing up
 - Follow-up complete: cloned upstream Mineflayer into ignored `ref/mineflayer` at `03eba44f` (`Release 4.37.1`, 2026-05-03) and broadened the current shims against its source contracts. Native `dig()` now supports Mineflayer `forceLook` / `digFace` arguments and awaits matching block update completion; the compat facade exposes `equip`, `unequip`, `getEquipmentDestSlot`, `placeBlock`, and `_placeBlockWithOptions` where current Bedrock primitives can support them. `activateBlock`, scaffolding-specific behavior, offhand placement, and armor/offhand equipment movement are intentionally deferred or explicit errors.
 - Complete: live pathfinder coverage is now split into `test/live/pathfinder/` with shared helpers plus current-course, dig-down, and build-up scenario files. Current-course, dig-down, and build-up pass under Endstone/BDS. Bridge-up remains pending because the lateral bridge/climb case places but falls through to `y=-60`.
 - Complete: added `forward-jump-up.test.js` using the corrected right-side start layout. Focused Endstone/BDS rerun passed, with exact feet-block completion on the emerald target.
+- Complete: dig-down now explicitly switches back to survival after creative course setup, and the focused survival-mode rerun passed with empty-hand dirt digging.
 - Known mismatch between notes and worktree: none for this task.
 - Known mismatch between notes and worktree: none for this task.
 
@@ -97,7 +98,7 @@ Provide a Mineflayer-shaped wrapper/facade for plugin injection, prioritizing up
 | `test/live/pathfinder/bridge-up.test.js` | added | Adds a placement/scaffolding pathfinder scenario that must bridge a missing support and climb onto a raised marked target. |
 | `test/live/pathfinder/dig-down.test.js` | added | Adds a digging pathfinder scenario that must dig the block beneath the bot and drop onto a lower marked target. |
 | `test/live/pathfinder/bridge-up.test.js` | changed | Marked pending after live verification showed the scenario currently falls through to the void after placement attempts. |
-| `test/live/pathfinder/dig-down.test.js` | changed | Unskipped after fixing trace wrapping; pathfinder-driven dig-down now passes against Endstone/BDS. |
+| `test/live/pathfinder/dig-down.test.js` | changed | Unskipped after fixing trace wrapping; pathfinder-driven dig-down now passes against Endstone/BDS and now switches to survival before the pathfinder action starts. |
 | `test/live/pathfinder/forward-jump-up.test.js` | added | Adds the corrected right-side start / one-block-up emerald target scenario and asserts exact target feet block completion. |
 | `test/static/runtime-options.test.js` | changed | Covers default native physics and the `nxg-org` alias normalization. |
 
@@ -165,6 +166,7 @@ Provide a Mineflayer-shaped wrapper/facade for plugin injection, prioritizing up
 - `2026-05-17` - watched lateral bridge-up rerun - FAIL. Notes: confirmed this scenario is not the straight-up tower case; it places laterally toward a solid target and falls to `y=-60`, so it remains pending.
 - `2026-05-17` - watched build-up reruns - PASS after expectation change. Notes: added multi-block straight-up scenario with target feet block at air `(60, 70, 0)`; strict feet-block assertion fails because upstream pathfinder emits `goal_reached` while native feet are lower, so the scenario now treats `goal_reached` as success per user direction. Focused Endstone/BDS run passed `1 passing (25s)`.
 - `2026-05-17` - `$env:PATHFINDER_START_DELAY_MS='5000'; $env:PATHFINDER_GOAL_DELAY_MS='2000'; node scripts/e2e-servers.js launch --target=endstone --world=superflat --exit-after-client --client-timeout-ms=600000 --client "pnpm exec mocha --config .mocharc.live.json test/live/pathfinder/forward-jump-up.test.js"` - PASS. Notes: Endstone/BDS `1.26.12.2`; user-corrected forward jump-up layout passed `1 passing (15s)` with exact emerald target feet-block assertion.
+- `2026-05-17` - `$env:PATHFINDER_START_DELAY_MS='5000'; $env:PATHFINDER_GOAL_DELAY_MS='2000'; node scripts/e2e-servers.js launch --target=endstone --world=superflat --exit-after-client --client-timeout-ms=600000 --client "pnpm exec mocha --config .mocharc.live.json test/live/pathfinder/dig-down.test.js"` - PASS. Notes: Endstone/BDS `1.26.12.2`; dig-down switched OpBot to Survival before pathfinder started, dug dirt at `(40, 66, 0)` with empty hand, received the matching block update, and passed `1 passing (16s)`.
 
 ## Architecture Notes
 

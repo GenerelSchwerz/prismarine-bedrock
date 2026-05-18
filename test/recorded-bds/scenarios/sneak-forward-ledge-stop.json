@@ -1,0 +1,167 @@
+{
+  "id": "sneak-forward-ledge-stop",
+  "autoOp": true,
+  "gamemode": "survival",
+  "spawn": [0, 71, 0, 0, 0],
+  "setupCommands": [
+    "clear {player}",
+    "defaultgamemode survival",
+    "gamemode survival {player}",
+    "time set day",
+    "weather clear",
+    "effect {player} clear",
+    "difficulty peaceful",
+    "gamerule doDaylightCycle false",
+    "gamerule doWeatherCycle false",
+    "gamerule fallDamage false",
+
+    "fill -6 69 -8 6 78 8 air",
+    "fill -2 70 -3 2 70 3 stone",
+    "fill -1 70 2 1 70 2 yellow_concrete",
+    "fill -1 70 3 1 70 3 red_concrete",
+
+    "tp {player} 0 71 0 0 0"
+  ],
+  "commands": [
+    {
+      "hook": "scenario_start",
+      "delayTicks": 1,
+      "commands": [
+        "gamemode survival {player}",
+        "ability {player} mayfly false",
+        "ability {player} flying false"
+      ]
+    },
+    {
+      "hook": "scenario_start",
+      "delayTicks": 10,
+      "command": "title {player} subtitle Sneak forward to the red ledge and hold there"
+    },
+    {
+      "hook": "scenario_complete",
+      "delayTicks": 20,
+      "command": "title {player} title Sneak ledge recording complete"
+    }
+  ],
+  "debugRecordEvents": [
+    "PlayerMoveEvent"
+  ],
+  "steps": [
+    {
+      "id": "approach-sneak-start",
+      "instructions": [
+        "Walk forward to the yellow concrete.",
+        "Stop on or beside the yellow concrete before the red ledge."
+      ],
+      "clearance": {
+        "type": "player_at",
+        "position": [0, 71, 2],
+        "radius": 0.9
+      }
+    },
+    {
+      "id": "sneak-forward-to-ledge",
+      "instructions": [
+        "Hold sneak/crouch.",
+        "While still holding sneak, walk forward onto the red concrete until the game stops you at the ledge.",
+        "Keep holding sneak at the edge without jumping or turning."
+      ],
+      "clearance": {
+        "all": [
+          {
+            "type": "player_at",
+            "position": [0, 71, 4.3],
+            "radius": 0.1
+          },
+          {
+            "type": "time_elapsed",
+            "seconds": 3
+          },
+          {
+            "type": "packet_seen",
+            "direction": "receive",
+            "packet_id": 144,
+            "count": 20
+          }
+        ]
+      }
+    },
+    {
+      "id": "hold-sneak-at-ledge-before-crawl",
+      "instructions": [
+        "Stay crouched at the ledge.",
+        "Move gently forward until your player is pressed against the edge of the block.",
+        "Keep holding sneak/crouch here. The crawl teleport will happen after this hold step completes."
+      ],
+      "clearance": {
+        "all": [
+          {
+            "type": "player_at",
+            "position": [0, 71, 4.0],
+            "radius": 0.85
+          },
+          {
+            "type": "time_elapsed",
+            "seconds": 8
+          },
+          {
+            "type": "packet_seen",
+            "direction": "receive",
+            "packet_id": 144,
+            "count": 40
+          }
+        ]
+      }
+    },
+    {
+      "id": "crawl-in-one-block-gap",
+      "setupCommands": [
+        "gamemode survival {player}",
+        "ability {player} mayfly false",
+        "ability {player} flying false",
+        "fill -2 70 -7 2 73 -3 stone",
+        "fill -1 71 -6 1 71 -4 air",
+        "tp {player} 0 71 -5 180 0"
+      ],
+      "instructions": [
+        "You have been teleported into a one-block-high gap.",
+        "Do not jump or break blocks.",
+        "Wait in the gap so the recording captures crawling state."
+      ],
+      "clearance": {
+        "all": [
+          {
+            "type": "player_at",
+            "position": [0, 71, -5],
+            "radius": 0.75
+          },
+          {
+            "type": "block_is",
+            "position": [0, 70, -5],
+            "block": "minecraft:stone"
+          },
+          {
+            "type": "block_is",
+            "position": [0, 71, -5],
+            "block": "minecraft:air"
+          },
+          {
+            "type": "block_is",
+            "position": [0, 72, -5],
+            "block": "minecraft:stone"
+          },
+          {
+            "type": "time_elapsed",
+            "seconds": 3
+          },
+          {
+            "type": "packet_seen",
+            "direction": "receive",
+            "packet_id": 144,
+            "count": 20
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -632,13 +632,27 @@ function sendServerCommand(record, command, commands, combined, eventName) {
 }
 
 function joinedPlayerName(line) {
-  const joined = line.match(/^\[[^\]]+\]:\s+(.+?) joined the game$/);
+  const normalized = normalizeServerLogLine(line);
+  const logPrefix = /^(\[[^\]]+\](?: \[[^\]]+\])?:)\s+/;
+  if (!logPrefix.test(normalized)) return null;
+  const message = normalized.replace(logPrefix, "");
+
+  const renamedJoin = message.match(/^(.+?) \(formerly known as .+?\) joined the game$/);
+  if (renamedJoin) return renamedJoin[1];
+
+  const joined = message.match(/^(.+?) joined the game$/);
   if (joined) return joined[1];
 
-  const loggedIn = line.match(/^\[[^\]]+\]:\s+(.+?)\[[^\]]+\] logged in with entity id \d+ at /);
+  const loggedIn = message.match(/^(.+?)\[.+\] logged in with entity id \d+ at /);
   if (loggedIn) return loggedIn[1];
 
   return null;
+}
+
+function normalizeServerLogLine(line) {
+  return String(line)
+    .replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/^[>\s\r]+(?=\[[^\]]+\](?: \[[^\]]+\])?:)/, "");
 }
 
 function quoteCommandArgument(value) {
@@ -860,6 +874,8 @@ module.exports = {
   createRuntime,
   activeScenarioPlayers,
   hasCompletedScenarioEnd,
+  joinedPlayerName,
+  normalizeServerLogLine,
   readScenarioMarkers,
   recorderPathForInstance,
   summarizeScenarioProgress

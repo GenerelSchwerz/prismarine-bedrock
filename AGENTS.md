@@ -152,11 +152,9 @@ Before stopping, even on failure:
 
 ## Required Reading By Area
 
-- Crafting changes: read `docs/in-dev/crafting-util-implementation-notes.md` before editing `src/builtins/crafting.js`.
 - Tests: read `test/rules.md` before creating or changing tests.
-- E2E launcher behavior: read `docs/in-dev/e2e-server-launch-notes.md` before changing `scripts/e2e-server/**` or live-test launch commands.
-- Physics/movement: read `docs/in-dev/bedrock-first-physics-implementation-notes.md` before editing `src/builtins/physics*`.
-- Mineflayer parity or API coverage: read `docs/reference/mineflayer-feature-comparison.md` and `docs/in-dev/mineflayer-parity-checkpoints.md`.
+- Physics/movement: use the local Mojang protocol docs under `ref/bedrock-protocol-docs/` as the first semantic reference for auth-input, movement correction, actor-data, and pose/flag behavior.
+- Mineflayer parity or API coverage: read `docs/reference/mineflayer-feature-comparison.md`.
 
 ## Bedrock Protocol Sources
 
@@ -169,7 +167,7 @@ node_modules/minecraft-data/minecraft-data/data/bedrock/<MC_VERSION>/types.yml
 
 Use `src/version.js` for the default version and helpers such as `minecraftDataBedrockDir()`. The default client/protocol version is `1.26.10`; shorthand `26.10` is normalized to `1.26.10` before calling `bedrock-protocol` or `prismarine-registry`. Do not hard-code old version directories or older `.pnpm/minecraft-data@...` paths in notes or scripts.
 
-Use Mojang's protocol docs as the first semantic reference when a packet field's meaning is ambiguous. A local gitignored clone lives at:
+Use Mojang's protocol docs as the first semantic reference when a packet field's meaning is ambiguous or when modeling protocol behavior. Prefer these docs for packet intent, server-authoritative movement semantics, expected server responses, actor flags, and field-specific caveats; use `minecraft-data` for the exact installed serializer shape. A local gitignored clone lives at:
 
 ```powershell
 cd C:\Users\owner\Documents\github\bedrock-test\ref\bedrock-protocol-docs
@@ -177,8 +175,14 @@ cd C:\Users\owner\Documents\github\bedrock-test\ref\bedrock-protocol-docs
 
 Useful docs entrypoints:
 
+- `html/packets.html`
+- `html/PlayerAuthInputPacket.html`
+- `html/SetActorDataPacket.html`
+- `html/enums.html`
+- `json/__protocoldoc.json`
 - `json/CorrectPlayerMovePredictionPacket.json`
-- `json/PlayerAuthInputPacket.json`
+
+Some packets are documented only in generated HTML and the aggregate `json/__protocoldoc.json`; do not assume a per-packet JSON file exists.
 
 Example: `CorrectPlayerMovePredictionPacket.Rotation` is documented as "Only sent when PredictionType is Vehicle"; player corrections should not change the bot's local look rotation.
 
@@ -369,7 +373,7 @@ Default recorder output is `.e2e-servers/endstone-bds/logs/packet-recorder.jsonl
 node scripts/decode-endstone-packet-recording.js .e2e-servers/endstone-bds/logs/packet-recorder.jsonl 1.26.10 --out=logs/decoded-endstone-12612.jsonl
 ```
 
-To look up launcher arguments, run `node scripts/e2e-servers.js help` and inspect `scripts/e2e-server/options.js` for the authoritative parser. For longer explanation and examples, read `docs/in-dev/e2e-server-launch-notes.md`; for scenario-driven human captures, read `test/recorded-bds/README.md`.
+To look up launcher arguments, run `node scripts/e2e-servers.js help` and inspect `scripts/e2e-server/options.js` for the authoritative parser. For scenario-driven human captures, read `test/recorded-bds/README.md`.
 
 If a live packet failure is unclear after the first focused run, inspect packet traffic before guessing:
 

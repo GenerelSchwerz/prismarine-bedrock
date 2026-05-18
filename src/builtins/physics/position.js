@@ -1,16 +1,6 @@
 const { Vec3 } = require('vec3')
 const { normalizePose } = require('../../entity-metadata')
 
-const POSE_EYE_HEIGHTS = {
-  standing: Math.fround(1.62),
-  sneaking: Math.fround(1.27),
-  swimming: Math.fround(0.4),
-  crawling: Math.fround(0.4),
-  fall_flying: Math.fround(0.4),
-  gliding: Math.fround(0.4),
-  sleeping: Math.fround(0.2)
-}
-
 function poseFor (self) {
   if (!self) return 'standing'
   if (self.swimming) return 'swimming'
@@ -21,8 +11,7 @@ function poseFor (self) {
 }
 
 function eyeHeightFor (self, C) {
-  const pose = poseFor(self)
-  return POSE_EYE_HEIGHTS[pose] ?? Math.fround(C?.EYE_HEIGHT ?? 1.62)
+  return Math.fround(C?.EYE_HEIGHT ?? 1.62)
 }
 
 function updateSelfEyeHeight (self, C) {
@@ -31,16 +20,20 @@ function updateSelfEyeHeight (self, C) {
   return eyeHeight
 }
 
+function movementPositionHeightFor (C) {
+  return Math.fround(C?.EYE_HEIGHT ?? 1.62)
+}
+
 function toFeetPosition (position, self, C) {
   if (!position) return null
-  const eyeHeight = updateSelfEyeHeight(self, C)
-  return new Vec3(position.x, position.y - eyeHeight, position.z)
+  updateSelfEyeHeight(self, C)
+  return new Vec3(position.x, position.y - movementPositionHeightFor(C), position.z)
 }
 
 function toEyePosition (position, self, C) {
   if (!position) return null
-  const eyeHeight = updateSelfEyeHeight(self, C)
-  return new Vec3(position.x, position.y + eyeHeight, position.z)
+  updateSelfEyeHeight(self, C)
+  return new Vec3(position.x, position.y + movementPositionHeightFor(C), position.z)
 }
 
 function setSelfEyePosition (self, position, C) {
@@ -69,6 +62,7 @@ function withSelfFeetPosition (self, C, fn) {
 
 module.exports = {
   eyeHeightFor,
+  movementPositionHeightFor,
   poseFor,
   setSelfEyePosition,
   toEyePosition,

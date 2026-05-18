@@ -3,9 +3,14 @@ const { deltaDeg, logAction, normalizeInputData, numberOrZero } = require('../..
 const { toFeetPosition } = require('./position')
 
 const INPUT_FLAG_NAME_BY_CONSTANT = {
+  BIT_ASCEND: 'ascend',
+  BIT_DESCEND: 'descend',
+  BIT_SPRINT_DOWN: 'sprint_down',
+  BIT_CHANGE_HEIGHT: 'change_height',
   BIT_JUMPING: 'jumping',
   BIT_AUTO_JUMPING_IN_WATER: 'auto_jumping_in_water',
   BIT_SNEAKING: 'sneaking',
+  BIT_SNEAK_DOWN: 'sneak_down',
   BIT_UP: 'up',
   BIT_DOWN: 'down',
   BIT_LEFT: 'left',
@@ -22,6 +27,8 @@ const INPUT_FLAG_NAME_BY_CONSTANT = {
   BIT_START_SWIMMING: 'start_swimming',
   BIT_STOP_SWIMMING: 'stop_swimming',
   BIT_START_JUMPING: 'start_jumping',
+  BIT_START_FLYING: 'start_flying',
+  BIT_STOP_FLYING: 'stop_flying',
   BIT_HANDLED_TELEPORT: 'handled_teleport',
   BIT_RECEIVED_SERVER_DATA: 'received_server_data',
   BIT_BLOCK_ACTION: 'block_action',
@@ -29,7 +36,10 @@ const INPUT_FLAG_NAME_BY_CONSTANT = {
   BIT_HORIZONTAL_COLLISION: 'horizontal_collision',
   BIT_VERTICAL_COLLISION: 'vertical_collision',
   BIT_START_USING_ITEM: 'start_using_item',
-  BIT_CAMERA_RELATIVE_MOVEMENT: 'camera_relative_movement_enabled'
+  BIT_CAMERA_RELATIVE_MOVEMENT: 'camera_relative_movement_enabled',
+  BIT_SNEAK_RELEASED_RAW: 'sneak_released_raw',
+  BIT_SNEAK_PRESSED_RAW: 'sneak_pressed_raw',
+  BIT_SNEAK_CURRENT_RAW: 'sneak_current_raw'
 }
 
 function inputFlagByBit (C) {

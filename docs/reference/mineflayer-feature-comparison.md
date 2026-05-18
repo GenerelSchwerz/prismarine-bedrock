@@ -10,10 +10,6 @@ Sources:
 - Mineflayer npm package page: https://www.npmjs.com/package/mineflayer
 - Mineflayer site: https://mineflayer.com/
 
-Related in-dev checklist:
-
-- [Mineflayer parity checkpoints](../in-dev/mineflayer-parity-checkpoints.md)
-
 ## Executive Summary
 
 This repo is not a Mineflayer replacement yet. It is closer to a Bedrock/Geyser bot runtime that is incrementally rebuilding Mineflayer-like primitives on top of `bedrock-protocol`.

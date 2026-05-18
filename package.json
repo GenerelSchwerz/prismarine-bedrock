@@ -9,6 +9,7 @@
   "scripts": {
     "test": "pnpm run test:static",
     "test:static": "mocha \"test/static/**/*.test.js\"",
+    "test:fake-world": "mocha \"test/fake-world/**/*.test.js\"",
     "test:live": "mocha --config .mocharc.live.json \"test/live/**/*.test.js\"",
     "test:live:shard": "node scripts/e2e-live-client.js",
     "test:live:e2e:chat": "node scripts/e2e-servers.js launch --target=all --world=superflat --exit-after-client --client-timeout-ms=600000 --client \"pnpm exec mocha --config .mocharc.live.json test/live/chat.test.js\"",

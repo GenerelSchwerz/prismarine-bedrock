@@ -1,13 +1,9 @@
 # Documentation
 
-This directory is split by stability and audience.
+This directory contains library-facing documentation for `prismarine-bedrock`.
 
 ## Reference Docs
 
-Reference docs describe the current project shape and should stay useful to readers who are not actively changing the implementation.
-
 - [Mineflayer feature comparison](reference/mineflayer-feature-comparison.md)
 
-## Agent Workflow
-
-Agent-facing workflow starts at the repository root [AGENTS.md](../AGENTS.md). Durable task logs live in [tasks](tasks/), with a reusable [task template](tasks/TEMPLATE.md).
+Agent workflow notes, packet parity task logs, recorded BDS scenarios, and e2e capture tooling now live in [`prismarine-bedrock-ai`](https://github.com/GenerelSchwerz/prismarine-bedrock-ai).

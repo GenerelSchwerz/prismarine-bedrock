@@ -12,8 +12,8 @@ This repo is the clean base library for `prismarine-bedrock`. Keep changes focus
 ## Repository Boundaries
 
 - Base library work belongs here: `src/`, `examples/`, `test/static/`, `test/fake-world/`, `test/live/`, and library reference docs.
-- Agent workflow, packet parity task logs, recorded BDS scenarios, Endstone packet recording, e2e server launchers, and trace comparison tooling belong in [`prismarine-bedrock-ai`](https://github.com/GenerelSchwerz/prismarine-bedrock-ai).
-- Use [`prismarine-bedrock-workspace`](https://github.com/GenerelSchwerz/prismarine-bedrock-workspace) when a task needs both repos checked out together.
+- Agent workflow, packet parity task logs, recorded BDS scenarios, Endstone packet recording, e2e server launchers, and trace comparison tooling belong in [`prismarine-bedrock-ai`](https://github.com/deepslate-bedrock/prismarine-bedrock-ai).
+- Use [`prismarine-bedrock-workspace`](https://github.com/deepslate-bedrock/prismarine-bedrock-workspace) when a task needs both repos checked out together.
 
 ## Testing
 

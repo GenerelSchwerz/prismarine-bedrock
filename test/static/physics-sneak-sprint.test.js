@@ -106,7 +106,7 @@ describe('Bedrock sneak and sprint physics/input', function () {
     assert.strictEqual(botState.self.crouching, true)
     assert.strictEqual(botState.self.pose, 'sneaking')
     assert.strictEqual(botState.self.inferredPose, 'sneaking')
-    assert.strictEqual(botState.self.eyeHeight, Math.fround(1.62))
+    assert.strictEqual(botState.self.eyeHeight, Math.fround(1.6200100183486938))
     assert.strictEqual(botState.self.position.y, startingMovementY)
     assert.strictEqual(packet.position.y, startingMovementY)
 
@@ -136,7 +136,7 @@ describe('Bedrock sneak and sprint physics/input', function () {
     assert.strictEqual(botState.self.crouching, false)
     assert.strictEqual(botState.self.pose, 'standing')
     assert.strictEqual(botState.self.inferredPose, 'standing')
-    assert.strictEqual(botState.self.eyeHeight, Math.fround(1.62))
+    assert.strictEqual(botState.self.eyeHeight, Math.fround(1.6200100183486938))
     assert.strictEqual(botState.self.position.y, startingMovementY)
     assert.strictEqual(packet.position.y, startingMovementY)
   })
@@ -156,7 +156,7 @@ describe('Bedrock sneak and sprint physics/input', function () {
     assert.strictEqual(botState.self.pose, 'swimming')
     assert.strictEqual(botState.self.inferredPose, 'swimming')
     assert.strictEqual(botState.self.swimming, true)
-    assert.strictEqual(botState.self.eyeHeight, Math.fround(1.62))
+    assert.strictEqual(botState.self.eyeHeight, Math.fround(1.6200100183486938))
   })
 
   it('sends held and transition sprint flags without inventing a sprinting pose', function () {

@@ -27,10 +27,13 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
 
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
+
+      - name: Build native RakNet binding
+        run: pnpm rebuild raknet-native
 
       - name: Run static tests
         run: pnpm run test:static

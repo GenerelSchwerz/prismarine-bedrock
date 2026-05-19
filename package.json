@@ -24,6 +24,11 @@
   "author": "",
   "license": "UNLICENSED",
   "packageManager": "pnpm@10.33.0",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "raknet-native"
+    ]
+  },
   "dependencies": {
     "@nxg-org/mineflayer-physics-util": "^1.9.3",
     "@nxg-org/mineflayer-util-plugin": "^1.9.3",

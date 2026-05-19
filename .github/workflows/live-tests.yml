@@ -80,11 +80,38 @@ jobs:
         with:
           node-version: 24
 
-      - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+      - name: Get pnpm store path
+        id: pnpm-store
+        shell: bash
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
 
-      - name: Build native RakNet binding
-        run: pnpm rebuild raknet-native
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-node-24-pnpm-${{ hashFiles('pnpm-lock.yaml', 'package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-24-pnpm-
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-node-24-node-modules-${{ hashFiles('pnpm-lock.yaml', 'package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-24-node-modules-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build native RakNet binding if needed
+        shell: bash
+        run: |
+          if find node_modules -path '*raknet-native*node-raknet.node' -print -quit | grep -q .; then
+            echo "raknet-native binding already exists."
+          else
+            pnpm rebuild raknet-native
+          fi
 
       - name: Run live tests
         env:

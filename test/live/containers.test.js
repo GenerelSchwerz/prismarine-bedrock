@@ -29,21 +29,11 @@ function waitForSpawn(botState, timeoutMs = 30000) {
   });
 }
 
-function itemGiveTarget(item) {
-  if (item.item) return item.item;
-  if (item.commandItem) return item.commandItem;
-
-  const name = item.name;
-  assert(name, `setupContainerArea item is missing name/item: ${JSON.stringify(item)}`);
-
-  return name.startsWith("minecraft:") ? name : `minecraft:${name}`;
-}
-
 function giveSetupItem(botState, item) {
   const count = item.count ?? 1;
-  const target = itemGiveTarget(item);
-
-  sendCommand(botState, `give .${USERNAME} ${target} ${count}`);
+  const target = item.item || item.commandItem || item.name;
+  assert(target, `setupContainerArea item is missing name/item: ${JSON.stringify(item)}`);
+  givePlayer(botState, USERNAME, target, count);
 }
 
 async function setupContainerArea(botState, blocks, items = []) {

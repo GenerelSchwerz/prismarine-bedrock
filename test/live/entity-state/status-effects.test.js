@@ -14,6 +14,7 @@ const {
 } = require('../../helpers/test-env')
 const {
   bedrockPlayerName,
+  givePlayer,
   sendCommand,
   setPlayerGamemode,
   teleportPlayer
@@ -134,7 +135,7 @@ async function spawnTaggedZombie (botState) {
 async function giveSplashFireResistance (botState) {
   sendCommand(botState, `clear ${bedrockPlayerName(USERNAME)}`)
   await sleep(SETUP_DELAY_MS)
-  sendCommand(botState, `give ${bedrockPlayerName(USERNAME)} minecraft:splash_potion[minecraft:potion_contents={potion:"minecraft:fire_resistance"}] 1`)
+  givePlayer(botState, USERNAME, 'minecraft:splash_potion[minecraft:potion_contents={potion:"minecraft:fire_resistance"}]', 1)
   await waitForPredicate(
     () => botState.inventory.slots.find(item => item?.name === 'splash_potion'),
     'splash fire resistance potion in inventory',
